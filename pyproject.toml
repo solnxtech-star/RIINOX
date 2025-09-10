@@ -143,9 +143,9 @@ dev = [
     "django-debug-toolbar==6.0.0",
     "django-extensions==4.1",
     "django-stubs[compatible-mypy]==5.2.2",
-    "djangorestframework-stubs==3.16.0",
+    "djangorestframework-stubs==3.16.2",
     "djlint==1.36.4",
-    "factory-boy==3.3.2",
+    "factory-boy==3.3.3",
     "ipdb==0.13.13",
     "mypy==1.17.1",
     "pre-commit==4.3.0",
@@ -153,7 +153,7 @@ dev = [
     "pytest==8.4.2",
     "pytest-django==4.11.1",
     "pytest-sugar==1.1.1",
-    "ruff==0.12.12",
+    "ruff==0.13.0",
     "sphinx==8.2.3",
     "sphinx-autobuild==2025.8.25",
     "watchfiles==1.1.0",
@@ -175,8 +175,8 @@ dependencies = [
     "argon2-cffi==25.1.0",
     "celery==5.5.3",
     "crispy-bootstrap5==2025.6",
-    "django==5.1.12",
-    "django-allauth[mfa]==65.11.1",
+    "django==5.2.6",
+    "django-allauth[mfa]==65.11.2",
     "django-anymail[sendgrid]==13.1",
     "django-celery-beat==2.8.1",
     "django-cors-headers==4.8.0",
@@ -199,36 +199,36 @@ dependencies = [
     "whitenoise==6.10.0",
 
     # Django Admin
-    "django-import-export==4.1.1",  # https://github.com/django-import-export/django-import-export
-    "django-leaflet==0.30.1",       # https://django-leaflet.readthedocs.io/en/latest/
+    "django-import-export==4.3.9",  # https://github.com/django-import-export/django-import-export
+    "django-leaflet==0.32.0",       # https://django-leaflet.readthedocs.io/en/latest/
 
     # MQTT
     "paho-mqtt==2.1.0",             # http://eclipse.org/paho
 
     # Authentication
-    "djoser==2.2.3",                # https://github.com/sunscrapers/djoser
-    "social-auth-app-django==5.4.2",# https://github.com/python-social-auth/social-app-django
+    "djoser==2.3.3",                # https://github.com/sunscrapers/djoser
+    "social-auth-app-django==5.5.1",# https://github.com/python-social-auth/social-app-django
 
     # Channels
-    "channels[daphne]==4.1.0",
-    "channels-redis==4.2.0",
+    "channels[daphne]==4.3.1",
+    "channels-redis==4.3.0",
 
     "pyotp==2.9.0",
     "django-filter==24.3",
     "django-encrypted-model-fields==0.6.5",
-    "pycryptodome==3.19.0",
+    "pycryptodome==3.23.0",
     "qrcode==7.4.2",
-    "djangorestframework-gis==1.0",
+    "djangorestframework-gis==1.2.0",
     # "factory-boy==3.3.0",
-    "pydantic==2.6.0",
-    "xhtml2pdf==0.2.16",
-    "exponent-server-sdk==2.1.0",
+    "pydantic==2.11.7",
+    "xhtml2pdf==0.2.17",
+    "exponent-server-sdk==2.2.0",
     "geopy==2.4.1",
     "ulid-py==1.1.0",
-    "python-bidi==0.4.2",
-    "django-unfold==0.33.0",
-    "django-simple-history==3.7.0",
-    "reportlab==4.0.9",
-    "django-auto-prefetch==1.9.0",
+    "python-bidi==0.6.6",
+    "django-unfold==0.65.0",
+    "django-simple-history==3.10.1",
+    "reportlab==4.4.3",
+    "django-auto-prefetch==1.13.0",
     "fido2>=2.0.0",
 ]
