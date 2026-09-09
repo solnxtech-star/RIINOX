@@ -451,3 +451,6 @@ UNFOLD = {
     ],
     "DASHBOARD_CALLBACK": "core.admin_dashboard.dashboard.dashboard_callback",
 }
+
+
+TEST_MODE = env.bool("DJANGO_TEST_MODE", default=True)
