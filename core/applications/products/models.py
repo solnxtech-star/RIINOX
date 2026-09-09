@@ -235,7 +235,7 @@ class ProductImage(TimeBasedModel):
     )
 
     image = models.ImageField(
-        upload_to=MediaHelper.get_product_image_upload_path,
+        upload_to=MediaHelper.get_image_upload_path,
     )
 
     is_primary = models.BooleanField(
