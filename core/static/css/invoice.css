@@ -1,0 +1,154 @@
+:root {
+        --primary-color: #3498db;
+        --secondary-color: #2c3e50;
+        --accent-color: #e74c3c;
+        --light-gray: #f5f5f5;
+        --border-color: #ddd;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family: Arial, Helvetica, sans-serif;
+        line-height: 1.6;
+        color: #333;
+        background-color: #fff;
+        max-width: 210mm;
+        margin: 0 auto;
+        padding: 15mm;
+      }
+
+      header {
+        text-align: center;
+        margin-bottom: 30px;
+        padding-bottom: 20px;
+        border-bottom: 2px solid var(--border-color);
+      }
+
+      .logo-container {
+        margin-bottom: 15px;
+      }
+
+      h1 {
+        color: var(--secondary-color);
+        margin-bottom: 10px;
+        font-size: 28px;
+      }
+
+      .invoice-info {
+        display: flex;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        margin-bottom: 25px;
+      }
+
+      .info-section {
+        flex: 1;
+        min-width: 250px;
+        margin-bottom: 15px;
+      }
+
+      .info-section h2 {
+        font-size: 18px;
+        color: var(--secondary-color);
+        margin-bottom: 10px;
+        padding-bottom: 5px;
+        border-bottom: 1px solid var(--border-color);
+      }
+
+      .info-item {
+        margin-bottom: 8px;
+        display: flex;
+      }
+
+      .info-label {
+        font-weight: bold;
+        min-width: 120px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 20px 0;
+      }
+
+      thead {
+        background-color: var(--light-gray);
+      }
+
+      th {
+        text-align: left;
+        padding: 12px 15px;
+        font-weight: bold;
+        color: var(--secondary-color);
+        border-bottom: 2px solid var(--border-color);
+      }
+
+      td {
+        padding: 10px 15px;
+        border-bottom: 1px solid var(--border-color);
+      }
+
+      tfoot tr:last-child td {
+        border-bottom: none;
+        font-weight: bold;
+        padding-top: 15px;
+      }
+
+      .total-row {
+        font-weight: bold;
+        background-color: var(--light-gray);
+      }
+
+      .text-right {
+        text-align: right;
+      }
+
+      footer {
+        margin-top: 40px;
+        padding-top: 20px;
+        border-top: 2px solid var(--border-color);
+        font-size: 14px;
+        color: #777;
+        text-align: center;
+      }
+
+      .payment-details-section {
+        margin-top: 30px;
+      }
+
+      @media print {
+        body {
+          padding: 0;
+        }
+
+        .no-print {
+          display: none;
+        }
+      }
+
+      @media (max-width: 768px) {
+        body {
+          padding: 10px;
+        }
+
+        .invoice-info {
+          flex-direction: column;
+        }
+
+        .info-section {
+          min-width: 100%;
+        }
+
+        table {
+          font-size: 14px;
+        }
+
+        th, td {
+          padding: 8px 10px;
+        }
+      }

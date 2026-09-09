@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description"
+          content="Professional invoice from {{ organization.name }}" />
+    <title>Invoice - {{ organization.name }}</title>
+    <link rel="stylesheet" href="invoice.css" />
+  </head>
+  <body>
+    <header role="banner">
+      <div class="logo-container">
+        <img src="{{ organization.logo.url }}"
+             alt="{{ organization.name }} Logo"
+             height="60" />
+      </div>
+      <h1>INVOICE</h1>
+      <p>{{ organization.header_text }}</p>
+    </header>
+    <main role="main">
+      <section class="invoice-info" aria-label="Invoice details">
+        <div class="info-section">
+          <h2>Invoice Information</h2>
+          <div class="info-item">
+            <span class="info-label">Invoice Number:</span>
+            <span>{{ invoice.number }}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">Date Issued:</span>
+            <span>{{ invoice.date }}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">Due Date:</span>
+            <span>{{ invoice.due_date }}</span>
+          </div>
+        </div>
+        <div class="info-section">
+          <h2>Bill To</h2>
+          <div class="info-item">
+            <span class="info-label">Client:</span>
+            <span>{{ client.name }}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">Address:</span>
+            <span>{{ client.address }}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">Contact:</span>
+            <span>{{ client.contact_info }}</span>
+          </div>
+        </div>
+      </section>
+      <section aria-label="Invoice items">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Item</th>
+              <th scope="col" class="text-right">Quantity</th>
+              <th scope="col" class="text-right">Unit Price</th>
+              <th scope="col" class="text-right">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in invoice.items %}
+              <tr>
+                <td>{{ item.name }}</td>
+                <td class="text-right">{{ item.quantity }}</td>
+                <td class="text-right">{{ item.price }}</td>
+                <td class="text-right">{{ item.total }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr class="total-row">
+              <td colspan="3" class="text-right">Subtotal:</td>
+              <td class="text-right">{{ invoice.subtotal }}</td>
+            </tr>
+            {% if invoice.tax %}
+              <tr>
+                <td colspan="3" class="text-right">Tax ({{ invoice.tax_rate }}%):</td>
+                <td class="text-right">{{ invoice.tax }}</td>
+              </tr>
+            {% endif %}
+            {% if invoice.discount %}
+              <tr>
+                <td colspan="3" class="text-right">Discount:</td>
+                <td class="text-right">-{{ invoice.discount }}</td>
+              </tr>
+            {% endif %}
+            <tr class="total-row">
+              <td colspan="3" class="text-right">Total Amount:</td>
+              <td class="text-right">{{ invoice.total }}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </section>
+      <section class="payment-details-section" aria-label="Payment information">
+        <div class="info-section">
+          <h2>Payment Details</h2>
+          <div class="info-item">
+            <span class="info-label">Payment Method:</span>
+            <span>{{ organization.payment_method }}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">Account Details:</span>
+            <span>{{ organization.account_details }}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">Terms:</span>
+            <span>{{ invoice.terms }}</span>
+          </div>
+        </div>
+      </section>
+    </main>
+    <footer role="contentinfo">
+      <p>{{ organization.footer_text }}</p>
+      <p>{{ organization.contact_info }} | {{ organization.website }}</p>
+    </footer>
+  </body>
+</html>

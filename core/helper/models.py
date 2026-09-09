@@ -117,6 +117,3 @@ class BaseModel(UIDTimeBasedModel):
 
     class Meta(auto_prefetch.Model.Meta):
         abstract = True
-
-
-

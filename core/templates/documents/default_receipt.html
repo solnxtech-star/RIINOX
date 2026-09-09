@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description"
+          content="Payment receipt from {{ organization.name }}" />
+    <title>Receipt - {{ organization.name }}</title>
+    <link rel="stylesheet" href="receipt.css" />
+  </head>
+  <body>
+    <div class="watermark">RECEIPT</div>
+    <header role="banner">
+      <div class="logo-container">
+        <img src="{{ organization.logo.url }}"
+             alt="{{ organization.name }} Logo"
+             height="70" />
+      </div>
+      <h1>PAYMENT RECEIPT</h1>
+      <div class="status-badge" aria-label="Payment Status: Completed">PAYMENT CONFIRMED</div>
+      <p>{{ organization.header_text }}</p>
+    </header>
+    <main role="main">
+      <section class="receipt-info" aria-label="Receipt details">
+        <div class="info-section">
+          <h2>Receipt Information</h2>
+          <div class="info-item">
+            <span class="info-label">Receipt Number:</span>
+            <span class="info-value">{{ receipt.number }}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">Issue Date:</span>
+            <span class="info-value">{{ receipt.date }}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">Payment Method:</span>
+            <span class="info-value">{{ receipt.payment_method }}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">Transaction ID:</span>
+            <span class="info-value">{{ receipt.transaction_id }}</span>
+          </div>
+        </div>
+        <div class="info-section">
+          <h2>Client Information</h2>
+          <div class="info-item">
+            <span class="info-label">Client Name:</span>
+            <span class="info-value">{{ client.name }}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">Contact Email:</span>
+            <span class="info-value">{{ client.email }}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">Phone Number:</span>
+            <span class="info-value">{{ client.phone }}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">Client ID:</span>
+            <span class="info-value">{{ client.id }}</span>
+          </div>
+        </div>
+      </section>
+      <div class="amount-highlight">Amount Paid: {{ receipt.amount }}</div>
+      <section class="payment-details" aria-label="Payment details">
+        <h2>Payment Details</h2>
+        <div class="info-item">
+          <span class="info-label">Subtotal:</span>
+          <span class="info-value">{{ receipt.subtotal }}</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">Tax:</span>
+          <span class="info-value">{{ receipt.tax }}</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">Discount:</span>
+          <span class="info-value">-{{ receipt.discount }}</span>
+        </div>
+        <div class="info-item total-item">
+          <span class="info-label total-label">Total Amount:</span>
+          <span class="info-value total-value">{{ receipt.amount }}</span>
+        </div>
+      </section>
+      <div class="barcode">
+        <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=Receipt-{{ receipt.number }}"
+             alt="QR Code for receipt verification"
+             width="150"
+             height="150" />
+        <p class="barcode-text">Scan to verify receipt</p>
+      </div>
+    </main>
+    <footer role="contentinfo">
+      <p class="thank-you">Thank you for your business!</p>
+      <p>{{ organization.footer_text }}</p>
+      <p>{{ organization.contact_info }} | {{ organization.website }}</p>
+      <p class="footer-note">This receipt is an official record of your payment. Please retain for your records.</p>
+    </footer>
+  </body>
+</html>
