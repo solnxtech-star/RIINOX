@@ -438,10 +438,10 @@ UNFOLD = {
     "SITE_TITLE": "Riinox Admin",
     "SITE_HEADER": "Riinox",
     "SITE_SUBHEADER": "Stock & Warehouse Control",
-    "SITE_ICON": {
-        "light": lambda request: static("icons/icon-light.svg"),
-        "dark": lambda request: static("icons/icon-dark.svg"),
-    },
+    # "SITE_ICON": {
+    #     "light": lambda request: static("icons/icon-light.svg"),
+    #     "dark": lambda request: static("icons/icon-dark.svg"),
+    # },
     # "SITE_LOGO": {
     #     "light": lambda request: static("logo-light.svg"),
     #     "dark": lambda request: static("logo-dark.svg"),
