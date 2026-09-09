@@ -442,13 +442,13 @@ UNFOLD = {
         "light": lambda request: static("icons/icon-light.svg"),
         "dark": lambda request: static("icons/icon-dark.svg"),
     },
-    "SITE_LOGO": {
-        "light": lambda request: static("logo-light.svg"),
-        "dark": lambda request: static("logo-dark.svg"),
-    },
-    "SITE_FAVICONS": [
-        {"rel": "icon", "sizes": "32x32", "href": lambda request: static("favicon.ico")},
-    ],
+    # "SITE_LOGO": {
+    #     "light": lambda request: static("logo-light.svg"),
+    #     "dark": lambda request: static("logo-dark.svg"),
+    # },
+    # "SITE_FAVICONS": [
+    #     {"rel": "icon", "sizes": "32x32", "href": lambda request: static("favicon.ico")},
+    # ],
     "DASHBOARD_CALLBACK": "core.admin_dashboard.dashboard.dashboard_callback",
 }
 
