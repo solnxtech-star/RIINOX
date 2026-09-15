@@ -5,11 +5,11 @@ from django.contrib.contenttypes.models import ContentType
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
-from core.helper.enums import (
-    AccountNameChoices,
-    TransactionStatusChoices,
-    TransactionTypeChoices,
-)
+from core.helper.enums import AccountNameChoices
+from core.helper.enums import CustomerStatus
+from core.helper.enums import CustomerType
+from core.helper.enums import TransactionStatusChoices
+from core.helper.enums import TransactionTypeChoices
 from core.helper.models import TimeBasedModel
 
 
@@ -101,5 +101,43 @@ class FinancialLedgerEntry(TimeBasedModel):
     def __str__(self):
         return f"{self.transaction.transaction_id} - {self.get_account_name_display()}: Dr {self.debit} | Cr {self.credit}"
 
+
+
+class Customer(TimeBasedModel):
+    organization = auto_prefetch.ForeignKey(
+        "users.Organization",
+        on_delete=models.CASCADE,
+        related_name="customers",
+    )
+    linked_user = auto_prefetch.OneToOneField(
+        "users.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="customer_profile",
+        help_text=_("Set only if this customer has self-service portal login."),
+    )
+    customer_type = models.CharField(max_length=20, choices=CustomerType.choices, default=CustomerType.INDIVIDUAL)
+    name = models.CharField(max_length=255, help_text=_("Individual name or company name."))
+    email = models.EmailField(blank=True)
+    phone = models.CharField(max_length=30, blank=True)
+    address = models.TextField(blank=True)
+    credit_limit = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    balance = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        help_text=_("Derived/cached outstanding balance; source of truth is payment history."),
+    )
+    status = models.CharField(max_length=20, choices=CustomerStatus.choices, default=CustomerStatus.ACTIVE)
+    notes = models.TextField(blank=True, null=True)
+
+    class Meta(auto_prefetch.Model.Meta):
+        verbose_name = _("Customer")
+        verbose_name_plural = _("Customers")
+        ordering = ["organization", "name"]
+
+    def __str__(self):
+        return f"{self.name} ({self.organization.name})"
 
 

@@ -1,34 +1,36 @@
 import contextlib
 from datetime import timezone
+from pathlib import Path
 from typing import Literal
 
+from django.conf import settings as main_setting
 from django.contrib.auth import authenticate
 from django.contrib.auth import user_logged_in
 from django.contrib.auth.models import update_last_login
 from django.contrib.auth.password_validation import validate_password
 from django.core import exceptions as django_exceptions
+from django.core.files import File
 from djoser.compat import get_user_email
 from djoser.conf import settings
-from django.conf import settings as main_setting
 from djoser.serializers import UserCreateSerializer
 from rest_framework import serializers
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.exceptions import PermissionDenied
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from pathlib import Path
 from rest_framework_simplejwt.settings import api_settings
 
+from core.applications.invoice.models import DocumentTemplate
 from core.applications.payment.models import Payment
-from core.applications.users.models import DocumentTemplate, Membership
+from core.applications.users.models import Membership
 from core.applications.users.models import Organization
 from core.applications.users.models import Plan
 from core.applications.users.models import User
 from core.applications.users.token import default_token_generator
 from core.helper.custom_exceptions import CustomError
-from core.helper.enums import PaymentStatus, UsersRole
+from core.helper.enums import PaymentStatus
+from core.helper.enums import UsersRole
 from core.helper.interface import BaseModelNoDefs
 from core.helper.utils import send_invitation_email
-from django.core.files import File
 
 
 class OSNameSchema(BaseModelNoDefs):

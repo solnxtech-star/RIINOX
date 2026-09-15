@@ -307,3 +307,20 @@ class AccountNameChoices(TextChoices):
     INVENTORY_ASSET = "inventory_asset", _("Inventory Asset")
     DISCOUNTS = "discounts", _("Discounts Given")
     TAX_PAYABLE = "tax_payable", _("Tax Payable")
+
+class SubscriptionStatus(TextChoices):
+    TRIALING = "trialing", _("Trialing")
+    ACTIVE = "active", _("Active")
+    PAST_DUE = "past_due", _("Past Due")
+    CANCELED = "canceled", _("Canceled")
+    EXPIRED = "expired", _("Expired")
+
+class CustomerType(TextChoices):
+    INDIVIDUAL = "individual", _("Individual")
+    BUSINESS = "business", _("Business")
+    
+
+class CustomerStatus(TextChoices):
+    ACTIVE = "active", _("Active")
+    INACTIVE = "inactive", _("Inactive")
+    BLOCKED = "blocked", _("Blocked")

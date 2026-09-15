@@ -1,12 +1,16 @@
+from typing import ClassVar
+
 import auto_prefetch
 from django.conf import settings
 from django.db import models
 from django.utils.timezone import now
 from django.utils.translation import gettext_lazy as _
 
+from core.helper.enums import TEMPLATE_TYPES
 from core.helper.enums import CustomerStatusChoices
 from core.helper.enums import CustomerTypeChoices
 from core.helper.enums import InvoiceStatusChoices
+from core.helper.media import MediaHelper
 from core.helper.models import TimeBasedModel
 
 
@@ -196,3 +200,79 @@ class InvoiceItem(TimeBasedModel):
 
     def __str__(self):
         return f"{self.product} (x{self.quantity})"
+    
+    
+    
+class DocumentTemplate(TimeBasedModel):
+    """
+    Layout/style template for invoices, receipts, quotes, and credit notes.
+    `organization` is null for shared Default/System templates and set for
+    an organization's own Custom template — keeping custom templates
+    correctly tenant-isolated instead of a single global pool.
+    """
+
+    name = models.CharField(max_length=100)
+    description = models.TextField(blank=True, null=True)
+    template_type = models.CharField(
+        _("Template Type"),
+        max_length=20,
+        choices=TEMPLATE_TYPES.choices,
+        default=TEMPLATE_TYPES.INVOICE,
+    )
+    file = models.FileField(
+        upload_to=MediaHelper.get_template_upload_path,
+        help_text=_("The actual template file (e.g. HTML, DOCX)."),
+    )
+    organization = auto_prefetch.ForeignKey(
+        "users.Organization",
+        on_delete=models.CASCADE,
+        related_name="document_templates",
+        null=True,
+        blank=True,
+        help_text=_("Owning organization for a Custom template. Null for Default/System templates."),
+    )
+    is_active = models.BooleanField(default=True)
+
+    class Meta(auto_prefetch.Model.Meta):
+        verbose_name = _("Document Template")
+        verbose_name_plural = _("Document Templates")
+        ordering = ["name"]
+        constraints: ClassVar = [
+            models.UniqueConstraint(fields=["organization", "name"], name="unique_template_name_per_org"),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.template_type})"
+
+
+class DocumentSequence(TimeBasedModel):
+    """
+    Per-organization, per-document-type numbering (PRD §7's "document
+    numbering"), e.g. invoices as INV-000123, receipts as RCT-000045.
+    `next_number` should only ever be advanced inside the same DB
+    transaction that creates the document, using select_for_update, to
+    avoid two documents racing for the same number.
+    """
+
+    organization = auto_prefetch.ForeignKey(
+        "users.Organization",
+        on_delete=models.CASCADE,
+        related_name="document_sequences",
+    )
+    document_type = models.CharField(max_length=20, choices=TEMPLATE_TYPES.choices)
+    prefix = models.CharField(max_length=20, blank=True)
+    padding = models.PositiveIntegerField(default=6)
+    next_number = models.PositiveIntegerField(default=1)
+
+    class Meta(auto_prefetch.Model.Meta):
+        verbose_name = _("Document Sequence")
+        verbose_name_plural = _("Document Sequences")
+        constraints: ClassVar = [
+            models.UniqueConstraint(
+                fields=["organization", "document_type"],
+                name="unique_sequence_per_org_and_type",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.organization.name} — {self.document_type} sequence"
