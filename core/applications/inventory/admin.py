@@ -6,7 +6,6 @@ from django.utils import timezone
 from django.utils.html import format_html
 
 from core.applications.inventory.models import Inventory
-from core.applications.inventory.models import InventoryTransaction
 from core.applications.inventory.models import PhysicalStockCount
 from core.applications.inventory.models import PhysicalStockCountItem
 from core.applications.inventory.models import StockAdjustmentRequest
@@ -16,7 +15,7 @@ from core.applications.inventory.models import StockAdjustmentRequest
 class InventoryAdmin(admin.ModelAdmin):
     """
     Read-only by design. Rows should only ever be created/updated by
-    InventoryService as a side effect of a real InventoryTransaction —
+    InventoryService as a side effect of a real InventoryLedgerEntry —
     letting anyone edit `quantity` here is exactly the "silent stock
     change" the PRD forbids (§9).
     """
@@ -43,60 +42,6 @@ class InventoryAdmin(admin.ModelAdmin):
         return False
 
 
-@admin.register(InventoryTransaction)
-class InventoryTransactionAdmin(admin.ModelAdmin):
-    """
-    The audit ledger itself (PRD §8, §9, §30, §39, §40). Fully locked
-    down — add/change/delete all disabled — because the whole point of
-    an immutable ledger is that nobody, including whoever is in Django
-    admin, can rewrite history. This is a browsing/investigation tool
-    only (e.g. tracing a shortage per §40).
-    """
-
-    list_display = (
-        "created_at",
-        "transaction_type",
-        "product",
-        "warehouse",
-        "quantity_before",
-        "quantity_moved",
-        "quantity_after",
-        "approval_status",
-        "performed_by",
-        "linked_reference",
-    )
-    list_filter = ("transaction_type", "approval_status", "warehouse")
-    search_fields = ("product__name", "product__sku", "reason", "performed_by__email")
-    date_hierarchy = "created_at"
-    list_select_related = ("product", "warehouse", "performed_by", "content_type")
-
-    @admin.display(description="Reference")
-    def linked_reference(self, obj):
-        if not obj.content_type or not obj.object_id:
-            return "—"
-        label = f"{obj.content_type.name} #{obj.object_id}"
-        try:
-            url = reverse(
-                f"admin:{obj.content_type.app_label}_{obj.content_type.model}_change",
-                args=[obj.object_id],
-            )
-        except NoReverseMatch:
-            return label
-        return format_html('<a href="{}">{}</a>', url, label)
-
-    def get_readonly_fields(self, request, obj=None):
-        return [f.name for f in self.model._meta.fields]
-
-    def has_add_permission(self, request):
-        return False
-
-    def has_change_permission(self, request, obj=None):
-        return False
-
-    def has_delete_permission(self, request, obj=None):
-        return False
-
-
 @admin.register(StockAdjustmentRequest)
 class StockAdjustmentRequestAdmin(admin.ModelAdmin):
     """
@@ -108,7 +53,7 @@ class StockAdjustmentRequestAdmin(admin.ModelAdmin):
     whoever last saved the form.
 
     NOTE: these actions record the *decision*. Actually writing the
-    resulting InventoryTransaction belongs in InventoryService (so a
+    resulting InventoryLedgerEntry belongs in InventoryService (so a
     signal or service call should hook in here once that layer exists) —
     intentionally not duplicated in the admin layer.
     """

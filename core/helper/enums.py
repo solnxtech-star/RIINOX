@@ -79,6 +79,27 @@ class ReportTypeChoice(TextChoices):
     # Custom
     CUSTOM = "custom", _("Custom Report")
 
+class ProductTypeChoices(TextChoices):
+    """
+    Represents the type of a product.
+    """
+    PHYSICAL = "physical", _("Physical")
+    SERVICE = "service", _("Service")
+    DIGITAL = "digital", _("Digital")
+    BUNDLE = "bundle", _("Bundle")
+    CONSUMABLE = "consumable", _("Consumable")
+    NON_STOCK = "non_stock", _("Non-Stock")
+
+
+class TaxConfigChoices(TextChoices):
+    """
+    Represents the tax configuration for a product.
+    """
+    TAXABLE = "taxable", _("Taxable")
+    NON_TAXABLE = "non_taxable", _("Non-Taxable")
+    EXEMPT = "exempt", _("Exempt")
+
+
 class ProductStatusChoices(TextChoices):
     """
     Represents the lifecycle status of a product in the inventory.
@@ -254,3 +275,35 @@ class TEMPLATE_TYPES(TextChoices):
     RECEIPT = "receipt", _("Receipt")
     QUOTE = "quote", _("Quote")
     CREDIT_NOTE = "credit_note", _("Credit Note")
+
+
+class TransactionTypeChoices(TextChoices):
+    """Types of unified business events."""
+    SALE = "sale", _("Sale")
+    PURCHASE = "purchase", _("Purchase")
+    PAYMENT_RECEIVED = "payment_received", _("Payment Received")
+    PAYMENT_SENT = "payment_sent", _("Payment Sent")
+    REFUND = "refund", _("Refund")
+    STOCK_ADJUSTMENT = "stock_adjustment", _("Stock Adjustment")
+    STOCK_TRANSFER = "stock_transfer", _("Stock Transfer")
+    RETURN = "return", _("Customer Return")
+
+
+class TransactionStatusChoices(TextChoices):
+    """Lifecycle status of a transaction."""
+    PENDING = "pending", _("Pending")
+    COMPLETED = "completed", _("Completed")
+    REVERSED = "reversed", _("Reversed")
+    FAILED = "failed", _("Failed")
+
+
+class AccountNameChoices(TextChoices):
+    """Hardcoded chart of accounts for simplified double-entry bookkeeping."""
+    CASH_BANK = "cash_bank", _("Cash / Bank")
+    ACCOUNTS_RECEIVABLE = "accounts_receivable", _("Accounts Receivable")
+    ACCOUNTS_PAYABLE = "accounts_payable", _("Accounts Payable")
+    SALES_REVENUE = "sales_revenue", _("Sales Revenue")
+    COGS = "cogs", _("Cost of Goods Sold")
+    INVENTORY_ASSET = "inventory_asset", _("Inventory Asset")
+    DISCOUNTS = "discounts", _("Discounts Given")
+    TAX_PAYABLE = "tax_payable", _("Tax Payable")

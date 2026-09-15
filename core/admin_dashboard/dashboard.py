@@ -10,7 +10,7 @@ from django.db.models import Value
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
-from core.applications.inventory.models import InventoryTransaction
+from core.applications.inventory.models import InventoryLedgerEntry
 from core.applications.inventory.models import PhysicalStockCountItem
 from core.applications.invoice.models import Invoice
 from core.applications.invoice.models import InvoiceItem
@@ -64,7 +64,7 @@ def dashboard_callback(request, context):
 
     product_qs = Product.objects.all()
     invoice_qs = Invoice.objects.all()
-    transaction_qs = InventoryTransaction.objects.all()
+    transaction_qs = InventoryLedgerEntry.objects.all()
 
     if org is not None:
         product_qs = product_qs.filter(
@@ -214,9 +214,9 @@ def dashboard_callback(request, context):
     recent_activity = list(
         transaction_qs
         .select_related(
+            "transaction",
             "product",
             "warehouse",
-            "performed_by",
         )
         .order_by("-created_at")[:8]
     )

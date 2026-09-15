@@ -162,7 +162,7 @@ class Invoice(TimeBasedModel):
 class InvoiceItem(TimeBasedModel):
     """
     Line item in an invoice, now tied to an actual Product (PRD §16, §39)
-    so a sale can drive an InventoryTransaction deduction. `unit_price` is
+    so a sale can drive an InventoryLedgerEntry deduction. `unit_price` is
     still snapshotted at sale time so later price changes on Product don't
     rewrite historical invoices.
     """

@@ -7,7 +7,6 @@ from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
 
 from core.helper.enums import ApprovalStatusChoices
-from core.helper.enums import InventoryTransactionTypeChoices
 from core.helper.enums import PhysicalCountStatusChoices
 from core.helper.enums import UsersRole
 from core.helper.enums import VarianceReasonChoices
@@ -19,10 +18,10 @@ class Inventory(TimeBasedModel):
     Current on-hand quantity for a product at a specific warehouse.
 
     This is a read-optimized projection, not the source of truth — it
-    exists so queries don't have to sum the entire InventoryTransaction
+    exists so queries don't have to sum the entire InventoryLedgerEntry
     ledger every time. `quantity` is `editable=False` and must only ever
     be mutated inside `InventoryService`, in the same DB transaction that
-    writes the corresponding `InventoryTransaction` row, under
+    writes the corresponding `InventoryLedgerEntry` row, under
     `select_for_update()` to prevent concurrent-sale race conditions.
     """
 
@@ -31,6 +30,14 @@ class Inventory(TimeBasedModel):
         on_delete=models.CASCADE,
         related_name="inventory_records",
         help_text=_("Product this stock level is for."),
+    )
+    variant = auto_prefetch.ForeignKey(
+        "products.ProductVariant",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="inventory_records",
+        help_text=_("Specific variant of the product, if applicable."),
     )
     warehouse = auto_prefetch.ForeignKey(
         "warehouse.Warehouse",
@@ -49,111 +56,66 @@ class Inventory(TimeBasedModel):
     quantity = models.PositiveIntegerField(
         default=0,
         editable=False,
-        help_text=_("Current on-hand quantity. System-maintained — see InventoryTransaction."),
+        help_text=_("Current on-hand quantity. System-maintained — see InventoryLedgerEntry."),
     )
 
     class Meta(auto_prefetch.Model.Meta):
         verbose_name = _("Inventory")
         verbose_name_plural = _("Inventory")
-        unique_together = ("product", "warehouse")
-        indexes = [models.Index(fields=["product", "warehouse"])]
+        unique_together = ("product", "variant", "warehouse")
+        indexes = [models.Index(fields=["product", "variant", "warehouse"])]
 
     def __str__(self):
         return f"{self.product} @ {self.warehouse}: {self.quantity}"
 
 
-class InventoryTransaction(TimeBasedModel):
+class InventoryLedgerEntry(TimeBasedModel):
     """
-    The immutable stock ledger (PRD §8, §9, §39, §40). Every quantity
-    change anywhere in the system must be represented by exactly one row
-    here — there is no other legitimate way for stock to move.
-
-    `reference` is a GenericForeignKey pointing at whatever business event
-    caused the movement (an Invoice for a sale, a Purchase for a goods
-    receipt, a StockAdjustmentRequest, a PhysicalStockCount, etc.), which
-    is what makes a shortage traceable back to a person and a document.
+    The inventory effect of a Transaction. Replaces the old InventoryTransaction model.
+    Every quantity change anywhere in the system is represented by exactly one row here.
     """
-
+    transaction = auto_prefetch.ForeignKey(
+        "transactions.Transaction",
+        on_delete=models.CASCADE,
+        related_name="inventory_entries",
+    )
     product = auto_prefetch.ForeignKey(
         "products.Product",
         on_delete=models.PROTECT,
-        related_name="inventory_transactions",
-        help_text=_("Product this movement affects."),
+        related_name="ledger_entries",
+    )
+    variant = auto_prefetch.ForeignKey(
+        "products.ProductVariant",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="ledger_entries",
+        help_text=_("Optional specific variant involved in the movement."),
     )
     warehouse = auto_prefetch.ForeignKey(
         "warehouse.Warehouse",
         on_delete=models.PROTECT,
-        related_name="inventory_transactions",
-        help_text=_("Warehouse this movement occurred in."),
-    )
-    transaction_type = models.CharField(
-        max_length=20,
-        choices=InventoryTransactionTypeChoices.choices,
-        help_text=_("What kind of business event caused this stock movement."),
-    )
-    quantity_before = models.IntegerField(
-        help_text=_("On-hand quantity immediately before this movement."),
+        related_name="ledger_entries",
     )
     quantity_moved = models.IntegerField(
-        help_text=_("Signed: positive for stock in, negative for stock out."),
+        help_text=_("Positive for stock coming in, negative for stock going out."),
     )
-    quantity_after = models.IntegerField(
-        help_text=_("On-hand quantity immediately after this movement."),
-    )
-    reason = models.TextField(
-        blank=True,
-        null=True,
-        help_text=_("Free-text explanation, required for anything other than a routine sale/receipt."),
-    )
-    approval_status = models.CharField(
-        max_length=20,
-        choices=ApprovalStatusChoices.choices,
-        default=ApprovalStatusChoices.NOT_REQUIRED,
-        help_text=_("Whether this movement required and received Admin approval (PRD §32)."),
-    )
-    performed_by = auto_prefetch.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        related_name="inventory_transactions",
-        help_text=_("User whose action triggered this movement."),
-    )
-
-    # Generic reference to the business event (Invoice, Purchase,
-    # StockAdjustmentRequest, PhysicalStockCount, ...).
-    content_type = auto_prefetch.ForeignKey(
-        ContentType,
-        on_delete=models.SET_NULL,
+    unit_cost = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
         null=True,
         blank=True,
-        help_text=_("Model type of the record that caused this movement."),
+        help_text=_("Cost basis per unit at the time of movement, useful for COGS calculation."),
     )
-    object_id = models.PositiveIntegerField(
-        null=True,
-        blank=True,
-        help_text=_("ID of the record that caused this movement."),
-    )
-    reference = GenericForeignKey("content_type", "object_id")
 
     class Meta(auto_prefetch.Model.Meta):
-        verbose_name = _("Inventory Transaction")
-        verbose_name_plural = _("Inventory Transactions")
-        ordering = ["-created_at"]
-        indexes = [
-            models.Index(fields=["product", "warehouse"]),
-            models.Index(fields=["content_type", "object_id"]),
-        ]
+        verbose_name = _("Inventory Ledger Entry")
+        verbose_name_plural = _("Inventory Ledger Entries")
 
     def __str__(self):
-        return f"{self.transaction_type} {self.quantity_moved} — {self.product}"
+        sign = "+" if self.quantity_moved > 0 else ""
+        return f"{self.transaction.transaction_id} - {self.product.name}: {sign}{self.quantity_moved}"
 
-    def save(self, *args, **kwargs):
-        if self.pk:
-            raise ValueError(
-                "InventoryTransaction records are immutable and cannot be edited "
-                "once created — correct stock with a new, offsetting transaction.",
-            )
-        super().save(*args, **kwargs)
 
 
 class StockAdjustmentRequest(TimeBasedModel):
@@ -161,7 +123,7 @@ class StockAdjustmentRequest(TimeBasedModel):
     A staff- or system-raised request to change stock outside the normal
     purchase/sale flow (PRD §12, §32). Stays PENDING until Admin approves
     or rejects it; only on approval does the service layer create the
-    corresponding InventoryTransaction.
+    corresponding InventoryLedgerEntry.
     """
 
     product = auto_prefetch.ForeignKey(
@@ -169,6 +131,14 @@ class StockAdjustmentRequest(TimeBasedModel):
         on_delete=models.CASCADE,
         related_name="adjustment_requests",
         help_text=_("Product the adjustment applies to."),
+    )
+    variant = auto_prefetch.ForeignKey(
+        "products.ProductVariant",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="adjustment_requests",
+        help_text=_("Variant the adjustment applies to, if applicable."),
     )
     warehouse = auto_prefetch.ForeignKey(
         "warehouse.Warehouse",
@@ -282,6 +252,14 @@ class PhysicalStockCountItem(TimeBasedModel):
         on_delete=models.PROTECT,
         related_name="stock_count_items",
         help_text=_("Product being counted."),
+    )
+    variant = auto_prefetch.ForeignKey(
+        "products.ProductVariant",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="stock_count_items",
+        help_text=_("Variant being counted, if applicable."),
     )
     expected_quantity = models.IntegerField(
         help_text=_("Snapshot of Inventory.quantity at the moment counting started."),

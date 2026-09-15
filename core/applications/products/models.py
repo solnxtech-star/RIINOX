@@ -5,6 +5,8 @@ from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
 
 from core.helper.enums import ProductStatusChoices
+from core.helper.enums import ProductTypeChoices
+from core.helper.enums import TaxConfigChoices
 from core.helper.enums import UnitOfMeasureChoices
 from core.helper.enums import UsersRole
 from core.helper.media import MediaHelper
@@ -148,6 +150,29 @@ class Product(TimeBasedModel):
         default=UnitOfMeasureChoices.PIECE,
         help_text=_("Unit stock quantities for this product are counted in."),
     )
+    product_type = models.CharField(
+        max_length=20,
+        choices=ProductTypeChoices.choices,
+        default=ProductTypeChoices.PHYSICAL,
+        help_text=_("Type of product (e.g., Physical, Service, Digital)."),
+    )
+    tax_config = models.CharField(
+        max_length=20,
+        choices=TaxConfigChoices.choices,
+        default=TaxConfigChoices.TAXABLE,
+        help_text=_("Tax configuration for this product."),
+    )
+    tax_rate = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        help_text=_("Specific percentage tax rate override, if applicable."),
+    )
+    track_inventory = models.BooleanField(
+        default=True,
+        help_text=_("Whether to enforce inventory ledger tracking for this product."),
+    )
     image = models.FileField(
         upload_to=MediaHelper.get_image_upload_path,
         blank=True,
@@ -255,3 +280,69 @@ class ProductImage(TimeBasedModel):
 
     def __str__(self):
         return f"{self.product.name} - Image"
+
+
+class ProductVariant(TimeBasedModel):
+    """
+    A specific variant of a product (e.g., "Size L, Color Red").
+    """
+
+    product = auto_prefetch.ForeignKey(
+        "products.Product",
+        on_delete=models.CASCADE,
+        related_name="variants",
+        help_text=_("Product this variant belongs to."),
+    )
+    name = models.CharField(
+        _("Variant Name"),
+        max_length=255,
+        help_text=_("Name/description of this variant (e.g. 'Red / Large')."),
+    )
+    sku = models.CharField(
+        _("Variant SKU"),
+        max_length=100,
+        blank=True,
+        null=True,
+        db_index=True,
+        help_text=_("Optional specific SKU for this variant."),
+    )
+    barcode = models.CharField(
+        _("Variant Barcode / QR Code"),
+        max_length=100,
+        blank=True,
+        null=True,
+        db_index=True,
+        help_text=_("Optional specific barcode for this variant."),
+    )
+
+    # Optional price overrides
+    purchase_cost = models.DecimalField(
+        _("Purchase Cost Override"),
+        max_digits=12,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        help_text=_("Admin-only. Override what the business pays the vendor per unit."),
+    )
+    customer_sale_price = models.DecimalField(
+        _("Customer Sale Price Override"),
+        max_digits=12,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        help_text=_("Override the price charged to customers for this specific variant."),
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+        help_text=_("Whether this variant is active and available."),
+    )
+
+    class Meta(auto_prefetch.Model.Meta):
+        verbose_name = _("Product Variant")
+        verbose_name_plural = _("Product Variants")
+        unique_together = ("product", "sku")
+        ordering = ["product", "name"]
+
+    def __str__(self):
+        return f"{self.product.name} - {self.name}"
