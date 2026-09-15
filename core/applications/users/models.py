@@ -182,11 +182,11 @@ class Feature(TimeBasedModel):
 
 class PlanFeature(TimeBasedModel):
     plan = auto_prefetch.ForeignKey(
-        "users.Plan", on_delete=CASCADE, 
+        "users.Plan", on_delete=CASCADE,
         related_name="plan_features"
     )
     feature = auto_prefetch.ForeignKey(
-        "users.Feature", on_delete=CASCADE, 
+        "users.Feature", on_delete=CASCADE,
         related_name="feature_plans"
     )
     enabled = BooleanField(default=True)
@@ -462,5 +462,3 @@ class StaffMembershipDetail(TimeBasedModel):
     class Meta(auto_prefetch.Model.Meta):
         verbose_name = _("Staff Membership Detail")
         verbose_name_plural = _("Staff Membership Details")
-
-

@@ -200,9 +200,9 @@ class InvoiceItem(TimeBasedModel):
 
     def __str__(self):
         return f"{self.product} (x{self.quantity})"
-    
-    
-    
+
+
+
 class DocumentTemplate(TimeBasedModel):
     """
     Layout/style template for invoices, receipts, quotes, and credit notes.

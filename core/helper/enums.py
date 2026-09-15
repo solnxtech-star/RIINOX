@@ -161,10 +161,10 @@ class InventoryTransactionTypeChoices(TextChoices):
 
 class ApprovalStatusChoices(TextChoices):
     """
-    Represents the approval status of a document or transaction that requires managerial 
+    Represents the approval status of a document or transaction that requires managerial
     or administrative review.
     """
-    
+
     NOT_REQUIRED = "not_required", _("Not Required")
     PENDING = "pending", _("Pending Approval")
     APPROVED = "approved", _("Approved")
@@ -318,7 +318,7 @@ class SubscriptionStatus(TextChoices):
 class CustomerType(TextChoices):
     INDIVIDUAL = "individual", _("Individual")
     BUSINESS = "business", _("Business")
-    
+
 
 class CustomerStatus(TextChoices):
     ACTIVE = "active", _("Active")

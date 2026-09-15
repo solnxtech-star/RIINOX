@@ -88,5 +88,3 @@ class ProductAdmin(ModelAdmin):
             "archived": "info",
         }
         return obj.status, colors.get(obj.status, "info")
-    
-    

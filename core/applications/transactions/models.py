@@ -15,7 +15,7 @@ from core.helper.models import TimeBasedModel
 
 class Transaction(TimeBasedModel):
     """
-    The unified business event model. This represents a single atomic 
+    The unified business event model. This represents a single atomic
     operation (like a Sale, a Purchase, or a Stock Adjustment).
     It acts as the parent object for both Financial and Inventory effects.
     """
@@ -42,7 +42,7 @@ class Transaction(TimeBasedModel):
         default=TransactionStatusChoices.PENDING,
         db_index=True,
     )
-    
+
     # Generic relation to the originating document (Invoice, Payment, Adjustment)
     content_type = models.ForeignKey(ContentType, on_delete=models.SET_NULL, null=True, blank=True)
     object_id = models.PositiveIntegerField(null=True, blank=True)
@@ -82,14 +82,14 @@ class FinancialLedgerEntry(TimeBasedModel):
         db_index=True,
     )
     debit = models.DecimalField(
-        max_digits=15, 
-        decimal_places=2, 
+        max_digits=15,
+        decimal_places=2,
         default=0,
         help_text=_("Amount debited to the account. Increases Assets/Expenses, decreases Liabilities/Revenue/Equity.")
     )
     credit = models.DecimalField(
-        max_digits=15, 
-        decimal_places=2, 
+        max_digits=15,
+        decimal_places=2,
         default=0,
         help_text=_("Amount credited to the account. Increases Liabilities/Revenue/Equity, decreases Assets/Expenses.")
     )
@@ -139,5 +139,3 @@ class Customer(TimeBasedModel):
 
     def __str__(self):
         return f"{self.name} ({self.organization.name})"
-
-

@@ -250,7 +250,7 @@ class Product(TimeBasedModel):
 
     def __str__(self):
         return f"{self.name} ({self.sku})"
-    
+
 
 class ProductImage(TimeBasedModel):
     product = auto_prefetch.ForeignKey(
@@ -345,4 +345,4 @@ class ProductVariant(TimeBasedModel):
         ordering = ["product", "name"]
 
     def __str__(self):
-        return f"{self.product.name} - {self.name}"
+        return f"{self.product.name} - {self.name}"
