@@ -42,25 +42,27 @@ from core.applications.users.api.schemas import list_organization_schema
 from core.applications.users.api.schemas import member_organization_schema
 from core.applications.users.api.schemas import retrieve_member_schema
 from core.applications.users.api.schemas import retrieve_organization_schema
+from core.applications.users.api.schemas import subscription_upgrade_schema
 from core.applications.users.api.schemas import update_member_schema
 from core.applications.users.api.schemas import update_organization_schema
-from core.applications.users.api.schemas import (
-    validate_invite_schema,
-    subscription_upgrade_schema,
-)
+from core.applications.users.api.schemas import validate_invite_schema
+from core.applications.users.auth_utils import build_auth_payload
 from core.applications.users.models import Membership
 from core.applications.users.models import Organization
 from core.applications.users.models import User
 from core.applications.users.token import default_token_generator
 from core.helper.custom_exceptions import CustomError
-from core.helper.permissions import IsOrganizationAdminOrOwner, IsOrganizationOwner
+from core.helper.permissions import IsOrganizationAdminOrOwner
+from core.helper.permissions import IsOrganizationOwner
 
-from .serializers import AcceptInvitationSerializer, SubscriptionUpgradeSerializer
+from .serializers import AcceptInvitationSerializer
+from .serializers import CustomTokenObtainPairSerializer
 from .serializers import InvitationCreateSerializer
 from .serializers import MembershipSerializer
 from .serializers import OrganizationCreateSerializer
 from .serializers import OrganizationSerializer
 from .serializers import OrganizationUpdateSerializer
+from .serializers import SubscriptionUpgradeSerializer
 from .serializers import UserSerializer
 
 # setup logging
@@ -446,10 +448,7 @@ class UserViewSet(ModelViewSet):
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
 
-    @action(
-        ["post"],
-        detail=False,
-    )
+    @action(["post"], detail=False)
     def activation(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -468,7 +467,8 @@ class UserViewSet(ModelViewSet):
             to = [get_user_email(user)]
             settings.EMAIL.confirmation(self.request, context).send(to)
 
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        data = build_auth_payload(user, CustomTokenObtainPairSerializer)
+        return Response(data, status=status.HTTP_200_OK)
 
     @action(["post"], detail=False)
     def resend_activation(self, request, *args, **kwargs):

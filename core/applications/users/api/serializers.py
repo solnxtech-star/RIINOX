@@ -10,6 +10,8 @@ from django.contrib.auth.models import update_last_login
 from django.contrib.auth.password_validation import validate_password
 from django.core import exceptions as django_exceptions
 from django.core.files import File
+from django.utils.encoding import force_str
+from django.utils.http import urlsafe_base64_decode
 from djoser.compat import get_user_email
 from djoser.conf import settings
 from djoser.serializers import UserCreateSerializer
@@ -250,7 +252,41 @@ class UsernameRetypeSerializer(UsernameSerializer):
             return self.fail("username_mismatch")
         return attrs
 
+class UidAndTokenSerializer(serializers.Serializer):
+    """
+    Validates uid + token for password reset.
+    """
+    uid = serializers.CharField()
+    token = serializers.CharField()
 
+    default_error_messages = {
+        "invalid_token": "The token may have expired or is invalid.",
+        "invalid_uid": "Invalid activation link.",
+    }
+
+    def validate(self, attrs):
+        validated_data = super().validate(attrs)
+
+        try:
+            uid = force_str(urlsafe_base64_decode(self.initial_data.get("uid", "")))
+            self.user = User.objects.get(pk=uid)
+        except (User.DoesNotExist, ValueError, TypeError, OverflowError) as e:
+            raise CustomError.BadRequest(
+                {"uid": self.error_messages["invalid_uid"]},
+                code="invalid_uid",
+            ) from e
+
+        is_token_valid = default_token_generator.check_token(
+            self.user,
+            self.initial_data.get("token", ""),
+        )
+        if is_token_valid:
+            return validated_data
+
+        raise CustomError.BadRequest(
+            {"token": self.error_messages["invalid_token"]},
+            code="invalid_token",
+        )
 class ActivationSerializer(EmailAndTokenSerializer):
     """
     Serializer for user activation.
