@@ -106,6 +106,7 @@ LOCAL_APPS = [
     "core.applications.inventory",
     "core.applications.purchase",
     "core.applications.transactions",
+    "core.applications.subscriptions",
 ]
 # https://docs.djangoproject.com/en/dev/ref/settings/#installed-apps
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -375,15 +376,15 @@ API_VERSION = env("API_VERSION", default="v1")
 # Djoser
 DJOSER = {
     "SERIALIZERS": {
-        "user_create": "core.applications.users.api.serializers.CustomUserCreateSerializer",
-        "user": "core.applications.users.api.serializers.CustomUserSerializer",
-        "current_user": "core.applications.users.api.serializers.GetUser",
-        "password_reset_confirm": "core.applications.users.api.serializers.PasswordResetConfirmSerializer",
-        "password_reset_confirm_retype": "core.applications.users.api.serializers.PasswordResetConfirmRetypeSerializer",
+        "user_create": "core.applications.users.api.serializers.user_serializers.CustomUserCreateSerializer",
+        "user": "core.applications.users.api.serializers.user_serializers.CustomUserSerializer",
+        "current_user": "core.applications.users.api.serializers.user_serializers.GetUser",
+        "password_reset_confirm": "core.applications.users.api.serializers.user_serializers.PasswordResetConfirmSerializer",
+        "password_reset_confirm_retype": "core.applications.users.api.serializers.user_serializers.PasswordResetConfirmRetypeSerializer",
         "username_reset": "djoser.serializers.SendEmailResetSerializer",
-        "username_reset_confirm": "core.applications.users.api.serializers.UsernameResetConfirmSerializer",
-        "username_reset_confirm_retype": "core.applications.users.api.serializers.UsernameResetConfirmRetypeSerializer",
-        "activation": "core.applications.users.api.serializers.ActivationSerializer",
+        "username_reset_confirm": "core.applications.users.api.serializers.user_serializers.UsernameResetConfirmSerializer",
+        "username_reset_confirm_retype": "core.applications.users.api.serializers.user_serializers.UsernameResetConfirmRetypeSerializer",
+        "activation": "core.applications.users.api.serializers.user_serializers.ActivationSerializer",
     },
     "PASSWORD_RESET_CONFIRM_URL": "password/reset/confirm/{uid}/{token}",
     "ACTIVATION_URL": "activate/{uid}/{token}",
@@ -427,7 +428,7 @@ SIMPLE_JWT = {
     "AUTH_HEADER_TYPES": ("Bearer",),
     "ACCESS_TOKEN_LIFETIME": timedelta(days=30),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=160),
-    "TOKEN_OBTAIN_SERIALIZER": "core.applications.users.api.serializers.CustomTokenObtainPairSerializer",
+    "TOKEN_OBTAIN_SERIALIZER": "core.applications.users.api.serializers.user_serializers.CustomTokenObtainPairSerializer",
 }
 
 

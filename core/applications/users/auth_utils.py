@@ -3,7 +3,7 @@ from django.contrib.auth.models import update_last_login
 from django.contrib.auth.signals import user_logged_in
 from rest_framework_simplejwt.settings import api_settings
 
-from core.applications.users.api.serializers import UserSerializer
+from core.applications.users.api.serializers.user_serializers import UserSerializer
 
 
 def build_auth_payload(user, serializer_class):

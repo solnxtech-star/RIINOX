@@ -6,6 +6,7 @@ from django.db import models
 from django.utils.timezone import now
 from django.utils.translation import gettext_lazy as _
 
+from core.applications.invoice.queryset import DocumentTemplateManager
 from core.helper.enums import TEMPLATE_TYPES
 from core.helper.enums import CustomerStatusChoices
 from core.helper.enums import CustomerTypeChoices
@@ -231,14 +232,29 @@ class DocumentTemplate(TimeBasedModel):
         blank=True,
         help_text=_("Owning organization for a Custom template. Null for Default/System templates."),
     )
+    is_default = models.BooleanField(
+        default=False,
+        help_text=_("The shared default for its type. Only valid when organization is null."),
+    )
     is_active = models.BooleanField(default=True)
+    objects = DocumentTemplateManager()
 
     class Meta(auto_prefetch.Model.Meta):
         verbose_name = _("Document Template")
         verbose_name_plural = _("Document Templates")
         ordering = ["name"]
         constraints: ClassVar = [
-            models.UniqueConstraint(fields=["organization", "name"], name="unique_template_name_per_org"),
+            models.UniqueConstraint(
+                fields=["organization", "name"], name="unique_template_name_per_org"),
+            models.UniqueConstraint(
+                fields=["template_type"],
+                condition=models.Q(organization__isnull=True, is_default=True),
+                name="unique_default_template_per_type",
+            ),
+            models.CheckConstraint(
+                check=models.Q(is_default=False) | models.Q(organization__isnull=True),
+                name="default_template_is_shared",
+            ),
         ]
 
     def __str__(self):

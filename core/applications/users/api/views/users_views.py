@@ -33,37 +33,19 @@ from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.settings import api_settings
 
 from core.applications.users.api.schemas import accept_invite_schema
-from core.applications.users.api.schemas import create_organization_schema
-from core.applications.users.api.schemas import delete_member_schema
-from core.applications.users.api.schemas import destroy_organization_schema
-from core.applications.users.api.schemas import invite_member_schema
-from core.applications.users.api.schemas import list_members_schema
-from core.applications.users.api.schemas import list_organization_schema
-from core.applications.users.api.schemas import member_organization_schema
-from core.applications.users.api.schemas import retrieve_member_schema
-from core.applications.users.api.schemas import retrieve_organization_schema
-from core.applications.users.api.schemas import subscription_upgrade_schema
-from core.applications.users.api.schemas import update_member_schema
-from core.applications.users.api.schemas import update_organization_schema
 from core.applications.users.api.schemas import validate_invite_schema
+from core.applications.users.api.serializers.organization_serializers import (
+    AcceptInvitationSerializer,
+)
+from core.applications.users.api.serializers.user_serializers import (
+    CustomTokenObtainPairSerializer,
+)
+from core.applications.users.api.serializers.user_serializers import UserSerializer
 from core.applications.users.auth_utils import build_auth_payload
 from core.applications.users.models import Membership
-from core.applications.users.models import Organization
 from core.applications.users.models import User
 from core.applications.users.token import default_token_generator
 from core.helper.custom_exceptions import CustomError
-from core.helper.permissions import IsOrganizationAdminOrOwner
-from core.helper.permissions import IsOrganizationOwner
-
-from .serializers import AcceptInvitationSerializer
-from .serializers import CustomTokenObtainPairSerializer
-from .serializers import InvitationCreateSerializer
-from .serializers import MembershipSerializer
-from .serializers import OrganizationCreateSerializer
-from .serializers import OrganizationSerializer
-from .serializers import OrganizationUpdateSerializer
-from .serializers import SubscriptionUpgradeSerializer
-from .serializers import UserSerializer
 
 # setup logging
 logger = logging.getLogger(__name__)
@@ -183,6 +165,11 @@ token_blacklist = TokenBlacklistView.as_view()
 
 
 #  user
+
+
+
+
+
 @extend_schema(tags=["User"])
 class UserViewSet(ModelViewSet):
     serializer_class = settings.SERIALIZERS.user
@@ -608,91 +595,6 @@ class UserViewSet(ModelViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-@extend_schema(tags=["Organizations"])
-class OrganizationViewSet(ModelViewSet):
-    """
-    API endpoint for managing Organizations.
-
-    - list: View all organizations the user belongs to.
-    - retrieve: View a single organization with details.
-    - create: Create a new organization (auto-links creator as Owner).
-    - update/partial_update: Update organization settings (Admins + Owners only).
-    - deactivate: Soft-deactivate organization (Owners only).
-    - members: List organization members (Admins + Owners only).
-    """
-
-    queryset = Organization.objects.prefetch_related("memberships__user", "plan")
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_serializer_class(self):
-        if self.action == "create":
-            return OrganizationCreateSerializer
-        if self.action in ["update", "partial_update"]:
-            return OrganizationUpdateSerializer
-        return OrganizationSerializer
-
-    def get_queryset(self):
-        """
-        Users should only see organizations they belong to.
-        """
-        user = self.request.user
-        return self.queryset.filter(memberships__user=user, memberships__is_active=True)
-
-    def get_permissions(self):
-        """
-        Apply role-based permissions depending on the action.
-        """
-        if self.action in ["update", "partial_update", "members"]:
-            return [permissions.IsAuthenticated(), IsOrganizationAdminOrOwner()]
-        if self.action in ["destroy", "perform_destroy"]:
-            return [permissions.IsAuthenticated(), IsOrganizationOwner()]
-        return [permissions.IsAuthenticated()]
-
-    @list_organization_schema
-    def list(self, request, *args, **kwargs):
-        return super().list(request, *args, **kwargs)
-
-    @create_organization_schema
-    def create(self, request, *args, **kwargs):
-        return super().create(request, *args, **kwargs)
-
-    @update_organization_schema
-    def update(self, request, *args, **kwargs):
-        return super().update(request, *args, **kwargs)
-
-    @retrieve_organization_schema
-    def retrieve(self, request, *args, **kwargs):
-        return super().retrieve(request, *args, **kwargs)
-
-    @destroy_organization_schema
-    @action(detail=True, methods=["delete"], url_path="deactivate")
-    def deactivate(self, request, pk=None):
-        """
-        Deactivate an organization (Owners only).
-        """
-        org = self.get_object()
-        self.check_object_permissions(request, org)
-        org.is_active = False
-        org.save()
-        return Response({"detail": f"Organization '{org.name}' deactivated."})
-
-    @member_organization_schema
-    @action(detail=True, methods=["get"])
-    def members(self, request, pk=None):
-        """
-        List members of an organization.
-        Example: GET /api/organizations/{id}/members/
-        """
-        org = self.get_object()
-        self.check_object_permissions(request, org)
-        memberships = org.memberships.select_related("user").all()
-        data = [
-            {"user": m.user.email, "role": m.role, "active": m.is_active}
-            for m in memberships
-        ]
-        return Response(data)
-
-
 @extend_schema(
     tags=["Invitations"],
 )
@@ -762,101 +664,4 @@ class InvitationViewSet(viewsets.GenericViewSet):
                 "role": membership.role,
             },
             status=status.HTTP_200_OK,
-        )
-
-
-@extend_schema(
-    tags=["Memberships"],
-)
-class MembershipViewSet(viewsets.ModelViewSet):
-    """
-    ViewSet for managing memberships within organizations.
-    Only admins can invite new members.
-    """
-
-    queryset = Membership.objects.all()
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_serializer_class(self):
-        if self.action == "invite":
-            return InvitationCreateSerializer
-        return MembershipSerializer
-
-    @list_members_schema
-    def list(self, request, *args, **kwargs):
-        return super().list(request, *args, **kwargs)
-
-    @retrieve_member_schema
-    def retrieve(self, request, *args, **kwargs):
-        return super().retrieve(request, *args, **kwargs)
-
-    @update_member_schema
-    def update(self, request, *args, **kwargs):
-        return super().update(request, *args, **kwargs)
-
-    @delete_member_schema
-    def destroy(self, request, *args, **kwargs):
-        return super().destroy(request, *args, **kwargs)
-
-    @invite_member_schema
-    @action(
-        detail=False,
-        methods=["post"],
-        url_path="invite",
-        permission_classes=[permissions.IsAuthenticated, IsOrganizationAdminOrOwner],
-    )
-    def invite(self, request):
-        """
-        Invite a new member to the organization.
-        Only users with Admin role may perform this action.
-        """
-        serializer = self.get_serializer(
-            data=request.data,
-            context={"request": request},
-        )
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-
-        return Response(
-            {"detail": "Invitation sent successfully."},
-            status=status.HTTP_201_CREATED,
-        )
-
-
-class SubscriptionUpgradeView(generics.GenericAPIView):
-    """
-    API endpoint for upgrading an organization's subscription.
-    Only Owners can perform this action.
-    """
-
-    serializer_class = SubscriptionUpgradeSerializer
-    permission_classes = [IsAuthenticated, IsOrganizationOwner]
-
-    def get_object(self):
-        """
-        Get the organization from the URL.
-        """
-        return Organization.objects.get(pk=self.kwargs["org_id"])
-
-    @subscription_upgrade_schema
-    def post(self, request, *args, **kwargs):
-        organization = self.get_object()
-        self.check_object_permissions(request, organization)
-
-        serializer = self.get_serializer(
-            data=request.data,
-            context={"request": request, "organization": organization},
-        )
-        serializer.is_valid(raise_exception=True)
-        result = serializer.save()
-
-        return Response(
-            {
-                "message": "Payment initiated. Complete payment to upgrade plan.",
-                "organization": result["organization"].name,
-                "new_plan": result["plan"].name,
-                "payment_reference": result["payment"].reference,
-                "payment_status": result["payment"].status,
-            },
-            status=status.HTTP_201_CREATED,
         )

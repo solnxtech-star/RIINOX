@@ -9,25 +9,27 @@ from django.db.models import SET_NULL
 from django.db.models import BooleanField
 from django.db.models import CharField
 from django.db.models import DateTimeField
-from django.db.models import DecimalField
 from django.db.models import EmailField
-from django.db.models import FileField
 from django.db.models import ImageField
 from django.db.models import Index
+from django.db.models import JSONField
 from django.db.models import ManyToManyField
 from django.db.models import OneToOneField
-from django.db.models import PositiveIntegerField
+from django.db.models import PositiveSmallIntegerField
 from django.db.models import Q
-from django.db.models import TextChoices
+from django.db.models import SlugField
 from django.db.models import TextField
 from django.db.models import UniqueConstraint
 from django.db.models import UUIDField
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 
-from core.helper.enums import TEMPLATE_TYPES
-from core.helper.enums import OrganizationTypeChoices
-from core.helper.enums import SubscriptionStatus
+from core.applications.users.queryset import BusinessTypeManager
+from core.applications.users.queryset import MembershipManager
+from core.applications.users.queryset import OrganizationBusinessTypeManager
+from core.applications.users.queryset import OrganizationManager
+from core.applications.users.queryset import RoleManager
+from core.helper.enums import StaffSizeChoices
 from core.helper.media import MediaHelper
 from core.helper.models import TimeBasedModel
 from core.helper.utils import default_invite_expiry
@@ -93,6 +95,7 @@ class Role(TimeBasedModel):
         related_name="roles",
         blank=True,
     )
+    objects = RoleManager()
 
     class Meta(auto_prefetch.Model.Meta):
         verbose_name = _("Role")
@@ -125,115 +128,82 @@ class RolePermission(TimeBasedModel):
         return f"{self.permission.code} on {self.role.name}"
 
 
-
-class Plan(TimeBasedModel):
+class BusinessType(TimeBasedModel):
     """
-    A billable plan tier. Numeric limits live directly on the plan since
-    the PRD requires them to be enforced server-side (max users, products,
-    locations, etc.); boolean capability toggles (API access, custom
-    templates, ...) are handled separately via Feature/PlanFeature.
+    A business type is a high-level category of business, e.g. "Retail",
+    "Wholesale", "Restaurant", "Service Provider". It is used to customize
     """
 
-    name = CharField(max_length=50, unique=True)
-    description = TextField(blank=True, null=True)
-    price = DecimalField(max_digits=10, decimal_places=2, default=0)
-    billing_period_days = PositiveIntegerField(
-        default=30,
-        help_text=_("Length of one billing cycle, in days."),
+    code = SlugField(
+        max_length=50, unique=True,
+        help_text=_("Stable key, e.g. 'wholesale_distribution'."),
     )
-    trial_period_days = PositiveIntegerField(default=0)
-
-    # Server-enforced limits (0 or null = unlimited, per project convention).
-    max_users = PositiveIntegerField(null=True, blank=True)
-    max_products = PositiveIntegerField(null=True, blank=True)
-    max_locations = PositiveIntegerField(null=True, blank=True)
-    max_transactions_per_month = PositiveIntegerField(null=True, blank=True)
-    storage_limit_mb = PositiveIntegerField(null=True, blank=True)
-
-    is_active = BooleanField(default=True)
-
-    class Meta(auto_prefetch.Model.Meta):
-        verbose_name = _("Plan")
-        verbose_name_plural = _("Plans")
-        ordering = ["price"]
-
-    def __str__(self):
-        return self.name
-
-
-class Feature(TimeBasedModel):
-    """
-    A togglable capability, e.g. 'API_ACCESS', 'CUSTOM_TEMPLATES',
-    'UNLIMITED_INVOICES', 'PRIORITY_SUPPORT'.
-    """
-
-    code = CharField(max_length=50, unique=True)
     name = CharField(max_length=100)
-    description = TextField(blank=True, null=True)
+    description = TextField(blank=True)
+    icon = CharField(
+        max_length=50,
+        blank=True,
+        help_text=_("Icon key resolved by the frontend, e.g. 'shopping-basket'."),
+    )
+    highlights = JSONField(
+        default=list,
+        blank=True,
+        help_text=_("Short feature tags shown on the onboarding card."),
+    )
+    show_in_onboarding = BooleanField(default=True)
+    is_active = BooleanField(default=True)
+    sort_order = PositiveSmallIntegerField(default=0)
+
+    objects = BusinessTypeManager()
 
     class Meta(auto_prefetch.Model.Meta):
-        verbose_name = _("Feature")
-        verbose_name_plural = _("Features")
-        ordering = ["name"]
+        verbose_name = _("Business Type")
+        verbose_name_plural = _("Business Types")
+        ordering = ["sort_order", "name"]
 
     def __str__(self):
         return self.name
 
 
-class PlanFeature(TimeBasedModel):
-    plan = auto_prefetch.ForeignKey(
-        "users.Plan", on_delete=CASCADE,
-        related_name="plan_features"
+class OrganizationBusinessType(TimeBasedModel):
+    """
+    Which business types an organization operates as. An organization has one
+    or more; exactly one is primary and drives terminology/dashboard defaults.
+    "At least one" is enforced in services.set_business_types (a DB constraint
+    can't express it); "at most one primary" is enforced here.
+    """
+
+    organization = auto_prefetch.ForeignKey(
+        "users.Organization",
+        on_delete=CASCADE,
+        related_name="organization_business_types",
     )
-    feature = auto_prefetch.ForeignKey(
-        "users.Feature", on_delete=CASCADE,
-        related_name="feature_plans"
+    business_type = auto_prefetch.ForeignKey(
+        "users.BusinessType",
+        on_delete=PROTECT,
+        related_name="organization_links",
     )
-    enabled = BooleanField(default=True)
+    is_primary = BooleanField(default=False)
+    objects = OrganizationBusinessTypeManager()
 
     class Meta(auto_prefetch.Model.Meta):
-        verbose_name = _("Plan Feature")
-        verbose_name_plural = _("Plan Features")
+        verbose_name = _("Organization Business Type")
+        verbose_name_plural = _("Organization Business Types")
         constraints: ClassVar = [
-            UniqueConstraint(fields=["plan", "feature"], name="unique_plan_feature"),
+            UniqueConstraint(
+                fields=["organization", "business_type"],
+                name="unique_business_type_per_org",
+            ),
+            UniqueConstraint(
+                fields=["organization"],
+                condition=Q(is_primary=True),
+                name="unique_primary_business_type_per_org",
+            ),
         ]
 
     def __str__(self):
-        return f"{self.feature.name} on {self.plan.name}"
-
-
-class Subscription(TimeBasedModel):
-    """
-    The organization's actual subscription lifecycle — separate from Plan
-    (a catalog item) so trial/renewal/cancellation state has somewhere to
-    live, per the PRD's subscription-based SaaS access requirement.
-    """
-
-    organization = OneToOneField(
-        "users.Organization",
-        on_delete=CASCADE,
-        related_name="subscription",
-    )
-    plan = auto_prefetch.ForeignKey(
-        "users.Plan", on_delete=PROTECT, related_name="subscriptions"
-    )
-    status = CharField(
-        max_length=20, choices=SubscriptionStatus.choices,
-        default=SubscriptionStatus.TRIALING
-    )
-    trial_ends_at = DateTimeField(null=True, blank=True)
-    current_period_start = DateTimeField(null=True, blank=True)
-    current_period_end = DateTimeField(null=True, blank=True)
-    canceled_at = DateTimeField(null=True, blank=True)
-
-    class Meta(auto_prefetch.Model.Meta):
-        verbose_name = _("Subscription")
-        verbose_name_plural = _("Subscriptions")
-
-    def __str__(self):
-        return f"{self.organization.name} — {self.plan.name} ({self.status})"
-
-
+        suffix = " (primary)" if self.is_primary else ""
+        return f"{self.organization.name}: {self.business_type.name}{suffix}"
 
 class Organization(TimeBasedModel):
     """
@@ -244,11 +214,17 @@ class Organization(TimeBasedModel):
     # Identity
     name = CharField(max_length=255, help_text=_("Trading name."))
     legal_name = CharField(max_length=255, blank=True)
-    type = CharField(
-        _("Business Type"),
-        max_length=50,
-        choices=OrganizationTypeChoices.choices,
-        default=OrganizationTypeChoices.BUSINESS,
+    business_types = ManyToManyField(
+        "users.BusinessType",
+        through="users.OrganizationBusinessType",
+        related_name="organizations",
+        blank=True,
+    )
+    staff_size = CharField(
+        _("Number of staff"),
+        max_length=20,
+        choices=StaffSizeChoices.choices,
+        blank=True,
     )
     domain = CharField(
         _("Custom Domain"),
@@ -270,6 +246,11 @@ class Organization(TimeBasedModel):
     email = EmailField(blank=True)
     phone = CharField(max_length=30, blank=True)
     address = TextField(blank=True)
+    state = CharField(
+        max_length=100,
+        blank=True,
+        help_text=_("State/province/region of the business address."),
+    )
 
     # Locale & compliance
     country = CharField(max_length=2, blank=True, help_text=_("ISO 3166-1 alpha-2 country code."))
@@ -323,6 +304,7 @@ class Organization(TimeBasedModel):
         related_name="credit_note_organizations",
         limit_choices_to={"template_type": "credit_note", "is_active": True},
     )
+    objects = OrganizationManager()
 
     class Meta(auto_prefetch.Model.Meta):
         verbose_name = _("Organization")
@@ -336,6 +318,16 @@ class Organization(TimeBasedModel):
     def current_plan(self):
         subscription = getattr(self, "subscription", None)
         return subscription.plan if subscription else None
+
+    @property
+    def primary_business_type(self):
+        """
+        Return the primary business type for this organization, or None if not set.
+        """
+        for link in self.organization_business_types.all():
+            if link.is_primary:
+                return link.business_type
+        return None
 
 class User(AbstractUser):
     """
@@ -409,7 +401,7 @@ class Membership(TimeBasedModel):
     invite_token = UUIDField(default=uuid.uuid4, unique=True, editable=False)
     accepted = BooleanField(default=False)
     expires_at = DateTimeField(default=default_invite_expiry)
-
+    objects = MembershipManager()
     class Meta(auto_prefetch.Model.Meta):
         verbose_name = _("Membership")
         verbose_name_plural = _("Memberships")

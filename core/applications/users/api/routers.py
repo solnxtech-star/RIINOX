@@ -2,10 +2,10 @@ from django.conf import settings
 from rest_framework.routers import DefaultRouter
 from rest_framework.routers import SimpleRouter
 
-from core.applications.users.api.views import InvitationViewSet
-from core.applications.users.api.views import MembershipViewSet
-from core.applications.users.api.views import OrganizationViewSet
-from core.applications.users.api.views import UserViewSet
+from core.applications.users.api.views.organization_views import MembershipViewSet
+from core.applications.users.api.views.organization_views import OrganizationViewSet
+from core.applications.users.api.views.users_views import InvitationViewSet
+from core.applications.users.api.views.users_views import UserViewSet
 
 PREFIX = "users"
 

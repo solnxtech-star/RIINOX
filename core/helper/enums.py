@@ -324,3 +324,11 @@ class CustomerStatus(TextChoices):
     ACTIVE = "active", _("Active")
     INACTIVE = "inactive", _("Inactive")
     BLOCKED = "blocked", _("Blocked")
+
+
+
+class StaffSizeChoices(TextChoices):
+    ONE_TO_FIVE = "1-5", _("1–5")
+    SIX_TO_TEN = "6-10", _("6–10")
+    ELEVEN_TO_FIFTY = "11-50", _("11–50")
+    FIFTY_PLUS = "50+", _("50+")
