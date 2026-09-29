@@ -65,3 +65,14 @@ class SaleReturn(TimeBasedModel):
     class Meta(auto_prefetch.Model.Meta):
         verbose_name = _("Sale Return")
         verbose_name_plural = _("Sale Returns")
+
+
+class SaleReturnItem(TimeBasedModel):
+    sale_return = auto_prefetch.ForeignKey(SaleReturn, on_delete=models.CASCADE, related_name="items")
+    sale_item = auto_prefetch.ForeignKey(SaleItem, on_delete=models.PROTECT, related_name="return_items")
+    quantity = models.PositiveIntegerField(default=1)
+    refund_amount = models.DecimalField(max_digits=12, decimal_places=2)
+
+    class Meta(auto_prefetch.Model.Meta):
+        verbose_name = _("Sale Return Item")
+        verbose_name_plural = _("Sale Return Items")
