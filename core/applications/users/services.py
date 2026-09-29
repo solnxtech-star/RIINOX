@@ -12,11 +12,9 @@ from django.utils import timezone
 from core.applications.invoice.services import provision_organization_documents
 from core.applications.subscriptions.services import get_plan_limit
 from core.applications.subscriptions.services import start_subscription
+from core.applications.users import reference_data
 from core.applications.users.defaults import ADMINISTRATOR_ROLE_SLUG
 from core.applications.users.defaults import ALL
-from core.applications.users.defaults import DEFAULT_ORG_COUNTRY
-from core.applications.users.defaults import DEFAULT_ORG_CURRENCY
-from core.applications.users.defaults import DEFAULT_ORG_TIMEZONE
 from core.applications.users.defaults import DEFAULT_ROLE_PERMISSIONS
 from core.applications.users.defaults import DEFAULT_ROLES
 from core.applications.users.defaults import MANAGER_ROLE_SLUGS
@@ -29,6 +27,7 @@ from core.applications.users.models import OwnerMembershipDetail
 from core.applications.users.models import Permission
 from core.applications.users.models import Role
 from core.applications.users.models import RolePermission
+from core.applications.users.models import State
 from core.helper.utils import default_invite_expiry
 from core.helper.utils import send_invitation_email
 
@@ -62,12 +61,32 @@ class PlanLimitReached(OrganizationServiceError):
     """The organization's plan doesn't allow this (e.g. no free user seats)."""
 
 
+class OrganizationProfileInvalid(OrganizationServiceError, ValueError):
+    """A profile field failed validation against reference data. `field` names which one."""
+
+    def __init__(self, message: str, *, field: str):
+        super().__init__(message)
+        self.message = message
+        self.field = field
+
+
+# ---------------------------------------------------------------------------
+# Organization creation
+# ---------------------------------------------------------------------------
 @dataclass(frozen=True, slots=True)
 class OrganizationProfile:
     """
     The organization fields onboarding may set, and nothing else. An explicit
     allow-list means a request can never smuggle `is_active`, `created_by` or
     any other column into `Organization.objects.create`.
+
+    `country`, `currency` and `timezone` are the values the user picked from
+    the reference-data dropdowns (GET /metadata/countries|currencies/), and
+    `state` from GET /metadata/states/?country=. The serializer is expected to
+    have already validated all four against `reference_data`; `create_organization`
+    re-checks them defensively, since this function is the actual security
+    boundary — it's callable from anywhere (a management command, a future
+    admin action), not only from that one serializer.
     """
 
     name: str
@@ -75,11 +94,41 @@ class OrganizationProfile:
     currency: str
     state: str
     address: str
+    phone: str
     staff_size: str
-    phone: str = ""
+    timezone: str = "Africa/Lagos"
     postal_code: str = ""
     tax_id: str = ""
     registration_number: str = ""
+
+
+def _validate_profile(profile: OrganizationProfile) -> None:
+    """
+    Defensive re-check of the reference-data fields. The serializer already
+    validates these against the same functions, but a service is a boundary
+    in its own right: whatever calls this later (a management command, an
+    admin action, a bulk-import script) must not be able to skip the check
+    just because it isn't a request going through that one serializer.
+
+    Only catalog-backed fields are re-checked here (country, currency,
+    timezone, state) — free-form fields like phone and registration_number
+    are format-validated by the serializer, not looked up against a catalog,
+    so there's nothing here for this function to re-verify.
+
+    Checks stop at the first failure rather than collecting all of them: this
+    is a defensive backstop for callers that bypass the serializer, not the
+    primary source of field-level errors a normal request sees.
+    """
+    if not reference_data.is_valid_country(profile.country):
+        raise OrganizationProfileInvalid(f"'{profile.country}' is not a recognised country code.", field="country")
+    if not reference_data.is_valid_currency(profile.currency):
+        raise OrganizationProfileInvalid(f"'{profile.currency}' is not a recognised currency code.", field="currency")
+    if not reference_data.is_valid_timezone(profile.timezone):
+        raise OrganizationProfileInvalid(f"'{profile.timezone}' is not a recognised timezone.", field="timezone")
+    if not State.objects.filter(country=profile.country, name__iexact=profile.state).exists():
+        raise OrganizationProfileInvalid(
+            f"'{profile.state}' is not a recognised state for '{profile.country}'.", field="state"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -111,9 +160,6 @@ def has_org_role(user, organization: Organization, *role_slugs: str) -> bool:
     )
 
 
-# ---------------------------------------------------------------------------
-# Organization creation
-# ---------------------------------------------------------------------------
 @transaction.atomic
 def create_organization(*, user, business_type: BusinessType, profile: OrganizationProfile) -> Organization:
     """
@@ -122,16 +168,16 @@ def create_organization(*, user, business_type: BusinessType, profile: Organizat
         organization -> primary business type -> default roles -> subscription
         -> Owner membership -> document numbering + shared default templates
 
-    Raises ImproperlyConfigured (a 500, by design) when platform data such as
-    the default plan or default templates hasn't been seeded.
+    `profile` carries the user's own country, currency, timezone and state
+    (validated against `reference_data` — see `_validate_profile`), so nothing
+    here defaults or overrides them. Raises ImproperlyConfigured (a 500, by
+    design) when platform data such as the default plan or default templates
+    hasn't been seeded, and OrganizationProfileInvalid (a 400) when a
+    reference-data field doesn't check out.
     """
-    organization = Organization.objects.create(
-        created_by=user,
-        country=DEFAULT_ORG_COUNTRY,
-        currency=DEFAULT_ORG_CURRENCY,
-        timezone=DEFAULT_ORG_TIMEZONE,
-        **asdict(profile),
-    )
+    _validate_profile(profile)
+
+    organization = Organization.objects.create(created_by=user, **asdict(profile))
 
     OrganizationBusinessType.objects.create(
         organization=organization,
@@ -151,10 +197,6 @@ def create_organization(*, user, business_type: BusinessType, profile: Organizat
     OwnerMembershipDetail.objects.create(membership=membership)
 
     provision_organization_documents(organization)
-
-    # Side effects that must only happen if the tenant really committed:
-    # transaction.on_commit(lambda: notifications.organization_created(organization.pk))
-    # audit.record(...)  # organization.created — hook in your audit module here
     return organization
 
 

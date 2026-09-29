@@ -234,11 +234,19 @@ class OrganizationSerializer(serializers.ModelSerializer):
         )
 
 
-class OrganizationCreateSerializer(OrganizationProfileValidationMixin, serializers.ModelSerializer):
+class OrganizationCreateSerializer(
+    OrganizationProfileValidationMixin,
+    serializers.ModelSerializer,
+):
     """
     Body of POST /organizations/: onboarding screen 1 (business type) and
     screen 2 (business details) submitted together, so no half-created
-    organization can exist. Branding and templates belong to a later step.
+    organization can exist.
+
+    Branding and templates belong to a later onboarding step.
+
+    Timezone is not collected from the onboarding request. The service layer
+    applies the default timezone of Africa/Lagos through OrganizationProfile.
     """
 
     business_type = serializers.SlugRelatedField(
@@ -253,7 +261,7 @@ class OrganizationCreateSerializer(OrganizationProfileValidationMixin, serialize
             "id",
             "business_type",
             "name",
-            "registration_number",  # "CAC/RC (Optional)"
+            "registration_number",  # CAC/RC (Optional)
             "country",
             "state",
             "address",
@@ -263,35 +271,76 @@ class OrganizationCreateSerializer(OrganizationProfileValidationMixin, serialize
             "phone",
             "staff_size",
         ]
+
         read_only_fields = ["id"]
+
         extra_kwargs = {
-            "name": {"required": True, "allow_blank": False},
-            "registration_number": {"required": False},
+            "name": {
+                "required": True,
+                "allow_blank": False,
+            },
+            "registration_number": {
+                "required": False,
+            },
             # The model allows blank; the onboarding form does not.
-            "country": {"required": True, "allow_blank": False},
-            "currency": {"required": True, "allow_blank": False},
-            "state": {"required": True, "allow_blank": False},
-            "address": {"required": True, "allow_blank": False},
-            "staff_size": {"required": True, "allow_blank": False},
+            "country": {
+                "required": True,
+                "allow_blank": False,
+            },
+            "currency": {
+                "required": True,
+                "allow_blank": False,
+            },
+            "state": {
+                "required": True,
+                "allow_blank": False,
+            },
+            "address": {
+                "required": True,
+                "allow_blank": False,
+            },
+            "staff_size": {
+                "required": True,
+                "allow_blank": False,
+            },
             # Not collected on the business-details screen.
-            "postal_code": {"required": False},
-            "tax_id": {"required": False},
-            "phone": {"required": False},
+            # The service layer applies the default timezone.
+            "postal_code": {
+                "required": False,
+            },
+            "tax_id": {
+                "required": False,
+            },
+            "phone": {
+                "required": False,
+            },
         }
 
     def create(self, validated_data):
         business_type = validated_data.pop("business_type")
         user = self.context["request"].user
+
         organization = services.create_organization(
             user=user,
             business_type=business_type,
             profile=services.OrganizationProfile(**validated_data),
         )
-        # Reload through the tenant-scoped queryset so the response is fully preloaded.
-        return Organization.objects.for_user(user).with_detail().get(pk=organization.pk)
+
+        # Reload through the tenant-scoped queryset so the response
+        # is fully preloaded.
+        return (
+            Organization.objects
+            .for_user(user)
+            .with_detail()
+            .get(pk=organization.pk)
+        )
 
     def to_representation(self, instance):
-        return OrganizationSerializer(instance, context=self.context).data
+        return OrganizationSerializer(
+            instance,
+            context=self.context,
+        ).data
+
 
 
 class OrganizationUpdateSerializer(OrganizationProfileValidationMixin, serializers.ModelSerializer):
