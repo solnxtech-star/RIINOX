@@ -71,10 +71,14 @@ class OrganizationProfile:
     """
 
     name: str
+    country: str
+    currency: str
     state: str
     address: str
-    phone: str
     staff_size: str
+    phone: str = ""
+    postal_code: str = ""
+    tax_id: str = ""
     registration_number: str = ""
 
 

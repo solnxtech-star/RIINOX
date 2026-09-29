@@ -2,6 +2,7 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
+from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import MethodNotAllowed
 from rest_framework.exceptions import ValidationError
@@ -13,29 +14,12 @@ from rest_framework.viewsets import GenericViewSet
 from rest_framework.viewsets import ModelViewSet
 from rest_framework.viewsets import ReadOnlyModelViewSet
 
+from core.applications.users import reference_data
 from core.applications.users import services
-from core.applications.users.api.schemas import accept_invite_schema
-from core.applications.users.api.schemas import business_types_organization_schema
-from core.applications.users.api.schemas import create_organization_schema
-from core.applications.users.api.schemas import deactivate_organization_schema
-from core.applications.users.api.schemas import delete_member_schema
-from core.applications.users.api.schemas import invite_member_schema
-from core.applications.users.api.schemas import list_business_types_schema
-from core.applications.users.api.schemas import list_members_schema
-from core.applications.users.api.schemas import list_organization_schema
-from core.applications.users.api.schemas import member_organization_schema
-from core.applications.users.api.schemas import partial_update_member_schema
-from core.applications.users.api.schemas import partial_update_organization_schema
-from core.applications.users.api.schemas import retrieve_business_type_schema
-from core.applications.users.api.schemas import retrieve_member_schema
-from core.applications.users.api.schemas import retrieve_organization_schema
-from core.applications.users.api.schemas import roles_organization_schema
-from core.applications.users.api.schemas import update_member_schema
-from core.applications.users.api.schemas import update_organization_schema
-from core.applications.users.api.schemas import validate_invite_schema
-from core.applications.users.api.serializers.organization_serializers import (
-    AcceptInvitationSerializer,
-)
+from core.applications.users.api.schemas import business_type_schema
+from core.applications.users.api.schemas import membership_schema
+from core.applications.users.api.schemas import metadata_schema
+from core.applications.users.api.schemas import organization_schema
 from core.applications.users.api.serializers.organization_serializers import (
     BusinessTypeSerializer,
 )
@@ -43,16 +27,13 @@ from core.applications.users.api.serializers.organization_serializers import (
     InvitationCreateSerializer,
 )
 from core.applications.users.api.serializers.organization_serializers import (
-    InvitationPreviewSerializer,
-)
-from core.applications.users.api.serializers.organization_serializers import (
-    InvitationTokenSerializer,
-)
-from core.applications.users.api.serializers.organization_serializers import (
     MembershipSerializer,
 )
 from core.applications.users.api.serializers.organization_serializers import (
     MembershipUpdateSerializer,
+)
+from core.applications.users.api.serializers.organization_serializers import (
+    OptionSerializer,
 )
 from core.applications.users.api.serializers.organization_serializers import (
     OrganizationBusinessTypesUpdateSerializer,
@@ -72,19 +53,37 @@ from core.applications.users.api.serializers.organization_serializers import (
 from core.applications.users.api.serializers.organization_serializers import (
     RoleSerializer,
 )
+from core.applications.users.api.serializers.organization_serializers import (
+    StateOptionSerializer,
+)
+from core.applications.users.api.serializers.organization_serializers import (
+    StatesQuerySerializer,
+)
 from core.applications.users.errors import domain_errors
 from core.applications.users.models import BusinessType
 from core.applications.users.models import Membership
 from core.applications.users.models import Organization
 from core.applications.users.models import Role
+from core.applications.users.models import State
 from core.applications.users.permissions import IsMembershipManager
 from core.helper.permissions import IsOrganizationAdminOrOwner
 from core.helper.permissions import IsOrganizationOwner
 
+STATIC_MAX_AGE = 60 * 60 * 24
+STATES_MAX_AGE = 60 * 60
+
+
+def _cacheable(data, max_age: int) -> Response:
+    """Reference data is identical for every user, so let the browser cache it."""
+    response = Response(data)
+    response["Cache-Control"] = f"private, max-age={max_age}"
+    return response
 
 # ===========================================================================
 # Business types
 # ===========================================================================
+
+@business_type_schema
 @extend_schema(tags=["Business Types"])
 class BusinessTypeViewSet(ReadOnlyModelViewSet):
     """Catalog of business types. Read-only; managed by the seed migration/command and the admin."""
@@ -100,11 +99,9 @@ class BusinessTypeViewSet(ReadOnlyModelViewSet):
             return BusinessType.objects.for_onboarding().ordered()
         return BusinessType.objects.active().ordered()
 
-    @list_business_types_schema
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
 
-    @retrieve_business_type_schema
     def retrieve(self, request, *args, **kwargs):
         return super().retrieve(request, *args, **kwargs)
 
@@ -112,6 +109,8 @@ class BusinessTypeViewSet(ReadOnlyModelViewSet):
 # ===========================================================================
 # Organizations
 # ===========================================================================
+
+@organization_schema
 @extend_schema(tags=["Organizations"])
 class OrganizationViewSet(ModelViewSet):
     """
@@ -164,34 +163,27 @@ class OrganizationViewSet(ModelViewSet):
         return [IsAuthenticated(), *(permission() for permission in extra)]
 
     # -- standard CRUD ------------------------------------------------------
-    @list_organization_schema
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
 
-    @create_organization_schema
     def create(self, request, *args, **kwargs):
         return super().create(request, *args, **kwargs)
 
-    @retrieve_organization_schema
     def retrieve(self, request, *args, **kwargs):
         return super().retrieve(request, *args, **kwargs)
 
-    @update_organization_schema
     def update(self, request, *args, **kwargs):
         return super().update(request, *args, **kwargs)
 
-    @partial_update_organization_schema
     def partial_update(self, request, *args, **kwargs):
         return super().partial_update(request, *args, **kwargs)
 
-    @extend_schema(exclude=True)
     def destroy(self, request, *args, **kwargs):
         # Business records are never hard-deleted (PRD §44); deleting a tenant
         # would cascade through everything it owns. Use the deactivate action.
         raise MethodNotAllowed(request.method, detail="Organizations cannot be deleted. Use the deactivate action.")
 
     # -- actions ------------------------------------------------------------
-    @business_types_organization_schema
     @action(detail=True, methods=["put"], url_path="business-types")
     def business_types(self, request, pk=None):
         """
@@ -212,7 +204,6 @@ class OrganizationViewSet(ModelViewSet):
         organization = self.get_queryset().get(pk=organization.pk)  # fresh, fully preloaded
         return Response(OrganizationSerializer(organization, context=self.get_serializer_context()).data)
 
-    @deactivate_organization_schema
     @action(detail=True, methods=["delete"], url_path="deactivate")
     def deactivate(self, request, pk=None):
         """Deactivate an organization (Owners only)."""
@@ -220,7 +211,6 @@ class OrganizationViewSet(ModelViewSet):
         services.deactivate_organization(organization=organization, actor=request.user)
         return Response({"detail": f"Organization '{organization.name}' deactivated."})
 
-    @member_organization_schema
     @action(detail=True, methods=["get"])
     def members(self, request, pk=None):
         """
@@ -235,7 +225,6 @@ class OrganizationViewSet(ModelViewSet):
             return self.get_paginated_response(self.get_serializer(page, many=True).data)
         return Response(self.get_serializer(memberships, many=True).data)
 
-    @roles_organization_schema
     @action(detail=True, methods=["get"], pagination_class=None)
     def roles(self, request, pk=None):
         """
@@ -250,6 +239,7 @@ class OrganizationViewSet(ModelViewSet):
 # ===========================================================================
 # Memberships
 # ===========================================================================
+@membership_schema
 @extend_schema(tags=["Memberships"])
 class MembershipViewSet(ModelViewSet):
     """
@@ -297,36 +287,29 @@ class MembershipViewSet(ModelViewSet):
         extra = self.action_permissions.get(self.action, ())
         return [IsAuthenticated(), *(permission() for permission in extra)]
 
-    @list_members_schema
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
 
-    @retrieve_member_schema
     def retrieve(self, request, *args, **kwargs):
         return super().retrieve(request, *args, **kwargs)
 
-    @extend_schema(exclude=True)
     def create(self, request, *args, **kwargs):
         # A membership is only ever created by an invitation (which enforces the
         # role, seat and privilege rules), never directly.
         raise MethodNotAllowed(request.method, detail="Use POST /memberships/invite/ to add a member.")
 
-    @update_member_schema
     def update(self, request, *args, **kwargs):
         return super().update(request, *args, **kwargs)
 
-    @partial_update_member_schema
     def partial_update(self, request, *args, **kwargs):
         return super().partial_update(request, *args, **kwargs)
 
-    @delete_member_schema
     def destroy(self, request, *args, **kwargs):
         membership = self.get_object()
         with domain_errors():
             services.remove_membership(membership=membership, actor=request.user)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-    @invite_member_schema
     @action(detail=False, methods=["post"], url_path="invite")
     def invite(self, request):
         """
@@ -356,39 +339,30 @@ class InvitationValidateThrottle(AnonRateThrottle):
     rate = "30/min"
 
 
-@extend_schema(tags=["Invitations"])
-class InvitationViewSet(GenericViewSet):
-    """
-    Previewing and accepting invitations. Sending one is POST /memberships/invite/.
-
-    - validate: Public. Show who invited you, to what, and as whom, before signing in.
-    - accept: Signed-in user with a verified, matching email joins the organization.
-    """
+@metadata_schema
+@extend_schema(tags=["Metadata"])
+class MetadataViewSet(viewsets.ViewSet):
+    """Read-only reference data that feeds the onboarding dropdowns."""
 
     permission_classes = [IsAuthenticated]
-    serializer_class = AcceptInvitationSerializer
-    queryset = Membership.objects.none()  # schema/router inference only
 
-    @validate_invite_schema
-    @action(
-        detail=False,
-        methods=["get"],
-        url_path="validate",
-        permission_classes=[AllowAny],
-        throttle_classes=[InvitationValidateThrottle],
-        serializer_class=InvitationTokenSerializer,
+    @extend_schema(responses=OptionSerializer(many=True))
+    @action(detail=False, methods=["get"])
+    def countries(self, request):
+        return _cacheable(reference_data.get_countries(), STATIC_MAX_AGE)
+
+    @extend_schema(responses=OptionSerializer(many=True))
+    @action(detail=False, methods=["get"])
+    def currencies(self, request):
+        return _cacheable(reference_data.get_currencies(), STATIC_MAX_AGE)
+
+    @extend_schema(
+        parameters=[StatesQuerySerializer],
+        responses=StateOptionSerializer(many=True),
     )
-    def validate(self, request):
-        query = InvitationTokenSerializer(data=request.query_params)
+    @action(detail=False, methods=["get"])
+    def states(self, request):
+        query = StatesQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
-        with domain_errors():
-            invitation = services.get_invitation_preview(query.validated_data["token"])
-        return Response(InvitationPreviewSerializer(invitation).data)
-
-    @accept_invite_schema
-    @action(detail=False, methods=["post"], url_path="accept")
-    def accept(self, request):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        membership = serializer.save()
-        return Response(MembershipSerializer(membership, context=self.get_serializer_context()).data)
+        states = State.objects.filter(country=query.validated_data["country"])
+        return _cacheable(StateOptionSerializer(states, many=True).data, STATES_MAX_AGE)

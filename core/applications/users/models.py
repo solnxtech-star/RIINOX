@@ -14,6 +14,7 @@ from django.db.models import ImageField
 from django.db.models import Index
 from django.db.models import JSONField
 from django.db.models import ManyToManyField
+from django.db.models import Model
 from django.db.models import OneToOneField
 from django.db.models import PositiveSmallIntegerField
 from django.db.models import Q
@@ -304,6 +305,7 @@ class Organization(TimeBasedModel):
         related_name="credit_note_organizations",
         limit_choices_to={"template_type": "credit_note", "is_active": True},
     )
+    postal_code = CharField(_("Postal/ZIP code"), max_length=20, blank=True, null=True)
     objects = OrganizationManager()
 
     class Meta(auto_prefetch.Model.Meta):
@@ -454,3 +456,33 @@ class StaffMembershipDetail(TimeBasedModel):
     class Meta(auto_prefetch.Model.Meta):
         verbose_name = _("Staff Membership Detail")
         verbose_name_plural = _("Staff Membership Details")
+
+
+class State(Model):
+    """
+    A state/province/region within a country, used to validate and offer
+    dropdown choices for Organization.state. Seeded per-country via the
+    `seed_states` management command as new markets are supported —
+    not all 195 countries are expected to be present at once.
+    """
+
+    country = CharField(
+        max_length=2,
+        db_index=True,
+        help_text="ISO 3166-1 alpha-2 country code.",
+    )
+    name = CharField(max_length=100)
+    code = CharField(
+        max_length=10,
+        blank=True,
+        help_text="ISO 3166-2 subdivision code, e.g. 'NG-AB'.",
+    )
+
+    class Meta:
+        unique_together = ("country", "name")
+        ordering = ["country", "name"]
+        verbose_name = "State"
+        verbose_name_plural = "States"
+
+    def __str__(self):
+        return f"{self.name} ({self.country})"

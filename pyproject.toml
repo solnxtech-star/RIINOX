@@ -227,4 +227,6 @@ dependencies = [
     "django-auto-prefetch==1.9.0",
     "fido2>=2.0.0",
     "phonenumbers==9.0.39",
+    "pycountry>=24.6",
+    "django-countries>=9.1.0",
 ]

@@ -1,12 +1,34 @@
-.editorconfig
+# Virtual environments
+.venv
+venv
+
+# Version control / CI / editor
+.git
 .gitattributes
-.github
 .gitignore
+.github
 .gitlab-ci.yml
 .idea
+.vscode
+.editorconfig
 .pre-commit-config.yaml
 .readthedocs.yml
 .travis.yml
-venv
-.git
+
+# Secrets / local env files
 .envs/
+
+# Python caches and tooling
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+
+# Generated / user content (adjust names to match your project)
+media
+staticfiles
+node_modules
+docs/_build

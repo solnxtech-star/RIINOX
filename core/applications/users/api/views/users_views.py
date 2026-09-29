@@ -32,8 +32,6 @@ from rest_framework_simplejwt.exceptions import InvalidToken
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.settings import api_settings
 
-from core.applications.users.api.schemas import accept_invite_schema
-from core.applications.users.api.schemas import validate_invite_schema
 from core.applications.users.api.serializers.organization_serializers import (
     AcceptInvitationSerializer,
 )
@@ -606,7 +604,6 @@ class InvitationViewSet(viewsets.GenericViewSet):
 
     queryset = Membership.objects.all()
 
-    @validate_invite_schema
     @action(
         detail=False,
         methods=["get"],
@@ -637,7 +634,6 @@ class InvitationViewSet(viewsets.GenericViewSet):
             },
         )
 
-    @accept_invite_schema
     @action(
         detail=False,
         methods=["post"],

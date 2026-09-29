@@ -1,21 +1,25 @@
 import re
+from typing import Any
 
+import phonenumbers
 from django.utils.translation import gettext_lazy as _
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from core.applications.invoice import services as document_services
 from core.applications.subscriptions.models import Plan
+from core.applications.users import reference_data
 from core.applications.users import services
-from core.applications.users.defaults import DEFAULT_ORG_COUNTRY
-from core.applications.users.defaults import NIGERIAN_STATES
-from core.applications.users.defaults import PHONE_COUNTRY_CODE
 from core.applications.users.errors import domain_errors
 from core.applications.users.models import BusinessType
 from core.applications.users.models import Membership
 from core.applications.users.models import Organization
 from core.applications.users.models import OrganizationBusinessType
 from core.applications.users.models import Role
+from core.applications.users.models import State
+
+REGISTRATION_NUMBER_RE = re.compile(r"[A-Z0-9\-/]{3,30}")
+
 
 
 # ===========================================================================
@@ -84,60 +88,104 @@ class OrganizationBusinessTypesUpdateSerializer(serializers.Serializer):
 # 2. Organization
 # ===========================================================================
 class OrganizationProfileValidationMixin:
-    """Field validation shared by organization create and update."""
+    """
+    Validation shared by organization create and update.
 
-    def _country(self) -> str:
-        instance = getattr(self, "instance", None)
-        return (instance.country if instance is not None and instance.country else None) or DEFAULT_ORG_COUNTRY
+    Standalone values are checked in field-level hooks. State and phone depend
+    on the organization's country (a sibling field on create, the stored value
+    on update), so they are checked in validate().
 
-    def validate_phone(self, value: str) -> str:
-        """
-        Normalise to E.164 (+2348031234567). Accepts +234..., 234..., 00234...,
-        0803... and 803... (10-digit national) for Nigeria; other countries
-        must be entered with their +code. Stdlib only; checks shape, not
-        whether the number is actually assigned.
-        """
-        value = re.sub(r"[\s\-().]", "", value.strip())
-        if not value:
-            return value
+    DRF's CharField already trims surrounding whitespace, so these hooks only
+    normalise and validate.
+    """
 
-        if value.startswith("+"):
-            digits = value[1:]
-        elif value.startswith("00"):
-            digits = value[2:]
-        elif value.startswith("0"):
-            digits = PHONE_COUNTRY_CODE + value[1:]
-        elif value.startswith(PHONE_COUNTRY_CODE):
-            digits = value
-        elif len(value) == 10:
-            digits = PHONE_COUNTRY_CODE + value
-        else:
-            digits = ""
+    def validate_country(self, value: str) -> str:
+        value = value.upper()
+        if not reference_data.is_valid_country(value):
+            raise serializers.ValidationError(_("Select a valid country."))
+        return value
 
-        valid = digits.isdigit() and digits[0] != "0" and 8 <= len(digits) <= 15
-        # Nigerian numbers: country code + exactly 10 national digits.
-        if valid and digits.startswith(PHONE_COUNTRY_CODE):
-            valid = len(digits) == len(PHONE_COUNTRY_CODE) + 10
-        if not valid:
-            raise serializers.ValidationError(_("Enter a valid phone number."))
-        return f"+{digits}"
+    def validate_currency(self, value: str) -> str:
+        value = value.upper()
+        if not reference_data.is_valid_currency(value):
+            raise serializers.ValidationError(_("Select a valid currency."))
+        return value
 
-    def validate_state(self, value: str) -> str:
-        value = value.strip()
-        if self._country() != "NG":
-            return value
-        canonical = {s.casefold(): s for s in NIGERIAN_STATES}.get(value.casefold())
-        if canonical is None:
-            raise serializers.ValidationError(_("Select a valid state."))
-        return canonical
+    def validate_timezone(self, value: str) -> str:
+        if value and not reference_data.is_valid_timezone(value):
+            raise serializers.ValidationError(_("Select a valid timezone."))
+        return value
 
     def validate_registration_number(self, value: str) -> str:
         # Optional (CAC/RC). Normalise only; verifying against CAC is out of scope.
         value = re.sub(r"\s+", "", value).upper()
-        if value and not re.fullmatch(r"[A-Z0-9\-/]{3,30}", value):
+        if value and not REGISTRATION_NUMBER_RE.fullmatch(value):
             raise serializers.ValidationError(_("Enter a valid registration number."))
         return value
 
+    def validate_postal_code(self, value: str) -> str:
+        return " ".join(value.upper().split())
+
+    # -- country-dependent fields -------------------------------------------
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        attrs = super().validate(attrs)
+        country = self._resolve_country(attrs)
+        errors: dict[str, Any] = {}
+
+        if "state" in attrs:
+            try:
+                attrs["state"] = self._clean_state(attrs["state"], country)
+            except serializers.ValidationError as exc:
+                errors["state"] = exc.detail
+
+        if attrs.get("phone"):
+            try:
+                attrs["phone"] = self._clean_phone(attrs["phone"], country)
+            except serializers.ValidationError as exc:
+                errors["phone"] = exc.detail
+
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs
+
+    def _resolve_country(self, attrs: dict[str, Any]) -> str:
+        """Country from this request if present, else the stored one (PATCH)."""
+        if attrs.get("country"):
+            return attrs["country"]
+        instance = getattr(self, "instance", None)
+        return instance.country if instance is not None and instance.country else ""
+
+    @staticmethod
+    def _clean_state(value: str, country: str) -> str:
+        """Match against the State table, returning the canonical spelling."""
+        if not country:
+            return value
+        names = State.objects.filter(country=country).values_list("name", flat=True)
+        canonical_by_key = {name.casefold(): name for name in names}
+        if not canonical_by_key:
+            # Country not seeded yet: accept free text instead of blocking onboarding.
+            return value
+        canonical = canonical_by_key.get(value.casefold())
+        if canonical is None:
+            raise serializers.ValidationError(_("Select a valid state or region."))
+        return canonical
+
+    @staticmethod
+    def _clean_phone(value: str, country: str) -> str:
+        """
+        Normalise to E.164 (+2348031234567) using libphonenumber. National
+        formats (0803..., 803...) are completed with the organization's
+        country; with no country the number must start with "+" or "00".
+        """
+        if value.startswith("00"):
+            value = f"+{value[2:]}"
+        try:
+            parsed = phonenumbers.parse(value, country or None)
+        except phonenumbers.NumberParseException as exc:
+            raise serializers.ValidationError(_("Enter a valid phone number.")) from exc
+        if not phonenumbers.is_valid_number(parsed):
+            raise serializers.ValidationError(_("Enter a valid phone number."))
+        return phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
 
 class OrganizationSerializer(serializers.ModelSerializer):
     """
@@ -206,8 +254,12 @@ class OrganizationCreateSerializer(OrganizationProfileValidationMixin, serialize
             "business_type",
             "name",
             "registration_number",  # "CAC/RC (Optional)"
+            "country",
             "state",
             "address",
+            "postal_code",
+            "tax_id",
+            "currency",
             "phone",
             "staff_size",
         ]
@@ -216,10 +268,15 @@ class OrganizationCreateSerializer(OrganizationProfileValidationMixin, serialize
             "name": {"required": True, "allow_blank": False},
             "registration_number": {"required": False},
             # The model allows blank; the onboarding form does not.
+            "country": {"required": True, "allow_blank": False},
+            "currency": {"required": True, "allow_blank": False},
             "state": {"required": True, "allow_blank": False},
             "address": {"required": True, "allow_blank": False},
-            "phone": {"required": True, "allow_blank": False},
             "staff_size": {"required": True, "allow_blank": False},
+            # Not collected on the business-details screen.
+            "postal_code": {"required": False},
+            "tax_id": {"required": False},
+            "phone": {"required": False},
         }
 
     def create(self, validated_data):
@@ -241,6 +298,11 @@ class OrganizationUpdateSerializer(OrganizationProfileValidationMixin, serialize
     """
     Body of PUT/PATCH /organizations/{id}/ (profile + branding). Business types
     have their own action.
+
+    country and currency are deliberately not editable here: they are fixed at
+    creation, because changing currency after transactions exist would rewrite
+    the meaning of historical records. State and phone are still validated
+    against the organization's stored country (see the validation mixin).
 
     Template fields are generated from the model FKs (so `limit_choices_to` on
     type/active still applies) and re-scoped per organization in get_fields():
@@ -264,6 +326,7 @@ class OrganizationUpdateSerializer(OrganizationProfileValidationMixin, serialize
             "tax_id",
             "state",
             "address",
+            "postal_code",
             "phone",
             "email",
             "staff_size",
@@ -277,8 +340,11 @@ class OrganizationUpdateSerializer(OrganizationProfileValidationMixin, serialize
             "quote_template",
             "credit_note_template",
         ]
-        # country/currency are fixed once created: changing currency after
-        # transactions exist would rewrite the meaning of historical records.
+        extra_kwargs = {
+            # Onboarding requires these; editing must not be a way to blank them.
+            "state": {"allow_blank": False},
+            "address": {"allow_blank": False},
+        }
 
     def get_fields(self):
         fields = super().get_fields()
@@ -288,6 +354,10 @@ class OrganizationUpdateSerializer(OrganizationProfileValidationMixin, serialize
         return fields
 
     def validate(self, attrs):
+        # Country-dependent checks (state, phone) live in the mixin. Without
+        # this call they are silently skipped on PUT/PATCH.
+        attrs = super().validate(attrs)
+
         # Custom (organization-owned) templates are a paid capability (PRD §10, §25).
         for name in self.TEMPLATE_FIELDS:
             template = attrs.get(name)
@@ -477,3 +547,25 @@ class AcceptInvitationSerializer(InvitationTokenSerializer):
                 user=self.context["request"].user,
                 token=self.validated_data["token"],
             )
+
+
+class OptionSerializer(serializers.Serializer):
+    code = serializers.CharField()
+    name = serializers.CharField()
+
+
+class StateOptionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = State
+        fields = ["name", "code"]
+
+
+class StatesQuerySerializer(serializers.Serializer):
+    country = serializers.CharField(min_length=2, max_length=2)
+
+    def validate_country(self, value: str) -> str:
+        value = value.upper()
+        if not reference_data.is_valid_country(value):
+            msg = "Unknown country code."
+            raise serializers.ValidationError(msg)
+        return value

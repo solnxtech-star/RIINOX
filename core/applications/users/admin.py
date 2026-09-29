@@ -13,7 +13,7 @@ from core.applications.subscriptions.models import Plan
 from core.applications.subscriptions.models import PlanFeature
 from core.applications.subscriptions.models import Subscription
 from core.applications.users import services
-from core.applications.users.models import AdminMembershipDetail
+from core.applications.users.models import AdminMembershipDetail, State
 from core.applications.users.models import BusinessType
 from core.applications.users.models import Membership
 from core.applications.users.models import Organization
@@ -365,3 +365,9 @@ class SubscriptionAdmin(admin.ModelAdmin):
     search_fields = ["organization__name"]
     raw_id_fields = ["organization"]
     ordering = ["-created_at"]
+
+@admin.register(State)
+class StateAdmin(admin.ModelAdmin):
+    list_display = ("name", "country", "code")
+    list_filter = ("country",)
+    search_fields = ("name",)
