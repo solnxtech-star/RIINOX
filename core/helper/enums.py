@@ -332,3 +332,9 @@ class StaffSizeChoices(TextChoices):
     SIX_TO_TEN = "6-10", _("6–10")
     ELEVEN_TO_FIFTY = "11-50", _("11–50")
     FIFTY_PLUS = "50+", _("50+")
+
+
+class InvitationStatus(TextChoices):
+    PENDING = "pending", _("Pending")
+    ACCEPTED = "accepted", _("Accepted")
+    REVOKED = "revoked", _("Revoked")

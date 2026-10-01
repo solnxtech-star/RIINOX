@@ -3,6 +3,7 @@ from typing import ClassVar
 
 import auto_prefetch
 from django.contrib.auth.models import AbstractUser
+from django.core.exceptions import ValidationError
 from django.db.models import CASCADE
 from django.db.models import PROTECT
 from django.db.models import SET_NULL
@@ -23,13 +24,16 @@ from django.db.models import TextField
 from django.db.models import UniqueConstraint
 from django.db.models import UUIDField
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from core.applications.users.queryset import BusinessTypeManager
+from core.applications.users.queryset import InvitationManager
 from core.applications.users.queryset import MembershipManager
 from core.applications.users.queryset import OrganizationBusinessTypeManager
 from core.applications.users.queryset import OrganizationManager
 from core.applications.users.queryset import RoleManager
+from core.helper.enums import InvitationStatus
 from core.helper.enums import StaffSizeChoices
 from core.helper.media import MediaHelper
 from core.helper.models import TimeBasedModel
@@ -370,62 +374,127 @@ class User(AbstractUser):
         """Return all organizations the user is an accepted member of."""
         return Organization.objects.filter(memberships__user=self, memberships__accepted=True)
 
+class Invitation(TimeBasedModel):
+    """
+    An offer to join an organization with a given role. It exists before the
+    invitee has an account. Accepting it creates a Membership; the Invitation
+    is kept as history and is never deleted (PRD §44).
+    """
+
+    organization = auto_prefetch.ForeignKey(
+        "users.Organization", on_delete=CASCADE, related_name="invitations"
+    )
+    name = CharField(_("Invitee name"), max_length=255)
+    email = EmailField(_("Invitee email"))  # normalized to lowercase in save()
+    role = auto_prefetch.ForeignKey(
+        "users.Role", on_delete=PROTECT, related_name="invitations"
+    )
+    status = CharField(
+        max_length=20, choices=InvitationStatus.choices, default=InvitationStatus.PENDING
+    )
+
+    # Only the SHA-256 of the token is stored; the raw token exists only in the email.
+    token_hash = CharField(max_length=64, unique=True)
+    expires_at = DateTimeField()
+    last_sent_at = DateTimeField(null=True, blank=True)
+
+    invited_by = auto_prefetch.ForeignKey(
+        "users.User", on_delete=SET_NULL, null=True, related_name="sent_invitations"
+    )
+    accepted_by = auto_prefetch.ForeignKey(
+        "users.User", on_delete=SET_NULL, null=True, blank=True,
+        related_name="accepted_invitations",
+    )
+    accepted_at = DateTimeField(null=True, blank=True)
+    revoked_at = DateTimeField(null=True, blank=True)
+
+    objects = InvitationManager()
+
+    class Meta(auto_prefetch.Model.Meta):
+        verbose_name = _("Invitation")
+        verbose_name_plural = _("Invitations")
+        ordering = ["-created_at"]
+        constraints = [
+            # At most one live invite per email per organization; revoked and
+            # accepted invites don't block re-inviting.
+            UniqueConstraint(
+                fields=["organization", "email"],
+                condition=Q(status=InvitationStatus.PENDING),
+                name="unique_pending_invitation_per_org_email",
+            ),
+        ]
+        indexes = [
+            Index(fields=["organization", "status"]),
+            Index(fields=["email"]),
+        ]
+
+    def __str__(self):
+        return f"{self.email} → {self.organization_id} ({self.status})"
+
+    def clean(self):
+        super().clean()
+        if self.role_id and self.organization_id and self.role.organization_id != self.organization_id:
+            raise ValidationError({"role": _("Role must belong to the same organization.")})
+
+    def save(self, *args, **kwargs):
+        self.email = self.email.strip().lower()
+        super().save(*args, **kwargs)
+
+    @property
+    def is_expired(self):
+        return self.status == InvitationStatus.PENDING and self.expires_at <= timezone.now()
+
+    @property
+    def is_usable(self):
+        return self.status == InvitationStatus.PENDING and not self.is_expired
+
+    @property
+    def display_status(self):
+        """Status for API/UI, including the derived 'expired'."""
+        return "expired" if self.is_expired else self.status
+
 
 class Membership(TimeBasedModel):
     """
-    Ties a User to an Organization with a specific Role. A pending
-    invitation is a Membership row with `user` unset and `accepted=False`;
-    it becomes a full membership once the invited person signs up/accepts.
+    A user's membership in an organization with a specific role. Only real
+    members live here. Pre-acceptance state lives on Invitation.
     """
 
     user = auto_prefetch.ForeignKey(
-        "users.User",
-        on_delete=CASCADE,
-        related_name="memberships",
-        null=True,
-        blank=True,
+        "users.User", on_delete=CASCADE, related_name="memberships"
     )
     organization = auto_prefetch.ForeignKey(
-        "users.Organization",
-        on_delete=CASCADE,
-        related_name="memberships",
+        "users.Organization", on_delete=CASCADE, related_name="memberships"
     )
     role = auto_prefetch.ForeignKey(
-        "users.Role",
-        on_delete=PROTECT,
-        related_name="memberships",
+        "users.Role", on_delete=PROTECT, related_name="memberships",
         help_text=_("Must belong to the same organization as this membership."),
     )
     is_active = BooleanField(default=True)
+    # Provenance: the invitation that created this membership (null for the org creator).
+    invitation = auto_prefetch.OneToOneField(
+        "users.Invitation", on_delete=SET_NULL, null=True, blank=True,
+        related_name="membership",
+    )
 
-    # Invitation fields
-    invited_email = EmailField(_("Invited Email"), null=True, blank=True)
-    invite_token = UUIDField(default=uuid.uuid4, unique=True, editable=False)
-    accepted = BooleanField(default=False)
-    expires_at = DateTimeField(default=default_invite_expiry)
     objects = MembershipManager()
+
     class Meta(auto_prefetch.Model.Meta):
         verbose_name = _("Membership")
         verbose_name_plural = _("Memberships")
         ordering = ["organization", "-created_at"]
         constraints: ClassVar = [
             UniqueConstraint(fields=["user", "organization"], name="unique_membership_per_user_org"),
-            UniqueConstraint(
-                fields=["organization", "invited_email"],
-                name="unique_pending_invite_per_org_email",
-                condition=Q(accepted=False, invited_email__isnull=False),
-            ),
         ]
-        indexes = [
-            Index(fields=["organization", "role"]),
-        ]
+        indexes = [Index(fields=["organization", "role"])]
 
     def __str__(self):
-        if self.user:
-            return f"{self.user.email} in {self.organization.name} as {self.role.name}"
-        return f"Invitation for {self.invited_email} to {self.organization.name} as {self.role.name}"
+        return f"{self.user.email} in {self.organization.name} as {self.role.name}"
 
-
+    def clean(self):
+        super().clean()
+        if self.role_id and self.organization_id and self.role.organization_id != self.organization_id:
+            raise ValidationError({"role": _("Role must belong to the same organization.")})
 
 
 class OwnerMembershipDetail(TimeBasedModel):

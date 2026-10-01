@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from core.applications.users.defaults import MANAGER_ROLE_SLUGS
 from core.applications.users.defaults import OWNER_ROLE_SLUG
+from core.helper.enums import InvitationStatus
 
 
 class BusinessTypeQuerySet(auto_prefetch.QuerySet):
@@ -142,6 +143,23 @@ class OrganizationQuerySet(auto_prefetch.QuerySet):
         return self.with_plan().with_business_types()
 
 
+class InvitationQuerySet(auto_prefetch.QuerySet):
+    def for_organization(self, organization):
+        """Every tenant-facing read must start here."""
+        return self.filter(organization=organization)
+
+    def pending(self):
+        return self.filter(status=InvitationStatus.PENDING, expires_at__gt=timezone.now())
+
+    def expired(self):
+        return self.filter(status=InvitationStatus.PENDING, expires_at__lte=timezone.now())
+
+    def for_email(self, email):
+        return self.filter(email__iexact=email)
+
+    def with_related(self):
+        return self.select_related("role", "invited_by", "organization")
+
 # ---------------------------------------------------------------------------
 # Managers (used as `objects = ...Manager()` on the models)
 # ---------------------------------------------------------------------------
@@ -150,3 +168,4 @@ OrganizationBusinessTypeManager = auto_prefetch.Manager.from_queryset(Organizati
 MembershipManager = auto_prefetch.Manager.from_queryset(MembershipQuerySet)
 RoleManager = auto_prefetch.Manager.from_queryset(RoleQuerySet)
 OrganizationManager = auto_prefetch.Manager.from_queryset(OrganizationQuerySet)
+InvitationManager = auto_prefetch.Manager.from_queryset(InvitationQuerySet)
