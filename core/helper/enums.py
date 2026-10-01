@@ -332,3 +332,35 @@ class StaffSizeChoices(TextChoices):
     SIX_TO_TEN = "6-10", _("6–10")
     ELEVEN_TO_FIFTY = "11-50", _("11–50")
     FIFTY_PLUS = "50+", _("50+")
+
+class SalePaymentStatusChoices(TextChoices):
+    UNPAID = "unpaid", _("Unpaid")
+    PARTIALLY_PAID = "partially_paid", _("Partially Paid")
+    PAID = "paid", _("Paid")
+    REFUNDED = "refunded", _("Refunded")
+
+class SaleFulfillmentStatusChoices(TextChoices):
+    UNFULFILLED = "unfulfilled", _("Unfulfilled")
+    PARTIALLY_FULFILLED = "partially_fulfilled", _("Partially Fulfilled")
+    FULFILLED = "fulfilled", _("Fulfilled")
+    CANCELED = "canceled", _("Canceled")
+
+class DiscountTypeChoices(TextChoices):
+    PERCENTAGE = "percentage", _("Percentage")
+    FIXED = "fixed", _("Fixed Amount")
+
+class RefundMethodChoices(TextChoices):
+    STORE_CREDIT = "store_credit", _("Store Credit")
+    ORIGINAL_PAYMENT = "original_payment", _("Original Payment")
+    CASH = "cash", _("Cash")
+
+class ItemConditionChoices(TextChoices):
+    NEW = "new", _("New")
+    OPEN_BOX = "open_box", _("Open Box")
+    DAMAGED = "damaged", _("Damaged")
+    DEFECTIVE = "defective", _("Defective")
+
+class RestockActionChoices(TextChoices):
+    RETURN_TO_STOCK = "return_to_stock", _("Return to Stock")
+    WRITE_OFF = "write_off", _("Write Off")
+    QUARANTINE = "quarantine", _("Quarantine")

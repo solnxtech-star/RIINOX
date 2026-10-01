@@ -40,15 +40,17 @@ def create_ledger_for_sale(sale):
     InventoryLedgerEntry.objects.bulk_create(entries)
 
 def update_inventory_for_return(sale_return):
-    """Add stock back to the specific warehouse/location."""
+    """Add stock back to the specific warehouse/location only if returning to stock."""
+    from core.helper.enums import RestockActionChoices
     for item in sale_return.items.all():
-        inventory = Inventory.objects.select_for_update().get(
-            product=item.sale_item.product,
-            variant=item.sale_item.variant,
-            warehouse=sale_return.original_sale.location.warehouse
-        )
-        inventory.quantity += item.quantity
-        inventory.save(update_fields=['quantity'])
+        if item.restock_action == RestockActionChoices.RETURN_TO_STOCK:
+            inventory = Inventory.objects.select_for_update().get(
+                product=item.sale_item.product,
+                variant=item.sale_item.variant,
+                warehouse=sale_return.original_sale.location.warehouse
+            )
+            inventory.quantity += item.quantity
+            inventory.save(update_fields=['quantity'])
 
 def create_ledger_for_return(sale_return):
     """Create a Transaction and immutable ledger entries for the return."""

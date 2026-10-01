@@ -42,6 +42,13 @@ urlpatterns += [
             namespace="users",
         ),
     ),
+    path(
+        "api/",
+        include(
+            "core.applications.sales.api.routers",
+            namespace="sales",
+        ),
+    ),
     path("api/auth/", include("core.applications.users.api.jwt")),
     # DRF auth token
     path("api/auth-token/", obtain_auth_token, name="obtain_auth_token"),
