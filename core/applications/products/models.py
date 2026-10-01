@@ -213,14 +213,14 @@ class Product(TimeBasedModel):
         default=0,
         help_text=_("Stock quantity recorded when the product was first created."),
     )
-    current_stock = models.PositiveIntegerField(
-        default=0,
-        editable=False,
-        help_text=_(
-            "Denormalized read cache summed across all warehouses. "
-            "Source of truth is InventoryTransaction — do not edit directly.",
-        ),
-    )
+    @property
+    def current_stock(self):
+        """
+        Dynamically computed from Inventory records to ensure 
+        Inventory is the strict single source of truth.
+        """
+        return sum(inv.quantity for inv in self.inventory_records.all())
+
 
     status = models.CharField(
         max_length=20,

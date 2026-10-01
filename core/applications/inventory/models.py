@@ -69,6 +69,7 @@ class Inventory(TimeBasedModel):
         return f"{self.product} @ {self.warehouse}: {self.quantity}"
 
 
+
 class InventoryLedgerEntry(TimeBasedModel):
     """
     The inventory effect of a Transaction. Replaces the old InventoryTransaction model.

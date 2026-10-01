@@ -1,13 +1,12 @@
 from django.db import transaction
 from core.applications.sales.models import Sale, SaleItem, SaleReturn, SaleReturnItem
 
-def mock_update_inventory(sale: Sale):
-    """Mock implementation for inventory updates."""
-    pass
-
-def mock_create_ledger(sale: Sale):
-    """Mock implementation for ledger creation."""
-    pass
+from core.applications.inventory.services import (
+    update_inventory_for_sale,
+    create_ledger_for_sale,
+    update_inventory_for_return,
+    create_ledger_for_return
+)
 
 def mock_create_invoice(sale: Sale):
     """Mock implementation for invoice creation."""
@@ -36,8 +35,8 @@ def create_sale(data: dict) -> Sale:
             SaleItem.objects.create(sale=sale, **item_data)
         
         # Execute external operations
-        mock_update_inventory(sale)
-        mock_create_ledger(sale)
+        update_inventory_for_sale(sale)
+        create_ledger_for_sale(sale)
         mock_create_invoice(sale)
         mock_create_payment(sale)
         mock_create_receipt(sale)
@@ -55,8 +54,8 @@ def create_sale_return(data: dict) -> SaleReturn:
         for item_data in items_data:
             SaleReturnItem.objects.create(sale_return=sale_return, **item_data)
             
-        mock_update_inventory(sale_return.original_sale)
-        mock_create_ledger(sale_return.original_sale)
+        update_inventory_for_return(sale_return)
+        create_ledger_for_return(sale_return)
         mock_create_audit_event(sale_return.original_sale)
         
     return sale_return
