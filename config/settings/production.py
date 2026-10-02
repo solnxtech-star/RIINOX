@@ -92,7 +92,7 @@ SECURE_CONTENT_TYPE_NOSNIFF = env.bool(
 # ------------------------
 STORAGES = {
     "default": {
-        "BACKEND": "storages.backends.s3.S3Storage",
+        "BACKEND": "cloudinary_storage.storage.MediaCloudinaryStorage",
         "OPTIONS": {
             "location": "media",
             "file_overwrite": False,
@@ -101,6 +101,11 @@ STORAGES = {
     "staticfiles": {
         "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
     },
+}
+CLOUDINARY_STORAGE = {
+    "CLOUD_NAME": env("CLOUDINARY_CLOUD_NAME"),
+    "API_KEY": env("CLOUDINARY_API_KEY"),
+    "API_SECRET": env("CLOUDINARY_API_SECRET"),
 }
 # MEDIA_URL = f"https://{aws_s3_domain}/media/"
 
