@@ -401,6 +401,17 @@ wheels = [
 ]
 
 [[package]]
+name = "cloudinary"
+version = "1.36.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "certifi" },
+    { name = "six" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/79/f9/1905554602be08fb1f8478420799cca9885bacead8501bf7515165799e01/cloudinary-1.36.0.tar.gz", hash = "sha256:88571d8ed3366797bdbaec87e452471f7e09c1f767f83390efca326dd1cbcc8f", size = 174320, upload-time = "2023-10-02T15:42:13.924Z" }
+
+[[package]]
 name = "colorama"
 version = "0.4.6"
 source = { registry = "https://pypi.org/simple" }
@@ -651,6 +662,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/aa/11/0c8b412869b4fda72828572068312b10aafe7ccef7b41af3633af31f9d4b/django_celery_beat-2.8.1.tar.gz", hash = "sha256:dfad0201c0ac50c91a34700ef8fa0a10ee098cc7f3375fe5debed79f2204f80a", size = 175802, upload-time = "2025-05-13T06:58:29.246Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/61/e5/3a0167044773dee989b498e9a851fc1663bea9ab879f1179f7b8a827ac10/django_celery_beat-2.8.1-py3-none-any.whl", hash = "sha256:da2b1c6939495c05a551717509d6e3b79444e114a027f7b77bf3727c2a39d171", size = 104833, upload-time = "2025-05-13T06:58:27.309Z" },
+]
+
+[[package]]
+name = "django-cloudinary-storage"
+version = "0.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cloudinary" },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/72/da/6072905410b869566d3cb9f6706803d0a9d2052d90e0b8ed783031acdb6d/django-cloudinary-storage-0.3.0.tar.gz", hash = "sha256:debd403a5f225c9d35c4af508ff4abc7fdc262129464134b60b2feeb2c44d3e1", size = 21669, upload-time = "2020-08-23T22:19:57.854Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fe/e2/e52f63ddafa0985e2af70197c4d3e18963d0ea854083fc23705b88014891/django_cloudinary_storage-0.3.0-py3-none-any.whl", hash = "sha256:95c855c7334141b2a485ea7eb5716de87bb6ce0d848e205debb3a3ab7bbbd49a", size = 18866, upload-time = "2020-08-23T22:19:55.767Z" },
 ]
 
 [[package]]
@@ -2174,12 +2198,14 @@ dependencies = [
     { name = "celery" },
     { name = "channels", extra = ["daphne"] },
     { name = "channels-redis" },
+    { name = "cloudinary" },
     { name = "crispy-bootstrap5" },
     { name = "django" },
     { name = "django-allauth", extra = ["mfa"] },
     { name = "django-anymail", extra = ["sendgrid"] },
     { name = "django-auto-prefetch" },
     { name = "django-celery-beat" },
+    { name = "django-cloudinary-storage" },
     { name = "django-cors-headers" },
     { name = "django-countries" },
     { name = "django-crispy-forms" },
@@ -2254,12 +2280,14 @@ requires-dist = [
     { name = "celery", specifier = "==5.5.3" },
     { name = "channels", extras = ["daphne"], specifier = "==4.1.0" },
     { name = "channels-redis", specifier = "==4.2.0" },
+    { name = "cloudinary", specifier = "==1.36.0" },
     { name = "crispy-bootstrap5", specifier = "==2025.6" },
     { name = "django", specifier = "==5.1.12" },
     { name = "django-allauth", extras = ["mfa"], specifier = "==65.11.1" },
     { name = "django-anymail", extras = ["sendgrid"], specifier = "==13.1" },
     { name = "django-auto-prefetch", specifier = "==1.9.0" },
     { name = "django-celery-beat", specifier = "==2.8.1" },
+    { name = "django-cloudinary-storage", specifier = "==0.3.0" },
     { name = "django-cors-headers", specifier = "==4.8.0" },
     { name = "django-countries", specifier = ">=9.1.0" },
     { name = "django-crispy-forms", specifier = "==2.4" },

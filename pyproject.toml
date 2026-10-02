@@ -229,4 +229,6 @@ dependencies = [
     "phonenumbers==9.0.39",
     "pycountry>=24.6",
     "django-countries>=9.1.0",
+    "cloudinary==1.36.0",
+    "django-cloudinary-storage==0.3.0",
 ]
