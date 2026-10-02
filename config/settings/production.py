@@ -93,10 +93,10 @@ SECURE_CONTENT_TYPE_NOSNIFF = env.bool(
 STORAGES = {
     "default": {
         "BACKEND": "cloudinary_storage.storage.MediaCloudinaryStorage",
-        "OPTIONS": {
-            "location": "media",
-            "file_overwrite": False,
-        },
+        # "OPTIONS": {
+        #     "location": "media",
+        #     "file_overwrite": False,
+        # },
     },
     "staticfiles": {
         "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
