@@ -1,6 +1,7 @@
 import re
 from typing import Any
 
+from core.applications.users.invitation_services import assignable_roles, mask_email
 import phonenumbers
 from django.utils.translation import gettext_lazy as _
 from drf_spectacular.utils import extend_schema_field
@@ -11,7 +12,7 @@ from core.applications.subscriptions.models import Plan
 from core.applications.users import reference_data
 from core.applications.users import services
 from core.applications.users.errors import domain_errors
-from core.applications.users.models import BusinessType
+from core.applications.users.models import BusinessType, Invitation
 from core.applications.users.models import Membership
 from core.applications.users.models import Organization
 from core.applications.users.models import OrganizationBusinessType
@@ -433,14 +434,18 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
     apart. Load rows with Membership.objects.with_user_and_role().
     """
 
-    user = serializers.SerializerMethodField(help_text="Email of the member, or the invited email for a pending invite")
-    role = serializers.CharField(source="role.name", read_only=True, help_text="Role name, e.g. Administrator")
+    user = serializers.SerializerMethodField(
+        help_text="Email of the member, or the invited email for a pending invite"
+    )
+    role = serializers.CharField(
+        source="role.name", read_only=True, help_text="Role name, e.g. Administrator"
+    )
     active = serializers.BooleanField(source="is_active", read_only=True)
     joined_at = serializers.DateTimeField(source="created_at", read_only=True)
 
     class Meta:
         model = Membership
-        fields = ["id", "user", "role", "active", "accepted", "joined_at"]
+        fields = ["id", "user", "role", "active", "joined_at"]
         read_only_fields = fields
 
     @extend_schema_field(serializers.EmailField())
@@ -462,41 +467,40 @@ class RoleSerializer(serializers.ModelSerializer):
 # ===========================================================================
 class MembershipSerializer(serializers.ModelSerializer):
     """
-    Membership detail (read-only). Shows the user if attached, otherwise the
-    invited email. Load with Membership.objects.with_user_and_role() and
-    select_related("organization").
+    Membership detail (read-only). Every row is a real member; pending
+    invitations are a separate resource. Load with
+    Membership.objects.with_user_and_role().select_related("organization").
     """
 
-    user = serializers.StringRelatedField(read_only=True)
-    user_email = serializers.SerializerMethodField()
-    organization = serializers.StringRelatedField(read_only=True)
+    user_name = serializers.CharField(source="user.name", read_only=True)
+    user_email = serializers.EmailField(source="user.email", read_only=True)
+    organization_name = serializers.CharField(source="organization.name", read_only=True)
     role_name = serializers.CharField(source="role.name", read_only=True)
+    role_slug = serializers.CharField(source="role.slug", read_only=True)
 
     class Meta:
         model = Membership
         fields = [
             "id",
             "user",
+            "user_name",
             "user_email",
-            "invited_email",
             "organization",
+            "organization_name",
             "role",
             "role_name",
+            "role_slug",
             "is_active",
-            "accepted",
-            "expires_at",
+            "created_at",
         ]
         read_only_fields = fields
-
-    @extend_schema_field(serializers.EmailField(allow_null=True))
-    def get_user_email(self, obj):
-        return obj.user.email if obj.user_id else obj.invited_email
 
 
 class MembershipUpdateSerializer(serializers.ModelSerializer):
     """
     Body of PUT/PATCH /memberships/{id}/: change a member's role and/or active
     flag. Who may change whom is enforced in services.update_membership.
+    (Unchanged: `role` and `is_active` still exist on Membership.)
     """
 
     class Meta:
@@ -507,7 +511,9 @@ class MembershipUpdateSerializer(serializers.ModelSerializer):
         fields = super().get_fields()
         # Only roles of the membership's own organization can be named.
         organization = self.instance.organization if isinstance(self.instance, Membership) else None
-        fields["role"].queryset = Role.objects.for_organization(organization) if organization else Role.objects.none()
+        fields["role"].queryset = (
+            Role.objects.for_organization(organization) if organization else Role.objects.none()
+        )
         return fields
 
     def update(self, instance, validated_data):
@@ -524,79 +530,136 @@ class MembershipUpdateSerializer(serializers.ModelSerializer):
 
 
 # ===========================================================================
-# 5. Invitations
+# Invitations: team side (authenticated, organization-scoped)
 # ===========================================================================
-class InvitationCreateSerializer(serializers.ModelSerializer):
+class InvitationCreateSerializer(serializers.Serializer):
     """
-    Body of POST /memberships/invite/.
+    Body of POST /organizations/{organization_id}/invitations/.
 
-    `organization` and `role` can only name records the caller can see: the
-    organization must be one they belong to, and the role must belong to one of
-    those organizations. Whether the caller may invite (Owner/Administrator),
-    and which roles they may hand out, is decided in services.invite_member.
+    The organization is never in the body: it comes from the URL, verified
+    against the caller's membership. The view passes `organization` and
+    `actor_membership` in the serializer context.
     """
 
-    invited_email = serializers.EmailField()
-
-    class Meta:
-        model = Membership
-        fields = ["id", "invited_email", "role", "organization"]
-        read_only_fields = ["id"]
-        # Duplicate/pending-invite rules are enforced (and refresh expired invites) in the service.
-        validators = []
+    name = serializers.CharField(max_length=255)
+    email = serializers.EmailField()
+    role = serializers.PrimaryKeyRelatedField(
+        queryset=Role.objects.none(),
+        error_messages={"does_not_exist": "Select a valid role for this organization."},
+    )
 
     def get_fields(self):
         fields = super().get_fields()
-        user = getattr(self.context.get("request"), "user", None)
-        organizations = Organization.objects.for_user(user)
-        fields["organization"].queryset = organizations
-        fields["role"].queryset = Role.objects.filter(organization__in=organizations)
+        organization = self.context.get("organization")
+        actor_membership = self.context.get("actor_membership")
+        fields["role"].queryset = (
+            assignable_roles(organization, actor_membership)
+            if organization and actor_membership
+            else Role.objects.none()
+        )
         return fields
 
-    def create(self, validated_data):
-        with domain_errors():
-            return services.invite_member(
-                organization=validated_data["organization"],
-                invited_by=self.context["request"].user,
-                email=validated_data["invited_email"],
-                role=validated_data["role"],
-            )
+    def validate_email(self, value):
+        return value.strip().lower()
 
 
-class InvitationTokenSerializer(serializers.Serializer):
-    token = serializers.UUIDField(help_text="Unique invitation token sent to the invited user.")
+class InvitationSerializer(serializers.ModelSerializer):
+    """Staff-side list/detail. Never exposes the token or its hash."""
+
+    role_name = serializers.CharField(source="role.name", read_only=True)
+    invited_by_name = serializers.CharField(source="invited_by.name", read_only=True, allow_null=True)
+    # Includes the derived "expired", so the UI needs no date logic.
+    status = serializers.CharField(source="display_status", read_only=True)
+
+    class Meta:
+        model = Invitation
+        fields = [
+            "id",
+            "name",
+            "email",
+            "role",
+            "role_name",
+            "status",
+            "expires_at",
+            "last_sent_at",
+            "invited_by_name",
+            "accepted_at",
+            "revoked_at",
+            "created_at",
+        ]
+        read_only_fields = fields
 
 
+class InvitationRevokeSerializer(serializers.Serializer):
+    """Optional body of POST .../invitations/{id}/revoke/; the reason goes to the audit log."""
+
+    reason = serializers.CharField(max_length=500, required=False, allow_blank=True, default="")
+
+
+class RoleOptionSerializer(serializers.ModelSerializer):
+    """Feeds the "Assign Role" dropdown (use with services.invitations.assignable_roles)."""
+
+    class Meta:
+        model = Role
+        fields = ["id", "name", "slug", "description"]
+        read_only_fields = fields
+
+
+# ===========================================================================
+# Invitations: public side (token holder)
+# ===========================================================================
 class InvitationPreviewSerializer(serializers.ModelSerializer):
     """
-    Public preview of an invitation, shown before the invitee signs up or logs
-    in. Deliberately minimal: no ids, no token, nothing about other members.
+    Public preview shown before the invitee signs up or logs in. Deliberately
+    minimal: no ids, no token, no other members, and a masked email.
     """
 
     organization = serializers.CharField(source="organization.name", read_only=True)
     role = serializers.CharField(source="role.name", read_only=True)
+    invited_email = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Invitation
+        fields = ["organization", "role", "name", "invited_email", "expires_at"]
+        read_only_fields = fields
+
+    @extend_schema_field(serializers.CharField())
+    def get_invited_email(self, obj):
+        return mask_email(obj.email)
+
+
+class AcceptInvitationSerializer(serializers.Serializer):
+    """
+    Body of POST /invitations/accept/. Shape only: every rule (verified email,
+    matching address, expiry, seats) lives in services.accept_invitation.
+    """
+
+    token = serializers.RegexField(
+        r"^[\w-]{20,128}$",
+        help_text="The invitation token from the email link.",
+        error_messages={"invalid": "Invalid invitation token."},
+    )
+
+
+class InvitationAcceptedSerializer(serializers.ModelSerializer):
+    """Response of a successful accept: what the frontend needs to switch organization."""
+
+    membership_id = serializers.ReadOnlyField(source="id")
+    organization_id = serializers.ReadOnlyField()
+    organization_name = serializers.CharField(source="organization.name", read_only=True)
+    role = serializers.CharField(source="role.name", read_only=True)
 
     class Meta:
         model = Membership
-        fields = ["organization", "role", "invited_email", "expires_at"]
+        fields = ["membership_id", "organization_id", "organization_name", "role"]
         read_only_fields = fields
 
 
-class AcceptInvitationSerializer(InvitationTokenSerializer):
-    """
-    Body of POST /invitations/accept/.
+class ErrorSerializer(serializers.Serializer):
+    """Shape of every business-rule error (PRD §46). Used for API docs only."""
 
-    The user must be signed in, with a verified email matching the invited
-    address. Every check lives in services.accept_invitation.
-    """
-
-    def save(self, **kwargs):
-        with domain_errors():
-            return services.accept_invitation(
-                user=self.context["request"].user,
-                token=self.validated_data["token"],
-            )
-
+    code = serializers.CharField()
+    detail = serializers.CharField()
 
 class OptionSerializer(serializers.Serializer):
     code = serializers.CharField()

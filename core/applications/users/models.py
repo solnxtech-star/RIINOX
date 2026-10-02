@@ -374,7 +374,25 @@ class User(AbstractUser):
         """Return all organizations the user is an accepted member of."""
         return Organization.objects.filter(memberships__user=self, memberships__accepted=True)
 
-class Invitation(TimeBasedModel):
+class RoleOrganizationMatchMixin:
+    """
+    A role belongs to exactly one organization, so any model that pairs a role
+    with an organization must keep them consistent. clean() covers the admin
+    and forms; it is not called by a plain .save(), so services must enforce
+    the same rule.
+    """
+
+    def clean(self):
+        super().clean()
+        if (
+            self.role_id
+            and self.organization_id
+            and self.role.organization_id != self.organization_id
+        ):
+            raise ValidationError({"role": _("Role must belong to the same organization.")})
+
+
+class Invitation(RoleOrganizationMatchMixin, TimeBasedModel):
     """
     An offer to join an organization with a given role. It exists before the
     invitee has an account. Accepting it creates a Membership; the Invitation
@@ -399,7 +417,8 @@ class Invitation(TimeBasedModel):
     last_sent_at = DateTimeField(null=True, blank=True)
 
     invited_by = auto_prefetch.ForeignKey(
-        "users.User", on_delete=SET_NULL, null=True, related_name="sent_invitations"
+        "users.User", on_delete=SET_NULL, null=True, blank=True,
+        related_name="sent_invitations",
     )
     accepted_by = auto_prefetch.ForeignKey(
         "users.User", on_delete=SET_NULL, null=True, blank=True,
@@ -431,11 +450,6 @@ class Invitation(TimeBasedModel):
     def __str__(self):
         return f"{self.email} → {self.organization_id} ({self.status})"
 
-    def clean(self):
-        super().clean()
-        if self.role_id and self.organization_id and self.role.organization_id != self.organization_id:
-            raise ValidationError({"role": _("Role must belong to the same organization.")})
-
     def save(self, *args, **kwargs):
         self.email = self.email.strip().lower()
         super().save(*args, **kwargs)
@@ -453,27 +467,42 @@ class Invitation(TimeBasedModel):
         """Status for API/UI, including the derived 'expired'."""
         return "expired" if self.is_expired else self.status
 
-
-class Membership(TimeBasedModel):
+class Membership(RoleOrganizationMatchMixin, TimeBasedModel):
     """
-    A user's membership in an organization with a specific role. Only real
-    members live here. Pre-acceptance state lives on Invitation.
+    A user's membership in an organization with a specific role.
+
+    Only real members live here. Pre-acceptance state (name, email, token,
+    expiry, revocation) lives on Invitation; accepting an invitation creates
+    a Membership and links back to it through `invitation`.
     """
 
     user = auto_prefetch.ForeignKey(
-        "users.User", on_delete=CASCADE, related_name="memberships"
+        "users.User",
+        on_delete=CASCADE,
+        related_name="memberships",
     )
     organization = auto_prefetch.ForeignKey(
-        "users.Organization", on_delete=CASCADE, related_name="memberships"
+        "users.Organization",
+        on_delete=CASCADE,
+        related_name="memberships",
     )
     role = auto_prefetch.ForeignKey(
-        "users.Role", on_delete=PROTECT, related_name="memberships",
+        "users.Role",
+        on_delete=PROTECT,
+        related_name="memberships",
         help_text=_("Must belong to the same organization as this membership."),
     )
-    is_active = BooleanField(default=True)
-    # Provenance: the invitation that created this membership (null for the org creator).
+    is_active = BooleanField(
+        default=True,
+        help_text=_("Inactive memberships grant nothing (suspended or removed member)."),
+    )
+    # Provenance: the invitation that created this membership.
+    # Null for the organization creator, who joins without an invite.
     invitation = auto_prefetch.OneToOneField(
-        "users.Invitation", on_delete=SET_NULL, null=True, blank=True,
+        "users.Invitation",
+        on_delete=SET_NULL,
+        null=True,
+        blank=True,
         related_name="membership",
     )
 
@@ -484,18 +513,17 @@ class Membership(TimeBasedModel):
         verbose_name_plural = _("Memberships")
         ordering = ["organization", "-created_at"]
         constraints: ClassVar = [
-            UniqueConstraint(fields=["user", "organization"], name="unique_membership_per_user_org"),
+            UniqueConstraint(
+                fields=["user", "organization"],
+                name="unique_membership_per_user_org",
+            ),
         ]
-        indexes = [Index(fields=["organization", "role"])]
+        indexes = [
+            Index(fields=["organization", "role"]),
+        ]
 
     def __str__(self):
         return f"{self.user.email} in {self.organization.name} as {self.role.name}"
-
-    def clean(self):
-        super().clean()
-        if self.role_id and self.organization_id and self.role.organization_id != self.organization_id:
-            raise ValidationError({"role": _("Role must belong to the same organization.")})
-
 
 class OwnerMembershipDetail(TimeBasedModel):
     membership = OneToOneField("users.Membership", on_delete=CASCADE, related_name="owner_detail")

@@ -1,5 +1,7 @@
 from typing import Final
 
+from core.helper.enums import PermissionCode
+
 ALL: Final = "*"
 
 # ---------------------------------------------------------------------------
@@ -128,3 +130,96 @@ NIGERIAN_STATES: Final = (
     "Ondo", "Osun", "Oyo", "Plateau", "Rivers", "Sokoto", "Taraba", "Yobe",
     "Zamfara",
 )
+
+
+
+P = PermissionCode
+
+# defaults.py (below PermissionCode and `P = PermissionCode`)
+
+PERMISSION_MODULES: dict[str, tuple] = {
+    "dashboard": (P.VIEW_DASHBOARD, P.VIEW_DASHBOARD_PROFIT),
+    "products": (
+        P.VIEW_PRODUCTS, P.CREATE_PRODUCT, P.EDIT_PRODUCT, P.ARCHIVE_PRODUCT,
+        P.EDIT_SELLING_PRICE, P.VIEW_PRODUCT_COSTS, P.EDIT_PRODUCT_COSTS,
+        P.MANAGE_CATEGORIES,
+    ),
+    "customers": (P.VIEW_CUSTOMERS, P.MANAGE_CUSTOMERS, P.MANAGE_CUSTOMER_CREDIT),
+    "suppliers": (P.VIEW_SUPPLIERS, P.MANAGE_SUPPLIERS),
+    "purchases": (P.VIEW_PURCHASES, P.CREATE_PURCHASE, P.RECEIVE_GOODS),
+    "inventory": (
+        P.VIEW_INVENTORY, P.REQUEST_STOCK_ADJUSTMENT,
+        P.APPROVE_STOCK_ADJUSTMENT, P.TRANSFER_STOCK,
+    ),
+    "sales": (P.VIEW_SALES, P.CREATE_SALE, P.APPLY_DISCOUNT, P.CREATE_SALE_RETURN),
+    "invoices": (P.VIEW_INVOICES, P.CANCEL_INVOICE),
+    "receipts": (P.VIEW_RECEIPTS, P.CANCEL_RECEIPT),
+    "payments": (P.VIEW_PAYMENTS, P.RECORD_PAYMENT),
+    "reports": (P.VIEW_SALES_REPORTS, P.VIEW_INVENTORY_REPORTS, P.VIEW_FINANCIAL_REPORTS),
+    "approvals": (P.VIEW_APPROVALS, P.APPROVE_REQUESTS),
+    "team": (
+        P.VIEW_TEAM, P.INVITE_TEAM_MEMBER, P.REVOKE_INVITATION,
+        P.EDIT_TEAM_MEMBER, P.REMOVE_TEAM_MEMBER,
+    ),
+    "roles": (P.VIEW_ROLES, P.MANAGE_ROLES),
+    "audit": (P.VIEW_AUDIT_LOGS,),
+    "settings": (P.VIEW_SETTINGS, P.EDIT_SETTINGS, P.MANAGE_DOCUMENT_TEMPLATES),
+    "billing": (P.MANAGE_BILLING,),
+    "locations": (P.MANAGE_LOCATIONS,),
+}
+
+MODULE_BY_CODE: dict[str, str] = {
+    code: module
+    for module, codes in PERMISSION_MODULES.items()
+    for code in codes
+}
+
+
+ALL_PERMISSIONS = frozenset(P.values)
+
+_SELLING = {P.VIEW_DASHBOARD, P.VIEW_PRODUCTS, P.VIEW_CUSTOMERS, P.VIEW_SALES, P.CREATE_SALE,
+            P.VIEW_INVOICES, P.VIEW_RECEIPTS, P.VIEW_PAYMENTS, P.RECORD_PAYMENT}
+
+# Slug -> permission codes. Owner/Administrator get everything (§55). A
+# "Custom Role" is created by the organization, so it is not seeded.
+DEFAULT_ROLE_PERMISSIONS: dict[str, frozenset] = {
+    "owner": ALL_PERMISSIONS,
+    "administrator": ALL_PERMISSIONS,
+    "manager": frozenset(_SELLING | {
+        P.CREATE_PRODUCT, P.EDIT_PRODUCT, P.EDIT_SELLING_PRICE, P.MANAGE_CUSTOMERS,
+        P.APPLY_DISCOUNT, P.CREATE_SALE_RETURN, P.VIEW_INVENTORY, P.REQUEST_STOCK_ADJUSTMENT,
+        P.VIEW_PURCHASES, P.VIEW_SUPPLIERS, P.VIEW_APPROVALS, P.APPROVE_REQUESTS,
+        P.VIEW_SALES_REPORTS, P.VIEW_INVENTORY_REPORTS, P.VIEW_TEAM,
+    }),
+    "sales-manager": frozenset(_SELLING | {
+        P.EDIT_SELLING_PRICE, P.MANAGE_CUSTOMERS, P.APPLY_DISCOUNT, P.CREATE_SALE_RETURN,
+        P.VIEW_APPROVALS, P.APPROVE_REQUESTS, P.VIEW_SALES_REPORTS, P.VIEW_INVENTORY,
+    }),
+    "sales-representative": frozenset(_SELLING | {P.MANAGE_CUSTOMERS}),
+    "inventory-manager": frozenset({
+        P.VIEW_DASHBOARD, P.VIEW_PRODUCTS, P.VIEW_INVENTORY, P.REQUEST_STOCK_ADJUSTMENT,
+        P.APPROVE_STOCK_ADJUSTMENT, P.TRANSFER_STOCK, P.VIEW_PURCHASES, P.CREATE_PURCHASE,
+        P.RECEIVE_GOODS, P.VIEW_SUPPLIERS, P.MANAGE_SUPPLIERS, P.VIEW_INVENTORY_REPORTS,
+        P.VIEW_APPROVALS, P.APPROVE_REQUESTS, P.MANAGE_CATEGORIES,
+    }),
+    "inventory-staff": frozenset({
+        P.VIEW_PRODUCTS, P.VIEW_INVENTORY, P.REQUEST_STOCK_ADJUSTMENT, P.VIEW_PURCHASES, P.RECEIVE_GOODS,
+    }),
+    "accountant": frozenset({
+        P.VIEW_DASHBOARD, P.VIEW_DASHBOARD_PROFIT, P.VIEW_PRODUCTS, P.VIEW_PRODUCT_COSTS,
+        P.VIEW_SALES, P.VIEW_PURCHASES, P.VIEW_INVOICES, P.VIEW_RECEIPTS, P.VIEW_PAYMENTS,
+        P.VIEW_CUSTOMERS, P.VIEW_SUPPLIERS, P.VIEW_SALES_REPORTS, P.VIEW_INVENTORY_REPORTS,
+        P.VIEW_FINANCIAL_REPORTS,
+    }),
+    "finance-officer": frozenset({
+        P.VIEW_DASHBOARD, P.VIEW_DASHBOARD_PROFIT, P.VIEW_PRODUCT_COSTS, P.VIEW_SALES,
+        P.VIEW_PURCHASES, P.VIEW_INVOICES, P.CANCEL_INVOICE, P.VIEW_RECEIPTS, P.CANCEL_RECEIPT,
+        P.VIEW_PAYMENTS, P.RECORD_PAYMENT, P.MANAGE_CUSTOMER_CREDIT, P.VIEW_CUSTOMERS,
+        P.VIEW_SUPPLIERS, P.VIEW_FINANCIAL_REPORTS, P.VIEW_SALES_REPORTS,
+    }),
+    "teacher-staff": frozenset({P.VIEW_DASHBOARD, P.VIEW_CUSTOMERS}),
+    "front-desk": frozenset({
+        P.VIEW_DASHBOARD, P.VIEW_CUSTOMERS, P.MANAGE_CUSTOMERS, P.CREATE_SALE, P.VIEW_SALES,
+        P.VIEW_RECEIPTS, P.RECORD_PAYMENT,
+    }),
+}

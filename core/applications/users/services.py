@@ -18,8 +18,9 @@ from core.applications.users.defaults import ALL
 from core.applications.users.defaults import DEFAULT_ROLE_PERMISSIONS
 from core.applications.users.defaults import DEFAULT_ROLES
 from core.applications.users.defaults import MANAGER_ROLE_SLUGS
+from core.applications.users.defaults import MODULE_BY_CODE
 from core.applications.users.defaults import OWNER_ROLE_SLUG
-from core.applications.users.models import BusinessType
+from core.applications.users.models import BusinessType, Invitation
 from core.applications.users.models import Membership
 from core.applications.users.models import Organization
 from core.applications.users.models import OrganizationBusinessType
@@ -28,6 +29,7 @@ from core.applications.users.models import Permission
 from core.applications.users.models import Role
 from core.applications.users.models import RolePermission
 from core.applications.users.models import State
+from core.helper.enums import PermissionCode
 from core.helper.utils import default_invite_expiry
 from core.helper.utils import send_invitation_email
 
@@ -483,3 +485,32 @@ def set_business_types(
 
     # audit.record(...)  # organization.business_types_changed (previous/new values)
     return organization
+
+def sync_permission_catalog(using=None):
+    """Idempotent: creates missing codes, refreshes names/modules. Never deletes."""
+    for code in PermissionCode:
+        Permission.objects.using(using).update_or_create(
+            code=code.value,
+            defaults={
+                "name": code.value.replace("_", " ").title(),
+                "module": MODULE_BY_CODE[code],
+            },
+        )
+
+
+
+def get_seat_limit(organization) -> int | None:
+    """
+    The plan's `max_users`; None means unlimited.
+
+    """
+    subscription = getattr(organization, "subscription", None)
+    plan = getattr(subscription, "plan", None)
+    return getattr(plan, "max_users", None)
+
+
+def seats_in_use(organization) -> int:
+    """Active members plus live (pending, unexpired) invitations."""
+    members = Membership.objects.for_organization(organization).effective().count()
+    invitations = Invitation.objects.for_organization(organization).pending().count()
+    return members + invitations

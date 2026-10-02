@@ -7,9 +7,11 @@ from drf_spectacular.utils import extend_schema_view
 from drf_spectacular.utils import inline_serializer
 from rest_framework import serializers
 
+from core.applications.users.api.filters import INVITATION_STATUS_FILTERS
 from core.applications.users.api.serializers import (
     organization_serializers as org_serializers,
 )
+from core.applications.users.errors import InvitationErrorCode as Err
 from core.applications.users.models import Membership
 
 # ===========================================================================
@@ -641,3 +643,129 @@ metadata_schema = extend_schema_view(
         },
     ),
 )
+
+
+class ErrorSerializer(serializers.Serializer):
+    """Shape of every business-rule error (PRD §46). Used for API docs only."""
+
+    code = serializers.CharField(help_text="Stable machine-readable error code.")
+    detail = serializers.CharField(help_text="Human-readable message.")
+
+
+def error_response(description: str) -> OpenApiResponse:
+    return OpenApiResponse(ErrorSerializer, description=description)
+
+PUBLIC_TAGS = ["Invitations"]
+TEAM_TAGS = ["Team invitations"]
+
+
+def _errors(*codes: Err):
+    """Documents error responses from the real enum, so a renamed code can't leave stale docs."""
+    return error_response(", ".join(code.value for code in codes))
+
+
+# --------------------------------------------------------------------------- #
+# Public side: InvitationViewSet
+# Keys are the viewset's method names.
+# --------------------------------------------------------------------------- #
+INVITATION_SCHEMA = {
+    "validate_invite": extend_schema(
+        operation_id="invitations_validate",
+        tags=PUBLIC_TAGS,
+        summary="Preview an invitation",
+        responses={
+            200: org_serializers.InvitationPreviewSerializer,
+            404: _errors(Err.INVITATION_INVALID),
+            410: _errors(Err.INVITATION_EXPIRED),
+            429: error_response("Rate limited."),
+        },
+    ),
+    "accept_invite": extend_schema(
+        operation_id="invitations_accept",
+        tags=PUBLIC_TAGS,
+        summary="Accept an invitation",
+        request=org_serializers.AcceptInvitationSerializer,
+        responses={
+            200: org_serializers.InvitationAcceptedSerializer,
+            403: _errors(
+                Err.EMAIL_NOT_VERIFIED,
+                Err.INVITATION_EMAIL_MISMATCH,
+                Err.USER_LIMIT_REACHED,
+            ),
+            404: _errors(Err.INVITATION_INVALID),
+            409: _errors(Err.ALREADY_MEMBER, Err.MEMBERSHIP_INACTIVE),
+            410: _errors(Err.INVITATION_EXPIRED),
+            429: error_response("Rate limited."),
+        },
+    ),
+}
+
+
+# --------------------------------------------------------------------------- #
+# Team side: OrganizationInvitationViewSet
+# --------------------------------------------------------------------------- #
+ORGANIZATION_INVITATION_SCHEMA = {
+    "list": extend_schema(
+        operation_id="organization_invitations_list",
+        tags=TEAM_TAGS,
+        summary="List invitations",
+        description="Invitations of this organization. Search by name or email; paginated.",
+        parameters=[
+            OpenApiParameter(
+                "status",
+                enum=list(INVITATION_STATUS_FILTERS),
+                description="Filter by invitation status.",
+            ),
+        ],
+        responses={
+            200: org_serializers.InvitationSerializer(many=True),
+            404: _errors(Err.NOT_ORGANIZATION_MEMBER),
+        },
+    ),
+    "roles": extend_schema(
+        operation_id="organization_invitations_roles",
+        tags=TEAM_TAGS,
+        summary="Roles the caller can assign",
+        responses={
+            200: org_serializers.RoleOptionSerializer(many=True),
+            404: _errors(Err.NOT_ORGANIZATION_MEMBER),
+        },
+    ),
+    "create": extend_schema(
+        operation_id="organization_invitations_create",
+        tags=TEAM_TAGS,
+        summary="Invite a team member",
+        request=org_serializers.InvitationCreateSerializer,
+        responses={
+            201: org_serializers.InvitationSerializer,
+            403: _errors(Err.PERMISSION_DENIED, Err.ROLE_NOT_ASSIGNABLE, Err.USER_LIMIT_REACHED),
+            404: _errors(Err.NOT_ORGANIZATION_MEMBER),
+            409: _errors(Err.ALREADY_MEMBER, Err.MEMBERSHIP_INACTIVE, Err.ALREADY_INVITED),
+        },
+    ),
+    "resend": extend_schema(
+        operation_id="organization_invitations_resend",
+        tags=TEAM_TAGS,
+        summary="Resend an invitation",
+        request=None,
+        responses={
+            200: org_serializers.InvitationSerializer,
+            403: _errors(Err.PERMISSION_DENIED, Err.ROLE_NOT_ASSIGNABLE, Err.USER_LIMIT_REACHED),
+            404: _errors(Err.NOT_ORGANIZATION_MEMBER, Err.INVITATION_NOT_FOUND),
+            409: _errors(Err.INVITATION_NOT_PENDING),
+            429: _errors(Err.INVITATION_RESEND_TOO_SOON),
+        },
+    ),
+    "revoke": extend_schema(
+        operation_id="organization_invitations_revoke",
+        tags=TEAM_TAGS,
+        summary="Revoke an invitation",
+        request=org_serializers.InvitationRevokeSerializer,
+        responses={
+            200: org_serializers.InvitationSerializer,
+            403: _errors(Err.PERMISSION_DENIED, Err.ROLE_NOT_ASSIGNABLE),
+            404: _errors(Err.NOT_ORGANIZATION_MEMBER, Err.INVITATION_NOT_FOUND),
+            409: _errors(Err.INVITATION_NOT_PENDING),
+        },
+    ),
+}

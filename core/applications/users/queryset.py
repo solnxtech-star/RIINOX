@@ -42,8 +42,12 @@ class OrganizationBusinessTypeQuerySet(auto_prefetch.QuerySet):
 # ---------------------------------------------------------------------------
 class MembershipQuerySet(auto_prefetch.QuerySet):
     def effective(self):
-        """Accepted and active: the only memberships that grant anything."""
-        return self.filter(accepted=True, is_active=True)
+        """Active memberships: the only ones that grant anything.
+
+        Every Membership row is a real member (pending invites live on
+        Invitation), so `is_active` is the only condition needed.
+        """
+        return self.filter(is_active=True)
 
     def for_user(self, user):
         return self.filter(user=user)
@@ -57,10 +61,6 @@ class MembershipQuerySet(auto_prefetch.QuerySet):
 
     def with_user_and_role(self):
         return self.select_related("user", "role")
-
-    def occupying_seat(self):
-        """Accepted, active members plus invitations that haven't expired: what counts against `max_users`."""
-        return self.filter(Q(accepted=True, is_active=True) | Q(accepted=False, expires_at__gt=timezone.now()))
 
     def visible_to(self, user):
         """
@@ -159,6 +159,9 @@ class InvitationQuerySet(auto_prefetch.QuerySet):
 
     def with_related(self):
         return self.select_related("role", "invited_by", "organization")
+
+
+
 
 # ---------------------------------------------------------------------------
 # Managers (used as `objects = ...Manager()` on the models)
