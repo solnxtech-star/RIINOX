@@ -10,7 +10,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('invoice', '0003_seed_default_template'),
+        ('invoice', '0005_seed_default_templates'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
