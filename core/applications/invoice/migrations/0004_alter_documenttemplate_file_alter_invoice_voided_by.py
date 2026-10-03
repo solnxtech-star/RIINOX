@@ -2,7 +2,6 @@
 
 import auto_prefetch
 import core.helper.media
-import core.helper.storage
 import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
@@ -19,7 +18,7 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name='documenttemplate',
             name='file',
-            field=models.FileField(help_text='The actual template file (e.g. HTML, DOCX).', storage=core.helper.storage.RawCloudinaryStorage(), upload_to=core.helper.media.MediaHelper.get_template_upload_path),
+            field=models.FileField(help_text='The actual template file (e.g. HTML, DOCX).', upload_to=core.helper.media.MediaHelper.get_template_upload_path),
         ),
         migrations.AlterField(
             model_name='invoice',
