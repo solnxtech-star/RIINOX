@@ -1,9 +1,12 @@
+# core/applications/invoice/seeding.py
 from __future__ import annotations
 
 from pathlib import Path
 
 from django.conf import settings
 from django.core.files import File
+
+from core.helper.storage import RawCloudinaryStorage
 
 # template_type -> (display name, bundled file)
 BUNDLED = {
@@ -39,17 +42,21 @@ def seed_default_templates(document_template_model, *, refresh: bool = False) ->
 
         with (base / filename).open("rb") as handle:
             if template is None:
-                manager.create(
+                template = document_template_model(
                     name=name,
                     template_type=template_type,
                     description=f"Shared default {template_type} template.",
-                    file=File(handle, name=filename),
                     is_default=True,
                     is_active=True,
                 )
                 results[template_type] = "created"
             else:
-                template.file.save(filename, File(handle), save=True)
                 results[template_type] = "refreshed"
+
+            # Historical models used in migrations don't carry the custom storage,
+            # so force raw uploads (HTML would be rejected as an "image" otherwise).
+            template.file.storage = RawCloudinaryStorage()
+            template.file.save(filename, File(handle), save=False)
+            template.save()
 
     return results
