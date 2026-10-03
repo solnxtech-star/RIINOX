@@ -94,6 +94,8 @@ THIRD_PARTY_APPS = [
     "corsheaders",
     "drf_spectacular",
     "django_countries",
+    "cloudinary",
+    "cloudinary_storage",
 ]
 
 LOCAL_APPS = [
