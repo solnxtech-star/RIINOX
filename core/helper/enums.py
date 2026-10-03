@@ -343,14 +343,14 @@ class InvitationStatus(TextChoices):
 class PermissionCode(TextChoices):
     # dashboard
     VIEW_DASHBOARD = "VIEW_DASHBOARD"
-    VIEW_DASHBOARD_PROFIT = "VIEW_DASHBOARD_PROFIT"          # §12: cost/profit need explicit permission
+    VIEW_DASHBOARD_PROFIT = "VIEW_DASHBOARD_PROFIT"
     # products & categories
     VIEW_PRODUCTS = "VIEW_PRODUCTS"
     CREATE_PRODUCT = "CREATE_PRODUCT"
     EDIT_PRODUCT = "EDIT_PRODUCT"
     ARCHIVE_PRODUCT = "ARCHIVE_PRODUCT"
     EDIT_SELLING_PRICE = "EDIT_SELLING_PRICE"
-    VIEW_PRODUCT_COSTS = "VIEW_PRODUCT_COSTS"                # §13
+    VIEW_PRODUCT_COSTS = "VIEW_PRODUCT_COSTS"
     EDIT_PRODUCT_COSTS = "EDIT_PRODUCT_COSTS"
     MANAGE_CATEGORIES = "MANAGE_CATEGORIES"
     # customers & suppliers
