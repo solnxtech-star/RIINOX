@@ -134,7 +134,7 @@ class Invoice(TimeBasedModel):
         null=True,
         blank=True,
         related_name="voided_invoices",
-        limit_choices_to={"role": "admin"},
+        limit_choices_to={"memberships__role__slug": "admin"},
     )
     voided_at = models.DateTimeField(null=True, blank=True)
     void_reason = models.TextField(blank=True, null=True)

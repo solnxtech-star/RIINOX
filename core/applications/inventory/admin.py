@@ -6,9 +6,23 @@ from django.utils import timezone
 from django.utils.html import format_html
 
 from core.applications.inventory.models import Inventory
+from core.applications.inventory.models import InventoryLedgerEntry
 from core.applications.inventory.models import PhysicalStockCount
 from core.applications.inventory.models import PhysicalStockCountItem
 from core.applications.inventory.models import StockAdjustmentRequest
+
+@admin.register(InventoryLedgerEntry)
+class InventoryLedgerEntryAdmin(admin.ModelAdmin):
+    list_display = ("transaction", "product", "warehouse", "quantity_moved", "created_at")
+    list_filter = ("warehouse",)
+    search_fields = ("product__name", "transaction__transaction_id")
+    readonly_fields = ("transaction", "product", "variant", "batch", "warehouse", "quantity_moved", "unit_cost", "created_at", "updated_at")
+    list_select_related = ("transaction", "product", "warehouse")
+
+    def has_add_permission(self, request): return False
+    def has_change_permission(self, request, obj=None): return False
+    def has_delete_permission(self, request, obj=None): return False
+
 
 
 @admin.register(Inventory)

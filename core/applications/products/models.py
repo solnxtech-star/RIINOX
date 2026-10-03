@@ -1,3 +1,4 @@
+import uuid
 import auto_prefetch
 from django.conf import settings
 from django.db import models
@@ -173,13 +174,12 @@ class Product(TimeBasedModel):
         default=True,
         help_text=_("Whether to enforce inventory ledger tracking for this product."),
     )
-    image = models.FileField(
-        upload_to=MediaHelper.get_image_upload_path,
-        blank=True,
-        null=True,
-        help_text=_("Primary product image shown in catalogues and barcode lookups."),
-    )
-
+    @property
+    def primary_image_url(self):
+        primary_image = self.images.filter(is_primary=True).first()
+        if primary_image and primary_image.image:
+            return primary_image.image.url
+        return None
     # Admin-only pricing — never serialize these to Staff.
     purchase_cost = models.DecimalField(
         _("Purchase Cost"),
@@ -213,14 +213,14 @@ class Product(TimeBasedModel):
         default=0,
         help_text=_("Stock quantity recorded when the product was first created."),
     )
-    current_stock = models.PositiveIntegerField(
-        default=0,
-        editable=False,
-        help_text=_(
-            "Denormalized read cache summed across all warehouses. "
-            "Source of truth is InventoryTransaction — do not edit directly.",
-        ),
-    )
+    @property
+    def current_stock(self):
+        """
+        Dynamically computed from Inventory records to ensure 
+        Inventory is the strict single source of truth.
+        """
+        return sum(inv.quantity for inv in self.inventory_records.all())
+
 
     status = models.CharField(
         max_length=20,
@@ -235,7 +235,7 @@ class Product(TimeBasedModel):
         blank=True,
         related_name="created_products",
         limit_choices_to=Q(
-            memberships__role__in=[
+            memberships__role__slug__in=[
                 UsersRole.OWNER,
                 UsersRole.ADMIN,
             ]
@@ -268,7 +268,7 @@ class ProductImage(TimeBasedModel):
         help_text=_("Whether this is the primary image for the product."),
     )
 
-    sort_order = models.PositiveIntegerField(
+    sort_order = models.PositiveIntegerField( 
         default=0,
         help_text=_("Controls the display order of product images."),
     )
@@ -346,3 +346,96 @@ class ProductVariant(TimeBasedModel):
 
     def __str__(self):
         return f"{self.product.name} - {self.name}"
+
+
+class ProductBulkDiscount(TimeBasedModel):
+    """
+    Bulk purchase discount rules for a specific product.
+    e.g. Buy 4 or more, get a 40 NGN discount per item.
+    """
+    product = auto_prefetch.ForeignKey(
+        Product, on_delete=models.CASCADE, related_name="bulk_discounts"
+    )
+    min_quantity = models.PositiveIntegerField(
+        help_text=_("Minimum number of items required to trigger this discount.")
+    )
+    discount_amount = models.DecimalField(
+        max_digits=12, decimal_places=2,
+        help_text=_("Fixed discount amount applied.")
+    )
+
+    class Meta(auto_prefetch.Model.Meta):
+        verbose_name = _("Product Bulk Discount")
+        verbose_name_plural = _("Product Bulk Discounts")
+        ordering = ["min_quantity"]
+
+    def __str__(self):
+        return f"Buy {self.min_quantity}+ get {self.discount_amount} off"
+
+
+class ProductUnitConversion(TimeBasedModel):
+    """
+    Maps alternative units (e.g. Carton) to the base Unit of Measure (e.g. Pieces).
+    """
+    product = auto_prefetch.ForeignKey(
+        Product, on_delete=models.CASCADE, related_name="unit_conversions"
+    )
+    unit_name = models.CharField(
+        max_length=50,
+        help_text=_("Name of the alternative unit, e.g. 'Carton'.")
+    )
+    multiplier = models.DecimalField(
+        max_digits=10, decimal_places=3,
+        help_text=_("Multiplier against the base unit. E.g. if base is Pieces and unit is Carton of 12, multiplier is 12.")
+    )
+    price_override = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True,
+        help_text=_("Optional specific selling price for this unit, overriding the multiplier math.")
+    )
+
+    class Meta(auto_prefetch.Model.Meta):
+        verbose_name = _("Product Unit Conversion")
+        verbose_name_plural = _("Product Unit Conversions")
+        unique_together = ("product", "unit_name")
+
+    def __str__(self):
+        return f"{self.unit_name} ({self.multiplier}x)"
+
+
+class ProductBatch(TimeBasedModel):
+    """
+    Tracking batches for perishable or specifically priced goods.
+    """
+    product = auto_prefetch.ForeignKey(
+        Product, on_delete=models.CASCADE, related_name="batches"
+    )
+    batch_number = models.CharField(
+        max_length=100, db_index=True, blank=True,
+        help_text=_("Identifier for the batch. Auto-generated if left blank.")
+    )
+    expiry_date = models.DateField(
+        null=True, blank=True,
+        help_text=_("Optional expiry date for this batch.")
+    )
+    cost_price = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True,
+        help_text=_("Optional batch-specific cost price.")
+    )
+    selling_price = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True,
+        help_text=_("Optional batch-specific selling price.")
+    )
+
+    class Meta(auto_prefetch.Model.Meta):
+        verbose_name = _("Product Batch")
+        verbose_name_plural = _("Product Batches")
+        unique_together = ("product", "batch_number")
+
+    def __str__(self):
+        return f"{self.product.name} - Batch {self.batch_number}"
+
+    def save(self, *args, **kwargs):
+        if not self.batch_number:
+            self.batch_number = f"BCH-{uuid.uuid4().hex[:6].upper()}"
+        super().save(*args, **kwargs)
+

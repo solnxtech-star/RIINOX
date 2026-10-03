@@ -39,6 +39,14 @@ class Inventory(TimeBasedModel):
         related_name="inventory_records",
         help_text=_("Specific variant of the product, if applicable."),
     )
+    batch = auto_prefetch.ForeignKey(
+        "products.ProductBatch",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="inventory_records",
+        help_text=_("Specific batch of the product, if applicable."),
+    )
     warehouse = auto_prefetch.ForeignKey(
         "warehouse.Warehouse",
         on_delete=models.CASCADE,
@@ -62,11 +70,12 @@ class Inventory(TimeBasedModel):
     class Meta(auto_prefetch.Model.Meta):
         verbose_name = _("Inventory")
         verbose_name_plural = _("Inventory")
-        unique_together = ("product", "variant", "warehouse")
-        indexes = [models.Index(fields=["product", "variant", "warehouse"])]
+        unique_together = ("product", "variant", "batch", "warehouse")
+        indexes = [models.Index(fields=["product", "variant", "batch", "warehouse"])]
 
     def __str__(self):
         return f"{self.product} @ {self.warehouse}: {self.quantity}"
+
 
 
 class InventoryLedgerEntry(TimeBasedModel):
@@ -91,6 +100,14 @@ class InventoryLedgerEntry(TimeBasedModel):
         blank=True,
         related_name="ledger_entries",
         help_text=_("Optional specific variant involved in the movement."),
+    )
+    batch = auto_prefetch.ForeignKey(
+        "products.ProductBatch",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="ledger_entries",
+        help_text=_("Optional specific batch involved in the movement."),
     )
     warehouse = auto_prefetch.ForeignKey(
         "warehouse.Warehouse",
@@ -140,6 +157,14 @@ class StockAdjustmentRequest(TimeBasedModel):
         related_name="adjustment_requests",
         help_text=_("Variant the adjustment applies to, if applicable."),
     )
+    batch = auto_prefetch.ForeignKey(
+        "products.ProductBatch",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="adjustment_requests",
+        help_text=_("Batch the adjustment applies to, if applicable."),
+    )
     warehouse = auto_prefetch.ForeignKey(
         "warehouse.Warehouse",
         on_delete=models.CASCADE,
@@ -171,7 +196,7 @@ class StockAdjustmentRequest(TimeBasedModel):
         null=True,
         blank=True,
         related_name="reviewed_stock_adjustments",
-        limit_choices_to=Q(role__in=[UsersRole.OWNER, UsersRole.ADMIN]),
+        limit_choices_to=Q(memberships__role__slug__in=[UsersRole.OWNER, UsersRole.ADMIN]),
         help_text=_("Admin/Owner who approved or rejected this request."),
     )
     reviewed_at = models.DateTimeField(
