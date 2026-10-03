@@ -13,6 +13,7 @@ from core.helper.enums import CustomerTypeChoices
 from core.helper.enums import InvoiceStatusChoices
 from core.helper.media import MediaHelper
 from core.helper.models import TimeBasedModel
+from core.helper.storage import RawCloudinaryStorage
 
 
 class Client(TimeBasedModel):
@@ -221,6 +222,7 @@ class DocumentTemplate(TimeBasedModel):
         default=TEMPLATE_TYPES.INVOICE,
     )
     file = models.FileField(
+        storage=RawCloudinaryStorage(),
         upload_to=MediaHelper.get_template_upload_path,
         help_text=_("The actual template file (e.g. HTML, DOCX)."),
     )

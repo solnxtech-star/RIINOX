@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from core.applications.users.defaults import MANAGER_ROLE_SLUGS
 from core.applications.users.defaults import OWNER_ROLE_SLUG
+from core.helper.enums import InvitationStatus
 
 
 class BusinessTypeQuerySet(auto_prefetch.QuerySet):
@@ -41,8 +42,12 @@ class OrganizationBusinessTypeQuerySet(auto_prefetch.QuerySet):
 # ---------------------------------------------------------------------------
 class MembershipQuerySet(auto_prefetch.QuerySet):
     def effective(self):
-        """Accepted and active: the only memberships that grant anything."""
-        return self.filter(accepted=True, is_active=True)
+        """Active memberships: the only ones that grant anything.
+
+        Every Membership row is a real member (pending invites live on
+        Invitation), so `is_active` is the only condition needed.
+        """
+        return self.filter(is_active=True)
 
     def for_user(self, user):
         return self.filter(user=user)
@@ -56,10 +61,6 @@ class MembershipQuerySet(auto_prefetch.QuerySet):
 
     def with_user_and_role(self):
         return self.select_related("user", "role")
-
-    def occupying_seat(self):
-        """Accepted, active members plus invitations that haven't expired: what counts against `max_users`."""
-        return self.filter(Q(accepted=True, is_active=True) | Q(accepted=False, expires_at__gt=timezone.now()))
 
     def visible_to(self, user):
         """
@@ -142,6 +143,26 @@ class OrganizationQuerySet(auto_prefetch.QuerySet):
         return self.with_plan().with_business_types()
 
 
+class InvitationQuerySet(auto_prefetch.QuerySet):
+    def for_organization(self, organization):
+        """Every tenant-facing read must start here."""
+        return self.filter(organization=organization)
+
+    def pending(self):
+        return self.filter(status=InvitationStatus.PENDING, expires_at__gt=timezone.now())
+
+    def expired(self):
+        return self.filter(status=InvitationStatus.PENDING, expires_at__lte=timezone.now())
+
+    def for_email(self, email):
+        return self.filter(email__iexact=email)
+
+    def with_related(self):
+        return self.select_related("role", "invited_by", "organization")
+
+
+
+
 # ---------------------------------------------------------------------------
 # Managers (used as `objects = ...Manager()` on the models)
 # ---------------------------------------------------------------------------
@@ -150,3 +171,4 @@ OrganizationBusinessTypeManager = auto_prefetch.Manager.from_queryset(Organizati
 MembershipManager = auto_prefetch.Manager.from_queryset(MembershipQuerySet)
 RoleManager = auto_prefetch.Manager.from_queryset(RoleQuerySet)
 OrganizationManager = auto_prefetch.Manager.from_queryset(OrganizationQuerySet)
+InvitationManager = auto_prefetch.Manager.from_queryset(InvitationQuerySet)

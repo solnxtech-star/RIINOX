@@ -13,8 +13,9 @@ from core.applications.subscriptions.models import Plan
 from core.applications.subscriptions.models import PlanFeature
 from core.applications.subscriptions.models import Subscription
 from core.applications.users import services
-from core.applications.users.models import AdminMembershipDetail, State
+from core.applications.users.models import AdminMembershipDetail
 from core.applications.users.models import BusinessType
+from core.applications.users.models import Invitation
 from core.applications.users.models import Membership
 from core.applications.users.models import Organization
 from core.applications.users.models import OrganizationBusinessType
@@ -23,6 +24,7 @@ from core.applications.users.models import Permission
 from core.applications.users.models import Role
 from core.applications.users.models import RolePermission
 from core.applications.users.models import StaffMembershipDetail
+from core.applications.users.models import State
 from core.applications.users.models import User
 
 from .forms import UserAdminChangeForm
@@ -299,17 +301,45 @@ class StaffDetailInline(admin.StackedInline):
     extra = 0
     max_num = 1
 
+@admin.register(Invitation)
+class InvitationAdmin(admin.ModelAdmin):
+    list_display = (
+        "email", "name", "organization", "role",
+        "status_display", "expires_at", "invited_by", "created_at",
+    )
+    list_filter = ("status", "organization")
+    search_fields = ("email", "name", "organization__name")
+    list_select_related = ("organization", "role", "invited_by")
+    raw_id_fields = ("organization", "role", "invited_by", "accepted_by")
+    readonly_fields = (
+        "token_hash", "status", "expires_at", "last_sent_at",
+        "invited_by", "accepted_by", "accepted_at", "revoked_at",
+    )
+
+    @admin.display(description="Status")
+    def status_display(self, obj):
+        return obj.display_status  # includes the derived "expired"
+
+    # Invitations are created through the service so the token is generated,
+    # hashed and emailed. A row made here would have no usable link.
+    def has_add_permission(self, request):
+        return False
+
+    # Records are never hard-deleted (PRD §44); revoke instead.
+    def has_delete_permission(self, request, obj=None):
+        return False
+
 
 @admin.register(Membership)
 class MembershipAdmin(admin.ModelAdmin):
-    list_display = ["id", "user", "invited_email", "organization", "role", "is_active", "accepted", "created_at"]
+    list_display = ["id", "user", "organization", "role", "is_active", "created_at"]
     # `role__slug`, not `role`: roles are per-organization, so a plain role filter would
     # list every role of every tenant.
-    list_filter = ["role__slug", "is_active", "accepted", "created_at"]
-    search_fields = ["user__email", "invited_email", "organization__name"]
+    list_filter = ["role__slug", "is_active", "created_at"]
+    search_fields = ["user__email", "user__name", "organization__name"]
     raw_id_fields = ["user", "organization", "role"]
     list_select_related = ["user", "organization", "role"]
-    readonly_fields = ["invite_token", "created_at", "updated_at"]
+    readonly_fields = ["invitation", "created_at", "updated_at"]
     ordering = ["-created_at"]
     inlines = [OwnerDetailInline, AdminDetailInline, StaffDetailInline]
 

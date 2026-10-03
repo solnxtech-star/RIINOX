@@ -243,88 +243,110 @@ class OrganizationViewSet(ModelViewSet):
 @extend_schema(tags=["Memberships"])
 class MembershipViewSet(ModelViewSet):
     """
-    Memberships within organizations.
+    Manage organization memberships.
 
-    Visibility: a user sees their own memberships, plus every membership of the
-    organizations they manage (Owner/Administrator). Nothing else.
-    Changing or removing members, and inviting, is for Owners and Administrators.
+    Visibility:
+        - Users can see their own memberships.
+        - Organization Owners/Administrators can see memberships
+          belonging to organizations they manage.
+
+    Membership creation happens exclusively through the invitation
+    workflow. Business operations are delegated to the service layer.
     """
 
-    queryset = Membership.objects.all()  # schema/router inference only; get_queryset decides
+    queryset = Membership.objects.all()
     permission_classes = [IsAuthenticated]
 
     action_permissions = {
         "update": (IsMembershipManager,),
         "partial_update": (IsMembershipManager,),
         "destroy": (IsMembershipManager,),
+        "invite": (IsMembershipManager,),
     }
 
     def get_queryset(self):
         queryset = (
-            Membership.objects.visible_to(self.request.user)
+            Membership.objects
+            .visible_to(self.request.user)
             .with_user_and_role()
             .select_related("organization")
             .order_by("-created_at", "pk")
         )
 
         organization_id = self.request.query_params.get("organization")
+
         if organization_id:
             try:
-                organization_id = Organization._meta.pk.to_python(organization_id)
+                organization_id = Organization._meta.pk.to_python(
+                    organization_id
+                )
             except (DjangoValidationError, ValueError):
-                raise ValidationError({"organization": "Invalid organization id."}) from None
-            queryset = queryset.filter(organization_id=organization_id)
+                raise ValidationError(
+                    {"organization": "Invalid organization id."}
+                ) from None
+
+            queryset = queryset.filter(
+                organization_id=organization_id
+            )
+
         return queryset
 
     def get_serializer_class(self):
         if self.action == "invite":
             return InvitationCreateSerializer
-        if self.action in ("update", "partial_update"):
+
+        if self.action in {"update", "partial_update"}:
             return MembershipUpdateSerializer
+
         return MembershipSerializer
 
     def get_permissions(self):
-        extra = self.action_permissions.get(self.action, ())
-        return [IsAuthenticated(), *(permission() for permission in extra)]
+        extra_permissions = self.action_permissions.get(
+            self.action,
+            (),
+        )
 
-    def list(self, request, *args, **kwargs):
-        return super().list(request, *args, **kwargs)
-
-    def retrieve(self, request, *args, **kwargs):
-        return super().retrieve(request, *args, **kwargs)
+        return [
+            IsAuthenticated(),
+            *(permission() for permission in extra_permissions),
+        ]
 
     def create(self, request, *args, **kwargs):
-        # A membership is only ever created by an invitation (which enforces the
-        # role, seat and privilege rules), never directly.
-        raise MethodNotAllowed(request.method, detail="Use POST /memberships/invite/ to add a member.")
-
-    def update(self, request, *args, **kwargs):
-        return super().update(request, *args, **kwargs)
-
-    def partial_update(self, request, *args, **kwargs):
-        return super().partial_update(request, *args, **kwargs)
+        raise MethodNotAllowed(
+            request.method,
+            detail=(
+                "Direct membership creation is not allowed. "
+                "Use POST /memberships/invite/."
+            ),
+        )
 
     def destroy(self, request, *args, **kwargs):
         membership = self.get_object()
+
         with domain_errors():
-            services.remove_membership(membership=membership, actor=request.user)
+            services.remove_membership(
+                membership=membership,
+                actor=request.user,
+            )
+
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-    @action(detail=False, methods=["post"], url_path="invite")
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="invite",
+    )
     def invite(self, request):
-        """
-        Invite a new member to an organization.
-
-        There is no object here, so no object-level permission can run: the
-        organization must be one the caller belongs to (enforced by the
-        serializer's scoped queryset) and the caller must be its Owner or
-        Administrator (enforced in services.invite_member).
-        """
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+
         membership = serializer.save()
+
         return Response(
-            {"detail": "Invitation sent successfully.", "id": membership.pk},
+            {
+                "detail": "Invitation sent successfully.",
+                "id": membership.pk,
+            },
             status=status.HTTP_201_CREATED,
         )
 

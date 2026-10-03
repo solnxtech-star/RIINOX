@@ -1,7 +1,10 @@
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import status
 from rest_framework.exceptions import APIException
+from rest_framework.exceptions import ValidationError
+from rest_framework.response import Response
 from rest_framework.views import exception_handler
+from rest_framework.views import exception_handler as drf_exception_handler
 
 
 class CustomError:
@@ -145,4 +148,43 @@ def custom_exception_handler(exc, context):
             for key, value in response.data.items():
                 if not isinstance(value, list):
                     response.data[key] = [value]
+    return response
+
+
+class BusinessRuleError(Exception):
+    """
+    A violated business rule. Services raise it; they know nothing about HTTP
+    beyond the suggested status code. `code` is the stable, machine-readable
+    contract the frontend switches on (e.g. USER_LIMIT_REACHED).
+    """
+
+    def __init__(self, code: str, message: str, *, status_code: int = 400, extra: dict | None = None):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.status_code = status_code
+        self.extra = extra or {}
+
+
+def api_exception_handler(exc, context):
+    """One error shape for everything: {"code", "detail", ...}."""
+    if isinstance(exc, BusinessRuleError):
+        return Response(
+            {"code": exc.code, "detail": exc.message, **exc.extra},
+            status=exc.status_code,
+        )
+
+    response = drf_exception_handler(exc, context)
+    if response is None:
+        return None
+
+    if isinstance(exc, ValidationError):
+        response.data = {
+            "code": "VALIDATION_ERROR",
+            "detail": "Invalid input.", "errors": response.data
+        }
+    elif isinstance(exc, APIException) and isinstance(response.data, dict) and "detail" in response.data:
+        response.data = {
+            "code": str(exc.get_codes()).upper(), "detail": response.data["detail"]
+        }
     return response

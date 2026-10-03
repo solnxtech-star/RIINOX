@@ -13,18 +13,25 @@ from djoser.compat import get_user_email
 from djoser.conf import settings
 from djoser.email import ActivationEmail
 from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema_view
 from rest_framework import generics
+from rest_framework import mixins
 from rest_framework import permissions
 from rest_framework import status
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import ValidationError
+from rest_framework.filters import OrderingFilter
+from rest_framework.filters import SearchFilter
 from rest_framework.parsers import FormParser
 from rest_framework.parsers import JSONParser
 from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import SimpleRateThrottle
+from rest_framework.throttling import UserRateThrottle
 from rest_framework.viewsets import ModelViewSet
 from rest_framework_simplejwt.authentication import AUTH_HEADER_TYPES
 from rest_framework_simplejwt.authentication import JWTAuthentication
@@ -32,18 +39,45 @@ from rest_framework_simplejwt.exceptions import InvalidToken
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.settings import api_settings
 
+from core.applications.notification.audit.context import AuditContext
+from core.applications.users import invitation_services
+from core.applications.users.api.schemas import INVITATION_SCHEMA
+from core.applications.users.api.schemas import ORGANIZATION_INVITATION_SCHEMA
 from core.applications.users.api.serializers.organization_serializers import (
     AcceptInvitationSerializer,
+)
+from core.applications.users.api.serializers.organization_serializers import (
+    InvitationAcceptedSerializer,
+)
+from core.applications.users.api.serializers.organization_serializers import (
+    InvitationCreateSerializer,
+)
+from core.applications.users.api.serializers.organization_serializers import (
+    InvitationPreviewSerializer,
+)
+from core.applications.users.api.serializers.organization_serializers import (
+    InvitationRevokeSerializer,
+)
+from core.applications.users.api.serializers.organization_serializers import (
+    InvitationSerializer,
+)
+from core.applications.users.api.serializers.organization_serializers import (
+    RoleOptionSerializer,
 )
 from core.applications.users.api.serializers.user_serializers import (
     CustomTokenObtainPairSerializer,
 )
 from core.applications.users.api.serializers.user_serializers import UserSerializer
 from core.applications.users.auth_utils import build_auth_payload
+from core.applications.users.models import Invitation
 from core.applications.users.models import Membership
 from core.applications.users.models import User
+from core.applications.users.permissions import HasOrgPermission
+from core.applications.users.permissions import OrganizationScopedMixin
 from core.applications.users.token import default_token_generator
 from core.helper.custom_exceptions import CustomError
+from core.helper.enums import InvitationStatus
+from core.helper.enums import PermissionCode
 
 # setup logging
 logger = logging.getLogger(__name__)
@@ -593,71 +627,202 @@ class UserViewSet(ModelViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-@extend_schema(
-    tags=["Invitations"],
-)
-class InvitationViewSet(viewsets.GenericViewSet):
-    """
-    ViewSet for handling invitations.
-    Includes endpoints to validate and accept invitations.
-    """
 
-    queryset = Membership.objects.all()
+class InvitationLookupThrottle(SimpleRateThrottle):
+    """Per client IP, for everyone. AnonRateThrottle would skip logged-in callers."""
+
+    scope = "invitation_lookup"
+
+    def get_cache_key(self, request, view):
+        return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}
+
+
+class InvitationAcceptThrottle(UserRateThrottle):
+    scope = "invitation_accept"
+
+@extend_schema_view(**INVITATION_SCHEMA)
+class InvitationViewSet(viewsets.GenericViewSet):
+    """Endpoints used by the invitee: preview an invitation, then accept it."""
+
+    # Fail closed: a new action added here is authenticated unless it opts out.
+    permission_classes = [permissions.IsAuthenticated]
+    # Never expose a queryset here; every lookup goes through the service.
+    queryset = Invitation.objects.none()
+    serializer_class = AcceptInvitationSerializer
 
     @action(
         detail=False,
         methods=["get"],
-        url_path="validate/(?P<token>[0-9a-f-]+)",
+        url_path=r"validate/(?P<token>[\w-]+)",
+        url_name="validate",
         permission_classes=[permissions.AllowAny],
-
+        # No auth: a stale or expired JWT must not break the public invite page.
+        authentication_classes=[],
+        throttle_classes=[InvitationLookupThrottle],
     )
     def validate_invite(self, request, token=None):
         """
-        Public endpoint to check if an invitation token is valid.
-        This is used by the frontend to display invitation details
-        before the user registers or logs in.
+        Public. Returns what the frontend needs to render the invitation
+        before the invitee registers or logs in. Unknown, revoked and used
+        tokens are indistinguishable by design.
         """
-        try:
-            membership = Membership.objects.get(invite_token=token, accepted=False)
-        except Membership.DoesNotExist:
-            return Response({"detail": "Invalid or expired invitation."}, status=400)
-
-        if membership.expires_at < timezone.now():
-            return Response({"detail": "Invitation expired."}, status=400)
-
-        return Response(
-            {
-                "organization": membership.organization.name,
-                "role": membership.role,
-                "invited_email": membership.invited_email,
-                "expires_at": membership.expires_at,
-            },
-        )
+        invitation = invitation_services.get_invitation_preview(token)
+        response = Response(InvitationPreviewSerializer(invitation).data)
+        response["Cache-Control"] = "no-store"
+        return response
 
     @action(
         detail=False,
         methods=["post"],
         url_path="accept",
-        permission_classes=[permissions.IsAuthenticated],
+        url_name="accept",
+        throttle_classes=[InvitationAcceptThrottle],
     )
     def accept_invite(self, request):
         """
-        Accept an invitation to join an organization.
-        Requires the user to be signed up and logged in
-        with the same email address that received the invite.
+        Authenticated. Accepts an invitation; the account must have a verified
+        email matching the invited address. Repeating a successful accept
+        returns the same membership (idempotent, PRD §45).
         """
-        serializer = AcceptInvitationSerializer(
-            data=request.data,
-            context={"request": request},
-        )
+        serializer = AcceptInvitationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        membership = serializer.save()
 
-        return Response(
-            {
-                "detail": "Invitation accepted successfully.",
-                "organization": membership.organization.name,
-                "role": membership.role,
-            },
-            status=status.HTTP_200_OK,
+        membership = invitation_services.accept_invitation(
+            token=serializer.validated_data["token"],
+            user=request.user,
+            audit_context=AuditContext.from_request(request),
         )
+        return Response(InvitationAcceptedSerializer(membership).data, status=status.HTTP_200_OK)
+
+
+# --------------------------------------------------------------------------- #
+# Team side: organization-scoped, permission-gated.
+# --------------------------------------------------------------------------- #
+_ACTION_PERMISSIONS = {
+    "list": HasOrgPermission(PermissionCode.VIEW_TEAM),
+    "roles": HasOrgPermission(PermissionCode.INVITE_TEAM_MEMBER),  # populates the invite form
+    "create": HasOrgPermission(PermissionCode.INVITE_TEAM_MEMBER),
+    "resend": HasOrgPermission(PermissionCode.INVITE_TEAM_MEMBER),
+    "revoke": HasOrgPermission(PermissionCode.REVOKE_INVITATION),
+}
+_DEFAULT_PERMISSION = HasOrgPermission(PermissionCode.VIEW_TEAM)
+
+_STATUS_FILTERS = {
+    "pending": lambda qs: qs.pending(),
+    "expired": lambda qs: qs.expired(),  # derived from expires_at, not a stored status
+    "accepted": lambda qs: qs.filter(status=InvitationStatus.ACCEPTED),
+    "revoked": lambda qs: qs.filter(status=InvitationStatus.REVOKED),
+}
+
+_TEAM_TAGS = ["Team invitations"]
+
+
+@extend_schema_view(**ORGANIZATION_INVITATION_SCHEMA )
+class OrganizationInvitationViewSet(
+    OrganizationScopedMixin,
+    mixins.ListModelMixin,
+    viewsets.GenericViewSet,
+):
+    """
+    /organizations/{organization_id}/invitations/
+
+    The organization comes from the URL and is verified against the caller's
+    active membership by HasOrgPermission. Views never read it from the body.
+    """
+
+    queryset = Invitation.objects.none()  # real queryset: get_queryset()
+    serializer_class = InvitationSerializer
+    # Anything other than a UUID is a 404 at the router, never a database error.
+    lookup_value_regex = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+    filter_backends = [SearchFilter, OrderingFilter]
+    search_fields = ["name", "email"]
+    ordering_fields = ["created_at", "expires_at", "name", "email"]
+    ordering = ["-created_at"]
+
+    # -- plumbing ---------------------------------------------------------- #
+    def get_permissions(self):
+        permission = _ACTION_PERMISSIONS.get(self.action, _DEFAULT_PERMISSION)
+        return [permissions.IsAuthenticated(), permission()]
+
+    def get_serializer_class(self):
+        return {
+            "create": InvitationCreateSerializer,
+            "revoke": InvitationRevokeSerializer,
+            "roles": RoleOptionSerializer,
+        }.get(self.action, InvitationSerializer)
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        if not getattr(self, "swagger_fake_view", False):
+            context.update(organization=self.organization, actor_membership=self.membership)
+        return context
+
+    def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            return Invitation.objects.none()
+
+        queryset = Invitation.objects.for_organization(self.organization).with_related()
+
+        requested = self.request.query_params.get("status")
+        if requested:
+            apply_filter = _STATUS_FILTERS.get(requested)
+            if apply_filter is None:
+                raise ValidationError({"status": [f"Choose one of: {', '.join(_STATUS_FILTERS)}."]})
+            queryset = apply_filter(queryset)
+        return queryset
+
+    def _audit_context(self) -> AuditContext:
+        return AuditContext.from_request(self.request)
+
+    # -- endpoints --------------------------------------------------------- #
+    # `list` comes from ListModelMixin; its schema is attached by extend_schema_view above.
+
+    @action(detail=False, methods=["get"], url_path="roles", url_name="roles", pagination_class=None)
+    def roles(self, request, *args, **kwargs):
+        """Roles the caller may assign: feeds the "Assign Role" dropdown."""
+        roles = invitation_services.assignable_roles(self.organization, self.membership)
+        return Response(RoleOptionSerializer(roles, many=True).data)
+
+    def create(self, request, *args, **kwargs):
+        """Invite someone to this organization. The email is sent after the transaction commits."""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        issued = invitation_services.create_invitation(
+            organization=self.organization,
+            inviter=request.user,
+            name=serializer.validated_data["name"],
+            email=serializer.validated_data["email"],
+            role=serializer.validated_data["role"],
+            audit_context=self._audit_context(),
+        )
+        return Response(
+            InvitationSerializer(issued.invitation, context=self.get_serializer_context()).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(detail=True, methods=["post"], url_path="resend", url_name="resend")
+    def resend(self, request, pk=None, *args, **kwargs):
+        """Issue a fresh link (the old one stops working) and extend the expiry."""
+        issued = invitation_services.resend_invitation(
+            organization=self.organization,
+            invitation_id=pk,
+            actor=request.user,
+            audit_context=self._audit_context(),
+        )
+        return Response(InvitationSerializer(issued.invitation, context=self.get_serializer_context()).data)
+
+    @action(detail=True, methods=["post"], url_path="revoke", url_name="revoke")
+    def revoke(self, request, pk=None, *args, **kwargs):
+        """Cancel a pending invitation. The record is kept for history (PRD §44)."""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        invitation = invitation_services.revoke_invitation(
+            organization=self.organization,
+            invitation_id=pk,
+            actor=request.user,
+            reason=serializer.validated_data["reason"],
+            audit_context=self._audit_context(),
+        )
+        return Response(InvitationSerializer(invitation, context=self.get_serializer_context()).data)

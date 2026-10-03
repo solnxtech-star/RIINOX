@@ -1,0 +1,10 @@
+class AuditAction:
+    """Dotted `domain.event` codes. Each app adds its own here."""
+    INVITATION_CREATED = "invitation.created"
+    INVITATION_RESENT = "invitation.resent"
+    INVITATION_REVOKED = "invitation.revoked"
+    INVITATION_ACCEPTED = "invitation.accepted"
+    MEMBERSHIP_ROLE_CHANGED = "membership.role_changed"
+    MEMBERSHIP_DEACTIVATED = "membership.deactivated"
+    MEMBERSHIP_REACTIVATED = "membership.reactivated"
+    ROLE_PERMISSIONS_CHANGED = "role.permissions_changed"
