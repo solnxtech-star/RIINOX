@@ -196,7 +196,7 @@ class StockAdjustmentRequest(TimeBasedModel):
         null=True,
         blank=True,
         related_name="reviewed_stock_adjustments",
-        limit_choices_to=Q(memberships__role__in=[UsersRole.OWNER, UsersRole.ADMIN]),
+        limit_choices_to=Q(memberships__role__slug__in=[UsersRole.OWNER, UsersRole.ADMIN]),
         help_text=_("Admin/Owner who approved or rejected this request."),
     )
     reviewed_at = models.DateTimeField(

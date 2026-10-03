@@ -52,7 +52,7 @@ class Purchase(TimeBasedModel):
         on_delete=models.SET_NULL,
         null=True,
         related_name="ordered_purchases",
-        limit_choices_to=Q(memberships__role__in=[UsersRole.OWNER, UsersRole.ADMIN]),
+        limit_choices_to=Q(memberships__role__slug__in=[UsersRole.OWNER, UsersRole.ADMIN]),
         help_text=_("Admin/Owner who placed this order (PRD §10: Admin-only purchasing)."),
     )
     received_by = auto_prefetch.ForeignKey(

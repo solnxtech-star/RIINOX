@@ -235,7 +235,7 @@ class Product(TimeBasedModel):
         blank=True,
         related_name="created_products",
         limit_choices_to=Q(
-            memberships__role__in=[
+            memberships__role__slug__in=[
                 UsersRole.OWNER,
                 UsersRole.ADMIN,
             ]
