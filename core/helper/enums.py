@@ -287,6 +287,7 @@ class TransactionTypeChoices(TextChoices):
     STOCK_ADJUSTMENT = "stock_adjustment", _("Stock Adjustment")
     STOCK_TRANSFER = "stock_transfer", _("Stock Transfer")
     RETURN = "return", _("Customer Return")
+    OPENING_STOCK = "opening_stock", _("Opening Stock")
 
 
 class TransactionStatusChoices(TextChoices):

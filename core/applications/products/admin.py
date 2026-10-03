@@ -37,16 +37,34 @@ class ProductImageInline(admin.StackedInline):
     extra = 1
     fields = ("image", "is_primary", "sort_order")
 
+from core.applications.products.models import ProductBatch, ProductUnitConversion, ProductBulkDiscount
+
+class ProductBatchInline(admin.StackedInline):
+    model = ProductBatch
+    extra = 1
+    fields = ("batch_number", "expiry_date", "cost_price", "selling_price")
+
+class ProductUnitConversionInline(admin.TabularInline):
+    model = ProductUnitConversion
+    extra = 1
+    fields = ("unit_name", "multiplier", "price_override")
+
+class ProductBulkDiscountInline(admin.TabularInline):
+    model = ProductBulkDiscount
+    extra = 1
+    fields = ("min_quantity", "discount_amount")
+
 @admin.register(Product)
 class ProductAdmin(ModelAdmin):
     list_filter = ("status", "category", "brand", "organization", "unit_of_measurement")
     search_fields = ("name", "sku", "barcode")
     list_select_related = ("category", "brand", "organization", "created_by")
     autocomplete_fields = ("category", "brand", "organization", "created_by")
+    inlines = [ProductImageInline, ProductBatchInline, ProductUnitConversionInline, ProductBulkDiscountInline]
 
     fieldsets_common = (
         (None, {"fields": ("organization", "name", "sku", "barcode", "category", "brand", "status_badge")}),
-        ("Description", {"fields": ("description", "quality_grade", "unit_of_measurement", "image")}),
+        ("Description", {"fields": ("description", "quality_grade", "unit_of_measurement")}),
         ("Customer-facing price", {"fields": ("customer_sale_price",)}),
         ("Stock", {"fields": ("minimum_stock_level", "opening_stock", "current_stock")}),
     )

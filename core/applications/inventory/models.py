@@ -39,6 +39,14 @@ class Inventory(TimeBasedModel):
         related_name="inventory_records",
         help_text=_("Specific variant of the product, if applicable."),
     )
+    batch = auto_prefetch.ForeignKey(
+        "products.ProductBatch",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="inventory_records",
+        help_text=_("Specific batch of the product, if applicable."),
+    )
     warehouse = auto_prefetch.ForeignKey(
         "warehouse.Warehouse",
         on_delete=models.CASCADE,
@@ -62,8 +70,8 @@ class Inventory(TimeBasedModel):
     class Meta(auto_prefetch.Model.Meta):
         verbose_name = _("Inventory")
         verbose_name_plural = _("Inventory")
-        unique_together = ("product", "variant", "warehouse")
-        indexes = [models.Index(fields=["product", "variant", "warehouse"])]
+        unique_together = ("product", "variant", "batch", "warehouse")
+        indexes = [models.Index(fields=["product", "variant", "batch", "warehouse"])]
 
     def __str__(self):
         return f"{self.product} @ {self.warehouse}: {self.quantity}"
@@ -92,6 +100,14 @@ class InventoryLedgerEntry(TimeBasedModel):
         blank=True,
         related_name="ledger_entries",
         help_text=_("Optional specific variant involved in the movement."),
+    )
+    batch = auto_prefetch.ForeignKey(
+        "products.ProductBatch",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="ledger_entries",
+        help_text=_("Optional specific batch involved in the movement."),
     )
     warehouse = auto_prefetch.ForeignKey(
         "warehouse.Warehouse",
@@ -140,6 +156,14 @@ class StockAdjustmentRequest(TimeBasedModel):
         blank=True,
         related_name="adjustment_requests",
         help_text=_("Variant the adjustment applies to, if applicable."),
+    )
+    batch = auto_prefetch.ForeignKey(
+        "products.ProductBatch",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="adjustment_requests",
+        help_text=_("Batch the adjustment applies to, if applicable."),
     )
     warehouse = auto_prefetch.ForeignKey(
         "warehouse.Warehouse",
