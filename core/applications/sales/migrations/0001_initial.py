@@ -14,8 +14,8 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('products', '0004_remove_product_current_stock'),
-        ('transactions', '0002_customer'),
-        ('users', '0007_organization_postal_code'),
+        ('transactions', '0002_initial'),
+        ('users', '0001_initial'),
         ('warehouse', '0001_initial'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]

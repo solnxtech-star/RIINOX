@@ -8,7 +8,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('inventory', '0005_inventoryledgerentry_transaction_and_more'),
+        ('inventory', '0002_initial'),
         ('products', '0005_remove_product_image_productbulkdiscount_and_more'),
         ('warehouse', '0001_initial'),
     ]

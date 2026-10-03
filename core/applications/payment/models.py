@@ -158,7 +158,7 @@ class InvoicePayment(TimeBasedModel):
         null=True,
         blank=True,
         related_name="voided_receipts",
-        limit_choices_to={"role": "admin"},
+        limit_choices_to={"memberships__role": "admin"},
     )
     voided_at = models.DateTimeField(null=True, blank=True)
     received_on = models.DateTimeField(auto_now_add=True)
@@ -207,7 +207,7 @@ class Refund(TimeBasedModel):
         null=True,
         blank=True,
         related_name="approved_refunds",
-        limit_choices_to={"role": "admin"},
+        limit_choices_to={"memberships__role": "admin"},
     )
     approved_at = models.DateTimeField(null=True, blank=True)
 
