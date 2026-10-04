@@ -359,6 +359,11 @@ REST_FRAMEWORK = {
     ),
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "EXCEPTION_HANDLER": "core.helper.exceptions.custom_exception_handler",
+
+    "DEFAULT_THROTTLE_RATES": {"invitation_lookup": "30/min", "invitation_accept": "10/min"},
+    "NUM_PROXIES": 1,
+
 }
 
 # django-cors-headers - https://github.com/adamchainz/django-cors-headers#setup
@@ -460,3 +465,8 @@ UNFOLD = {
 
 
 TEST_MODE = env.bool("DJANGO_TEST_MODE", default=True)
+FRONTEND_URL = env("FRONTEND_URL")
+APP_NAME = "RIINOX"
+INVITATION_ACCEPT_PATH = "/accept-invite"
+INVITATION_TTL_DAYS = 7
+INVITATION_RESEND_COOLDOWN_SECONDS = 60

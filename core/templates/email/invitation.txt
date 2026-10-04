@@ -1,0 +1,10 @@
+{% autoescape off %}Hi {{ name }},
+
+{% if inviter_name %}{{ inviter_name }} has invited you{% else %}You have been invited{% endif %} to join {{ organization_name }} on {{ app_name }} as {{ role_name }}.
+
+Accept the invitation:
+{{ accept_url }}
+
+This invitation expires on {{ expires_at|date:"j F Y, H:i T" }}.
+If you weren't expecting this, you can ignore this email.
+{% endautoescape %}

@@ -1,0 +1,32 @@
+{% extends "invitation_base.html" %}
+
+{% block title %}You're invited to {{ organization_name }}{% endblock %}
+{% block content %}
+  <h2 style="margin:0 0 16px;font-size:20px;">You're invited to join {{ organization_name }}</h2>
+  <p>Hi {{ name }},</p>
+  <p>
+    {% if inviter_name %}
+      {{ inviter_name }} has invited you
+    {% else %}
+      You have been invited
+    {% endif %}
+    to join <strong>{{ organization_name }}</strong> on {{ app_name }}
+    as <strong>{{ role_name }}</strong>.
+  </p>
+  <p style="margin:28px 0;">
+    <a href="{{ accept_url }}"
+       style="background:#0b8a43;
+              color:#ffffff;
+              text-decoration:none;
+              padding:12px 24px;
+              border-radius:6px;
+              display:inline-block">Accept invitation</a>
+  </p>
+  <p style="font-size:13px;color:#6b7280;">
+    This invitation expires on {{ expires_at|date:"j F Y, H:i T" }}.
+    If the button doesn't work, copy this link into your browser:
+    <br />
+    <span style="word-break:break-all;">{{ accept_url }}</span>
+  </p>
+  <p style="font-size:13px;color:#6b7280;">If you weren't expecting this, you can ignore this email.</p>
+{% endblock %}
