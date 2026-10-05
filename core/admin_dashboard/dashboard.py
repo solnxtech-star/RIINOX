@@ -3,13 +3,18 @@ from decimal import Decimal
 
 from django.db.models import Count
 from django.db.models import DecimalField
+from django.db.models import ExpressionWrapper
 from django.db.models import F
+from django.db.models import IntegerField
+from django.db.models import OuterRef
 from django.db.models import Q
+from django.db.models import Subquery
 from django.db.models import Sum
 from django.db.models import Value
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
+from core.applications.inventory.models import Inventory
 from core.applications.inventory.models import InventoryLedgerEntry
 from core.applications.inventory.models import PhysicalStockCountItem
 from core.applications.invoice.models import Invoice
@@ -51,6 +56,46 @@ def _decimal_zero():
     )
 
 
+def _money(expression):
+    """
+    Wrap an arithmetic expression so Django treats the result as a
+    DecimalField, even when it mixes integer quantities with decimal prices.
+    """
+    return ExpressionWrapper(
+        expression,
+        output_field=DecimalField(max_digits=20, decimal_places=2),
+    )
+
+
+def _with_current_stock(product_qs):
+    """
+    Annotate each product with `current_stock`.
+
+    Product has no `current_stock` column. On-hand quantity lives in
+    Inventory (one row per product / variant / batch / warehouse), so the
+    product's stock is the sum of `Inventory.quantity` across those rows.
+
+    A correlated subquery is used instead of Sum("inventory_records__quantity")
+    so that later aggregate() calls mixing Count() and Sum() don't get
+    inflated by join duplication.
+    """
+    stock_subquery = (
+        Inventory.objects
+        .filter(product=OuterRef("pk"))
+        .values("product")
+        .annotate(total=Sum("quantity"))
+        .values("total")
+    )
+
+    return product_qs.annotate(
+        current_stock=Coalesce(
+            Subquery(stock_subquery, output_field=IntegerField()),
+            Value(0),
+            output_field=IntegerField(),
+        )
+    )
+
+
 def dashboard_callback(request, context):
     org = _organization(request)
     privileged = _is_privileged(request.user)
@@ -65,6 +110,7 @@ def dashboard_callback(request, context):
     product_qs = Product.objects.all()
     invoice_qs = Invoice.objects.all()
     transaction_qs = InventoryLedgerEntry.objects.all()
+    variance_qs = PhysicalStockCountItem.objects.all()
 
     if org is not None:
         product_qs = product_qs.filter(
@@ -79,6 +125,15 @@ def dashboard_callback(request, context):
             product__organization=org,
         )
 
+        # Previously unscoped, which leaked other organizations' stock
+        # count variances onto this dashboard.
+        variance_qs = variance_qs.filter(
+            product__organization=org,
+        )
+
+    # Adds `current_stock` to every product row (see helper docstring).
+    product_qs = _with_current_stock(product_qs)
+
     # ------------------------------------------------------------------
     # Stock health
     # ------------------------------------------------------------------
@@ -88,7 +143,8 @@ def dashboard_callback(request, context):
 
         total_stock=Coalesce(
             Sum("current_stock"),
-            0,
+            Value(0),
+            output_field=IntegerField(),
         ),
 
         low_stock=Count(
@@ -196,7 +252,7 @@ def dashboard_callback(request, context):
     # ------------------------------------------------------------------
 
     recent_variances = list(
-        PhysicalStockCountItem.objects
+        variance_qs
         .exclude(
             counted_quantity=F("expected_quantity"),
         )
@@ -253,12 +309,11 @@ def dashboard_callback(request, context):
     if privileged:
 
         # Inventory valuation:
-        # current_stock × purchase_cost
+        # current_stock x purchase_cost
         inventory_valuation = product_qs.aggregate(
             valuation=Coalesce(
                 Sum(
-                    F("current_stock") * F("purchase_cost"),
-                    output_field=DecimalField(),
+                    _money(F("current_stock") * F("purchase_cost")),
                 ),
                 _decimal_zero(),
                 output_field=DecimalField(),
@@ -271,8 +326,7 @@ def dashboard_callback(request, context):
         ).aggregate(
             cogs=Coalesce(
                 Sum(
-                    F("quantity") * F("product__purchase_cost"),
-                    output_field=DecimalField(),
+                    _money(F("quantity") * F("product__purchase_cost")),
                 ),
                 _decimal_zero(),
                 output_field=DecimalField(),

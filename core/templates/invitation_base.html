@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>
+      {% block title %}{% endblock %}
+    </title>
+  </head>
+  <body style="margin:0;
+               padding:0;
+               background:#f4f5f7;
+               font-family:Arial,Helvetica,sans-serif;
+               color:#1f2937">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td align="center" style="padding:24px 12px;">
+          <table role="presentation"
+                 width="100%"
+                 cellpadding="0"
+                 cellspacing="0"
+                 style="max-width:560px;
+                        background:#ffffff;
+                        border-radius:8px">
+            <tr>
+              <td style="padding:32px;line-height:1.5;font-size:15px;">
+                {% block content %}{% endblock %}
+              </td>
+            </tr>
+          </table>
+          <p style="max-width:560px;font-size:12px;color:#6b7280;">
+            {% block footer %}Sent by {{ app_name }}.{% endblock %}
+          </p>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

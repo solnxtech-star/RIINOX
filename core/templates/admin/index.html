@@ -1,0 +1,60 @@
+{% extends 'admin/base.html' %} {% load i18n unfold %} {% block title %} {% if subtitle %}{{ subtitle }} |{% endif %} {{ title }} | {{ site_title|default:_('Django site admin') }} {% endblock %} {% block breadcrumbs %}{% endblock %} {% block content %}
+{# ---------------- Stock health ---------------- #}
+{% component "unfold/components/card.html" with title="Total products" %}
+{{ kpi_total_products }}
+
+{% endcomponent %} {% component "unfold/components/card.html" with title="Units in stock" %}
+{{ kpi_total_stock }}
+
+{% endcomponent %} {% component "unfold/components/card.html" with title="Low stock" %}
+{{ kpi_low_stock }}
+
+{% endcomponent %} {% component "unfold/components/card.html" with title="Out of stock" %}
+{{ kpi_out_of_stock }}
+
+{% endcomponent %}
+{# ---------------- Sales ---------------- #}
+{% component "unfold/components/card.html" with title="Today's sales" %}
+{{ kpi_todays_sales|floatformat:"2g" }}
+
+{{ kpi_todays_invoices }} invoice{{ kpi_todays_invoices|pluralize }}
+
+{% endcomponent %} {% component "unfold/components/card.html" with title="Outstanding payments" %}
+{{ kpi_outstanding_payments|floatformat:"2g" }}
+
+{% endcomponent %} {% component "unfold/components/card.html" with title="Stock movements today" %}
+{{ kpi_todays_movements }}
+
+{% endcomponent %} {% if is_privileged %} {% component "unfold/components/card.html" with title="Today's profit" %}
+{{ kpi_todays_profit|floatformat:"2g" }}
+
+{% endcomponent %} {% component "unfold/components/card.html" with title="Inventory valuation" %}
+{{ kpi_inventory_valuation|floatformat:"2g" }}
+
+{% endcomponent %} {% endif %}
+{# ---------------- Staff + top products ---------------- #}
+{% component "unfold/components/card.html" with title="Sales by staff (today)" %} {% if sales_by_staff %} {% for row in sales_by_staff %} {% endfor %}
+{{ row.sales_rep__email|default:"Unassigned" }}	{{ row.count }} sale{{ row.count|pluralize }}	{{ row.total|floatformat:"2g" }}
+{% else %}
+No sales recorded today.
+
+{% endif %} {% endcomponent %} {% component "unfold/components/card.html" with title="Top products (30 days)" %} {% if top_products %} {% for row in top_products %} {% endfor %}
+{{ row.product__name }}	{{ row.quantity_sold }} sold
+{% else %}
+No sales in the last 30 days.
+
+{% endif %} {% endcomponent %}
+{# ---------------- Variances + activity ---------------- #}
+{% component "unfold/components/card.html" with title="Recent stock variances" %} {% if recent_variances %} {% for item in recent_variances %} {% endfor %}
+Product	Warehouse	Expected	Counted
+{{ item.product }}	{{ item.count.warehouse }}	{{ item.expected_quantity }}	{{ item.counted_quantity }}
+{% else %}
+No variances found.
+
+{% endif %} {% endcomponent %} {% component "unfold/components/card.html" with title="Recent inventory activity" %} {% if recent_activity %} {% for entry in recent_activity %} {% endfor %}
+{{ entry.product }}	{{ entry.warehouse }}	{{ entry.created_at|date:"d M, H:i" }}
+{% else %}
+No inventory activity yet.
+
+{% endif %} {% endcomponent %}
+{% endblock %}
