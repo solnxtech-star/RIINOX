@@ -130,6 +130,7 @@ NIGERIAN_STATES: Final = (
     "Ondo", "Osun", "Oyo", "Plateau", "Rivers", "Sokoto", "Taraba", "Yobe",
     "Zamfara",
 )
+STATES_BY_COUNTRY: Final = {"NG": NIGERIAN_STATES}
 
 
 

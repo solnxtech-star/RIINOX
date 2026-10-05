@@ -1,6 +1,7 @@
 from django.db.models import TextChoices
 
-from core.exceptions import BusinessRuleError
+from core.helper.custom_exceptions import BusinessRuleError
+
 
 
 class SubscriptionErrorCode(TextChoices):

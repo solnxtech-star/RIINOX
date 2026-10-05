@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import asdict
 from dataclasses import dataclass
 
@@ -10,6 +10,9 @@ from django.db import transaction
 from django.utils import timezone
 
 from core.applications.invoice.services import provision_organization_documents
+from core.applications.notification import audit
+from core.applications.notification.audit.action import AuditAction
+from core.applications.notification.audit.context import AuditContext
 from core.applications.subscriptions.services import get_plan_limit
 from core.applications.subscriptions.services import start_subscription
 from core.applications.users import reference_data
@@ -163,66 +166,87 @@ def has_org_role(user, organization: Organization, *role_slugs: str) -> bool:
 
 
 @transaction.atomic
-def create_organization(*, user, business_type: BusinessType, profile: OrganizationProfile) -> Organization:
+def create_organization(
+    *,
+    user,
+    business_type: BusinessType,
+    profile: OrganizationProfile,
+    audit_context: AuditContext | None = None,
+) -> Organization:
     """
     Create a tenant and everything it needs to be usable:
 
-        organization -> primary business type -> default roles -> subscription
-        -> Owner membership -> document numbering + shared default templates
+        organization -> primary business type -> default roles (+ permissions)
+        -> subscription -> Owner membership -> document numbering + default templates
+        -> audit event
 
-    `profile` carries the user's own country, currency, timezone and state
-    (validated against `reference_data` — see `_validate_profile`), so nothing
-    here defaults or overrides them. Raises ImproperlyConfigured (a 500, by
-    design) when platform data such as the default plan or default templates
-    hasn't been seeded, and OrganizationProfileInvalid (a 400) when a
-    reference-data field doesn't check out.
+    Raises ImproperlyConfigured (a 500, by design) when platform data has not
+    been seeded (run `manage.py seed_defaults`), and OrganizationProfileInvalid
+    (a 400) when a reference-data field doesn't check out.
     """
     _validate_profile(profile)
 
     organization = Organization.objects.create(created_by=user, **asdict(profile))
-
     OrganizationBusinessType.objects.create(
-        organization=organization,
-        business_type=business_type,
-        is_primary=True,
+        organization=organization, business_type=business_type, is_primary=True
     )
 
     roles = seed_default_roles(organization)
-    start_subscription(organization)
+    subscription = start_subscription(organization)
 
     membership = Membership.objects.create(
         user=user,
         organization=organization,
-        role=roles[OWNER_ROLE_SLUG],
-        accepted=True,
+        role=roles[OWNER_ROLE_SLUG],  # is_active defaults to True; no `accepted`, no invitation
     )
     OwnerMembershipDetail.objects.create(membership=membership)
 
     provision_organization_documents(organization)
+
+    audit.record(
+        action=AuditAction.ORGANIZATION_CREATED,
+        organization=organization,
+        actor=user,
+        resource=organization,
+        new_values={
+            "name": organization.name,
+            "business_type": business_type.code,
+            "plan": subscription.plan.name,
+        },
+        context=audit_context,
+    )
     return organization
+
+
+def _default_role_codes(slug: str, known: Mapping[str, object]) -> set[str]:
+    """Permission codes a default role starts with. Unknown codes fail loudly."""
+    grant = DEFAULT_ROLE_PERMISSIONS.get(slug, ())
+    codes = set(known) if grant == ALL else {str(code) for code in grant}
+    unknown = codes - known.keys()
+    if unknown:
+        raise ImproperlyConfigured(
+            f"DEFAULT_ROLE_PERMISSIONS['{slug}'] references unknown permission codes: {sorted(unknown)}"
+        )
+    return codes
 
 
 def seed_default_roles(organization: Organization) -> dict[str, Role]:
     """Create the PRD's default system roles for one organization, with their permissions."""
-    permission_ids: dict[str, int] = dict(Permission.objects.values_list("code", "pk"))
+    permission_ids: dict[str, object] = dict(Permission.objects.values_list("code", "pk"))
+    if not permission_ids:
+        # Without this guard an unseeded database would create Administrators with no permissions.
+        raise ImproperlyConfigured("The permission catalog is empty. Run `python manage.py seed_defaults`.")
 
     roles = Role.objects.bulk_create(
         [Role(organization=organization, name=name, slug=slug, is_system=True) for slug, name in DEFAULT_ROLES]
     )
-
-    links: list[RolePermission] = []
-    for role in roles:
-        grant = DEFAULT_ROLE_PERMISSIONS.get(role.slug, [])
-        codes = sorted(permission_ids) if grant == ALL else list(grant)
-
-        unknown = set(codes) - permission_ids.keys()
-        if unknown:
-            raise ImproperlyConfigured(
-                f"DEFAULT_ROLE_PERMISSIONS['{role.slug}'] references unknown permission codes: {sorted(unknown)}"
-            )
-        links.extend(RolePermission(role=role, permission_id=permission_ids[code]) for code in codes)
-
-    RolePermission.objects.bulk_create(links)
+    RolePermission.objects.bulk_create(
+        [
+            RolePermission(role=role, permission_id=permission_ids[code])
+            for role in roles
+            for code in sorted(_default_role_codes(role.slug, permission_ids))
+        ]
+    )
     return {role.slug: role for role in roles}
 
 
@@ -430,17 +454,13 @@ def update_membership(*, membership: Membership, actor, role: Role | None = None
 @transaction.atomic
 def remove_membership(*, membership: Membership, actor) -> None:
     """
-    Revoke a pending invitation (deleted), or remove an accepted member
-    (deactivated, not deleted, so history and audit references stay intact).
+    Deactivate a member (never deleted, so history and audit references stay
+    intact). Pending invitations are revoked through the invitation service.
     """
     membership, _ = _lock_manageable_membership(membership, actor)
-
-    if membership.accepted:
+    if membership.is_active:
         membership.is_active = False
         membership.save(update_fields=["is_active", "updated_at"])
-    else:
-        membership.delete()
-    # audit.record(actor=actor, action="membership.removed", ...)
 
 
 # ---------------------------------------------------------------------------
@@ -502,11 +522,9 @@ def sync_permission_catalog(using=None):
 def get_seat_limit(organization) -> int | None:
     """
     The plan's `max_users`; None means unlimited.
-
+    Raises SUBSCRIPTION_REQUIRED without a subscription.
     """
-    subscription = getattr(organization, "subscription", None)
-    plan = getattr(subscription, "plan", None)
-    return getattr(plan, "max_users", None)
+    return get_plan_limit(organization, "max_users")
 
 
 def seats_in_use(organization) -> int:

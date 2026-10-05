@@ -99,6 +99,7 @@ THIRD_PARTY_APPS = [
 ]
 
 LOCAL_APPS = [
+    "core.seeding",
     "core.applications.users",
     "core.applications.invoice",
     "core.applications.payment",
@@ -470,3 +471,13 @@ APP_NAME = "RIINOX"
 INVITATION_ACCEPT_PATH = "/accept-invite"
 INVITATION_TTL_DAYS = 7
 INVITATION_RESEND_COOLDOWN_SECONDS = 60
+
+
+
+# see core/seeding/registry.py for details
+
+SEED_ON_MIGRATE = True       # False: only `manage.py seed_defaults` seeds
+SEEDING_SKIP = set()         # names of seeds to skip after migrate
+
+# test settings: the template seed uploads files to Cloudinary
+SEEDING_SKIP = {"document_templates"}
