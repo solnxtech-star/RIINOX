@@ -51,7 +51,21 @@ product_schema = extend_schema_view(
     create=extend_schema(
         tags=['Products'],
         summary="Create a New Product",
-        description="Creates a new product. Can optionally include initial opening stock, nested batches, bulk discounts, and unit conversions.",
+        description="""Creates a product, optionally including opening stock, nested batches, bulk discounts, and unit conversions.
+
+What happens in one transaction:
+
+- the `Product` is created;
+- nested records (`ProductBatch`, `ProductBulkDiscount`, `ProductUnitConversion`) are created;
+- if `quantity_in_stock` > 0 and `warehouse_id` is passed, `create_opening_stock` is called to create the initial `Inventory` and `InventoryLedgerEntry`.
+
+Where the values come from:
+
+- `category`: GET `/api/products/categories/`
+- `brand`: GET `/api/products/brands/`
+- `warehouse_id`: GET `/api/warehouse/warehouses/` (optional, needed if `quantity_in_stock` > 0).
+
+`track_inventory` is a boolean. If `True`, inventory ledger is strictly enforced. `quantity_in_stock` is optional. `current_stock` cannot be modified here.""",
         examples=[
             OpenApiExample(
                 name="Complete Product Payload",

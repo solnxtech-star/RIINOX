@@ -3,7 +3,20 @@ from drf_spectacular.utils import OpenApiExample
 stock_adjustment_create_example = OpenApiExample(
     "Request Stock Adjustment",
     summary="Create a new stock adjustment request",
-    description="Requests a change in stock. Will remain PENDING until approved by an admin.",
+    description="""Requests a change in stock.
+
+What happens in one transaction:
+
+- a `StockAdjustmentRequest` is created with a status of `PENDING`;
+- if the user is an Admin/Owner, it is manually or auto-approved later to modify stock and create an `InventoryLedgerEntry`.
+
+Where the values come from:
+
+- `product`: GET `/api/products/products/`
+- `warehouse`: GET `/api/warehouse/warehouses/`
+- `variant` and `batch`: Optional, specifies the exact inventory bucket to adjust.
+
+`requested_quantity_change` is required and can be negative (shrinkage/loss) or positive (found stock).""",
     value={
         "product": 1,
         "variant": None,
@@ -18,7 +31,20 @@ stock_adjustment_create_example = OpenApiExample(
 stock_transfer_example = OpenApiExample(
     "Transfer Stock",
     summary="Transfer stock between branches",
-    description="Atomically transfer stock from one warehouse to another.",
+    description="""Atomically transfer stock from one warehouse to another.
+
+What happens in one transaction:
+
+- stock is deducted from `source_warehouse_id` `Inventory`;
+- stock is added to `destination_warehouse_id` `Inventory`;
+- `InventoryLedgerEntry` records are created for both locations to track the movement.
+
+Where the values come from:
+
+- `product_id`: GET `/api/products/products/`
+- `source_warehouse_id` & `destination_warehouse_id`: GET `/api/warehouse/warehouses/`
+
+`quantity` is required. `variant_id` and `batch_id` are optional to transfer specific variants/batches.""",
     value={
         "product_id": 1,
         "variant_id": None,
