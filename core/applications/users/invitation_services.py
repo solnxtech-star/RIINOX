@@ -413,6 +413,12 @@ def assignable_roles(organization, actor_membership):
     dropdown and validates create input; _assert_role_assignable stays as the
     final server-side guard.
     """
+    print("ORGANIZATION:", organization.id)
+    print("ACTOR MEMBERSHIP:", actor_membership.id)
+    print("ACTOR ROLE:", actor_membership.role)
+    print("ACTOR ROLE ID:", actor_membership.role_id)
+    print("ACTOR ROLE SLUG:", actor_membership.role.slug if actor_membership.role else None)
+    print("IS OWNER:", _is_owner(actor_membership))
     roles = Role.objects.for_organization(organization).exclude(
         is_system=True, slug=OWNER_ROLE_SLUG
     )

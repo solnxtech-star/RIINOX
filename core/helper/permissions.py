@@ -15,7 +15,6 @@ class IsOrganizationMember(permissions.BasePermission):
         return organization.memberships.filter(
             user=request.user,
             is_active=True,
-            accepted=True,
         ).exists()
 
 
@@ -31,7 +30,6 @@ class IsOrganizationAdminOrOwner(permissions.BasePermission):
         return organization.memberships.filter(
             user=request.user,
             is_active=True,
-            accepted=True,
             role__slug__in=[
                 UsersRole.ADMIN,
                 UsersRole.OWNER,
@@ -55,6 +53,5 @@ class IsOrganizationOwner(permissions.BasePermission):
         return organization.memberships.filter(
             user=request.user,
             is_active=True,
-            accepted=True,
             role__slug=UsersRole.OWNER,
         ).exists()
