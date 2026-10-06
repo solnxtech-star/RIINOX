@@ -1,5 +1,8 @@
 class AuditAction:
     """Dotted `domain.event` codes. Each app adds its own here."""
+    ORGANIZATION_CREATED = "organization.created"
+    ORGANIZATION_UPDATED = "organization.updated"
+    ORGANIZATION_DELETED = "organization.deleted"
     INVITATION_CREATED = "invitation.created"
     INVITATION_RESENT = "invitation.resent"
     INVITATION_REVOKED = "invitation.revoked"

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable
+from collections.abc import Mapping
 from dataclasses import asdict
 from dataclasses import dataclass
 
@@ -10,7 +11,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from core.applications.invoice.services import provision_organization_documents
-from core.applications.notification import audit
+from core.applications.notification.audit import services as audit
 from core.applications.notification.audit.action import AuditAction
 from core.applications.notification.audit.context import AuditContext
 from core.applications.subscriptions.services import get_plan_limit
@@ -23,7 +24,8 @@ from core.applications.users.defaults import DEFAULT_ROLES
 from core.applications.users.defaults import MANAGER_ROLE_SLUGS
 from core.applications.users.defaults import MODULE_BY_CODE
 from core.applications.users.defaults import OWNER_ROLE_SLUG
-from core.applications.users.models import BusinessType, Invitation
+from core.applications.users.models import BusinessType
+from core.applications.users.models import Invitation
 from core.applications.users.models import Membership
 from core.applications.users.models import Organization
 from core.applications.users.models import OrganizationBusinessType

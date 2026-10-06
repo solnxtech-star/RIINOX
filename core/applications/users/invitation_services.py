@@ -330,6 +330,9 @@ def accept_invitation(*, token: str, user, audit_context: AuditContext | None = 
     """
     Consumes the invitation and creates the Membership, atomically. Replaying
     the same accept for the same user returns the existing membership (PRD §45).
+    this is the only path that can create a membership without an existing one,
+    so it is the only path that can check the seat limit. The invitation is locked to
+    the organization
     """
     token_hash = hash_token(token)
 
@@ -413,6 +416,12 @@ def assignable_roles(organization, actor_membership):
     dropdown and validates create input; _assert_role_assignable stays as the
     final server-side guard.
     """
+    print("ORGANIZATION:", organization.id)
+    print("ACTOR MEMBERSHIP:", actor_membership.id)
+    print("ACTOR ROLE:", actor_membership.role)
+    print("ACTOR ROLE ID:", actor_membership.role_id)
+    print("ACTOR ROLE SLUG:", actor_membership.role.slug if actor_membership.role else None)
+    print("IS OWNER:", _is_owner(actor_membership))
     roles = Role.objects.for_organization(organization).exclude(
         is_system=True, slug=OWNER_ROLE_SLUG
     )

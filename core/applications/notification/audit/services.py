@@ -1,7 +1,7 @@
 
 
 from core.applications.notification.audit.context import AuditContext
-from core.applications.report.models import AuditLog
+from core.applications.notification.models import AuditLog
 
 
 def record(

@@ -124,7 +124,6 @@ class OrganizationQuerySet(auto_prefetch.QuerySet):
         is_member = Membership.objects.filter(
             organization=OuterRef("pk"),
             user=user,
-            accepted=True,
             is_active=True,
         )
         return self.active().filter(Exists(is_member))

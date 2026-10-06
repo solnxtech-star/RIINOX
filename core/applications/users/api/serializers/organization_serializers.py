@@ -1,7 +1,6 @@
 import re
 from typing import Any
 
-from core.applications.users.invitation_services import assignable_roles, mask_email
 import phonenumbers
 from django.utils.translation import gettext_lazy as _
 from drf_spectacular.utils import extend_schema_field
@@ -12,7 +11,10 @@ from core.applications.subscriptions.models import Plan
 from core.applications.users import reference_data
 from core.applications.users import services
 from core.applications.users.errors import domain_errors
-from core.applications.users.models import BusinessType, Invitation
+from core.applications.users.invitation_services import assignable_roles
+from core.applications.users.invitation_services import mask_email
+from core.applications.users.models import BusinessType
+from core.applications.users.models import Invitation
 from core.applications.users.models import Membership
 from core.applications.users.models import Organization
 from core.applications.users.models import OrganizationBusinessType

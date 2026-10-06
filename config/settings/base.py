@@ -112,6 +112,7 @@ LOCAL_APPS = [
     "core.applications.transactions",
     "core.applications.subscriptions",
     "core.applications.sales",
+    "core.applications.notification"
 ]
 # https://docs.djangoproject.com/en/dev/ref/settings/#installed-apps
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -360,7 +361,7 @@ REST_FRAMEWORK = {
     ),
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
-    "EXCEPTION_HANDLER": "core.helper.exceptions.custom_exception_handler",
+    "EXCEPTION_HANDLER": "core.helper.custom_exceptions.api_exception_handler",
 
     "DEFAULT_THROTTLE_RATES": {"invitation_lookup": "30/min", "invitation_accept": "10/min"},
     "NUM_PROXIES": 1,
@@ -480,4 +481,4 @@ SEED_ON_MIGRATE = True       # False: only `manage.py seed_defaults` seeds
 SEEDING_SKIP = set()         # names of seeds to skip after migrate
 
 # test settings: the template seed uploads files to Cloudinary
-SEEDING_SKIP = {"document_templates"}
+# SEEDING_SKIP = {"document_templates"}
