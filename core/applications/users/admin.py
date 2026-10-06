@@ -73,7 +73,10 @@ class UserAdmin(auth_admin.UserAdmin):
         ),
         (_("Important dates"), {"fields": ("last_login", "date_joined")}),
     )
-    list_display = ["email", "name", "is_active", "is_verified", "is_staff", "is_superuser", "date_joined"]
+    list_display = [
+        "id", "email", "name", "is_active",
+        "is_verified", "is_staff", "is_superuser", "date_joined"
+    ]
     list_filter = ["is_active", "is_verified", "is_staff", "is_superuser"]
     search_fields = ["email", "name"]
     ordering = ["id"]
@@ -94,7 +97,12 @@ class UserAdmin(auth_admin.UserAdmin):
 # ---------------------------------------------------------------------------
 @admin.register(BusinessType)
 class BusinessTypeAdmin(admin.ModelAdmin):
-    list_display = ["name", "code", "show_in_onboarding", "is_active", "sort_order", "organization_count"]
+    list_display = [
+        "id", "name",
+        "code", "show_in_onboarding",
+        "is_active", "sort_order",
+        "organization_count"
+    ]
     list_editable = ["show_in_onboarding", "is_active", "sort_order"]
     list_filter = ["show_in_onboarding", "is_active"]
     search_fields = ["name", "code"]  # also powers autocomplete in the organization inline
@@ -158,7 +166,13 @@ class OrganizationMembershipInline(admin.TabularInline):
 
 @admin.register(Organization)
 class OrganizationAdmin(admin.ModelAdmin):
-    list_display = ["name", "primary_type", "plan", "state", "staff_size", "is_active", "created_by", "created_at"]
+    list_display = [
+        "id", "name",
+        "primary_type", "plan",
+        "state", "staff_size",
+        "is_active", "created_by",
+        "created_at"
+    ]
     list_filter = ["is_active", "business_types", "state", "staff_size", "created_at"]
     search_fields = ["name", "legal_name", "registration_number", "email", "phone"]
     ordering = ["-created_at"]
@@ -234,7 +248,7 @@ class OrganizationAdmin(admin.ModelAdmin):
 # ---------------------------------------------------------------------------
 @admin.register(Permission)
 class PermissionAdmin(admin.ModelAdmin):
-    list_display = ["code", "name", "module"]
+    list_display = ["id", "code", "name", "module"]
     list_filter = ["module"]
     search_fields = ["code", "name"]  # powers autocomplete in the role inline
     ordering = ["module", "name"]
@@ -248,7 +262,10 @@ class RolePermissionInline(admin.TabularInline):
 
 @admin.register(Role)
 class RoleAdmin(admin.ModelAdmin):
-    list_display = ["name", "organization", "slug", "is_system", "permission_count"]
+    list_display = [
+        "id", "name", "organization",
+        "slug", "is_system", "permission_count"
+    ]
     list_filter = ["is_system"]
     search_fields = ["name", "slug", "organization__name"]
     raw_id_fields = ["organization"]
@@ -304,7 +321,7 @@ class StaffDetailInline(admin.StackedInline):
 @admin.register(Invitation)
 class InvitationAdmin(admin.ModelAdmin):
     list_display = (
-        "email", "name", "organization", "role",
+        "id", "email", "name", "organization", "role",
         "status_display", "expires_at", "invited_by", "created_at",
     )
     list_filter = ("status", "organization")
@@ -356,6 +373,7 @@ class PlanFeatureInline(admin.TabularInline):
 @admin.register(Plan)
 class PlanAdmin(admin.ModelAdmin):
     list_display = [
+        "id",
         "name",
         "price",
         "billing_period_days",
@@ -373,7 +391,7 @@ class PlanAdmin(admin.ModelAdmin):
 
 @admin.register(Feature)
 class FeatureAdmin(admin.ModelAdmin):
-    list_display = ["name", "code", "created_at", "updated_at"]
+    list_display = ["id", "name", "code", "created_at", "updated_at"]
     search_fields = ["name", "code"]  # powers autocomplete in the plan inline
     ordering = ["name"]
 
@@ -389,7 +407,11 @@ class PlanFeatureAdmin(admin.ModelAdmin):
 
 @admin.register(Subscription)
 class SubscriptionAdmin(admin.ModelAdmin):
-    list_display = ["organization", "plan", "status", "trial_ends_at", "current_period_end", "canceled_at"]
+    list_display = [
+        "id", "organization",
+        "plan", "status", "trial_ends_at",
+        "current_period_end", "canceled_at"
+    ]
     list_filter = ["status", "plan"]
     list_select_related = ["organization", "plan"]
     search_fields = ["organization__name"]
@@ -398,6 +420,6 @@ class SubscriptionAdmin(admin.ModelAdmin):
 
 @admin.register(State)
 class StateAdmin(admin.ModelAdmin):
-    list_display = ("name", "country", "code")
+    list_display = ("id", "name", "country", "code")
     list_filter = ("country",)
     search_fields = ("name",)

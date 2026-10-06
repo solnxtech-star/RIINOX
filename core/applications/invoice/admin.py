@@ -1,13 +1,11 @@
 from django.contrib import admin
 from django.utils.translation import gettext_lazy as _
 
-from .models import (
-    Client,
-    DocumentSequence,
-    DocumentTemplate,
-    Invoice,
-    InvoiceItem,
-)
+from .models import Client
+from .models import DocumentSequence
+from .models import DocumentTemplate
+from .models import Invoice
+from .models import InvoiceItem
 
 
 class InvoiceItemInline(admin.TabularInline):
@@ -16,6 +14,7 @@ class InvoiceItemInline(admin.TabularInline):
     show_change_link = True
 
     fields = (
+        "id",
         "product",
         "description",
         "quantity",
@@ -35,6 +34,7 @@ class InvoiceItemInline(admin.TabularInline):
 @admin.register(Client)
 class ClientAdmin(admin.ModelAdmin):
     list_display = (
+        "id",
         "name",
         "email",
         "organization",
@@ -125,6 +125,7 @@ class ClientAdmin(admin.ModelAdmin):
 @admin.register(Invoice)
 class InvoiceAdmin(admin.ModelAdmin):
     list_display = (
+        "id",
         "invoice_number",
         "client",
         "organization",
@@ -272,6 +273,7 @@ class InvoiceAdmin(admin.ModelAdmin):
 @admin.register(InvoiceItem)
 class InvoiceItemAdmin(admin.ModelAdmin):
     list_display = (
+        "id",
         "invoice",
         "product",
         "quantity",
@@ -313,6 +315,7 @@ class InvoiceItemAdmin(admin.ModelAdmin):
 @admin.register(DocumentTemplate)
 class DocumentTemplateAdmin(admin.ModelAdmin):
     list_display = (
+        "id",
         "name",
         "template_type",
         "organization",
@@ -389,6 +392,7 @@ class DocumentTemplateAdmin(admin.ModelAdmin):
 @admin.register(DocumentSequence)
 class DocumentSequenceAdmin(admin.ModelAdmin):
     list_display = (
+        "id",
         "organization",
         "document_type",
         "prefix",
