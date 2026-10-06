@@ -46,7 +46,7 @@ class UserMembershipInline(admin.TabularInline):
     model = Membership
     fk_name = "user"
     extra = 0
-    fields = ["organization", "role", "is_active", "accepted"]
+    fields = ["organization", "role", "is_active"]
     raw_id_fields = ["organization", "role"]
     show_change_link = True
 
@@ -159,7 +159,7 @@ class OrganizationMembershipInline(admin.TabularInline):
     model = Membership
     fk_name = "organization"
     extra = 0
-    fields = ["user", "invited_email", "role", "is_active", "accepted"]
+    fields = ["user", "invited_email", "role", "is_active"]
     raw_id_fields = ["user", "role"]
     show_change_link = True
 
