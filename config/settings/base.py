@@ -113,6 +113,7 @@ LOCAL_APPS = [
     "core.applications.subscriptions",
     "core.applications.sales",
     "core.applications.notification"
+    "core.applications.notification"
 ]
 # https://docs.djangoproject.com/en/dev/ref/settings/#installed-apps
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -362,9 +363,6 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "EXCEPTION_HANDLER": "core.helper.custom_exceptions.api_exception_handler",
-
-    "DEFAULT_PAGINATION_CLASS": "core.helper.pagination.CustomPagination",
-    "PAGE_SIZE": 10,
 
     "DEFAULT_THROTTLE_RATES": {"invitation_lookup": "30/min", "invitation_accept": "10/min"},
     "NUM_PROXIES": 1,
