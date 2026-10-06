@@ -315,7 +315,8 @@ class OrganizationCreateSerializer(
                 "required": False,
             },
             "phone": {
-                "required": False,
+                "required": True,
+                "allow_blank": False,
             },
         }
 

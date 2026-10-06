@@ -160,8 +160,13 @@ class OrganizationMembershipInline(admin.TabularInline):
     fk_name = "organization"
     extra = 0
     fields = ["user", "invited_email", "role", "is_active"]
+    readonly_fields = ["invited_email"]
     raw_id_fields = ["user", "role"]
     show_change_link = True
+
+    @admin.display(description="Invited Email")
+    def invited_email(self, obj):
+        return obj.invitation.email if getattr(obj, "invitation_id", None) else "-"
 
 
 @admin.register(Organization)
