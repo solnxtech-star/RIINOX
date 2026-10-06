@@ -330,6 +330,9 @@ def accept_invitation(*, token: str, user, audit_context: AuditContext | None = 
     """
     Consumes the invitation and creates the Membership, atomically. Replaying
     the same accept for the same user returns the existing membership (PRD §45).
+    this is the only path that can create a membership without an existing one,
+    so it is the only path that can check the seat limit. The invitation is locked to
+    the organization
     """
     token_hash = hash_token(token)
 
