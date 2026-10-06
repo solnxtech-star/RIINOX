@@ -2,10 +2,8 @@ from django.db import transaction
 from core.applications.sales.models import Sale, SaleItem, SaleReturn, SaleReturnItem
 
 from core.applications.inventory.services import (
-    update_inventory_for_sale,
-    create_ledger_for_sale,
-    update_inventory_for_return,
-    create_ledger_for_return
+    process_sale_inventory_and_ledger,
+    process_return_inventory_and_ledger
 )
 
 def mock_create_invoice(sale: Sale):
@@ -32,11 +30,22 @@ def create_sale(data: dict) -> Sale:
         sale = Sale.objects.create(**data)
         
         for item_data in items_data:
+            product = item_data['product']
+            unit_name = item_data.get('unit_name')
+            
+            if unit_name and unit_name != product.unit_of_measurement:
+                conversion = product.unit_conversions.filter(unit_name=unit_name).first()
+                if conversion:
+                    item_data['unit_multiplier'] = conversion.multiplier
+                else:
+                    item_data['unit_multiplier'] = 1.0
+            else:
+                item_data['unit_multiplier'] = 1.0
+                
             SaleItem.objects.create(sale=sale, **item_data)
         
         # Execute external operations
-        update_inventory_for_sale(sale)
-        create_ledger_for_sale(sale)
+        process_sale_inventory_and_ledger(sale)
         mock_create_invoice(sale)
         mock_create_payment(sale)
         mock_create_receipt(sale)
@@ -54,8 +63,7 @@ def create_sale_return(data: dict) -> SaleReturn:
         for item_data in items_data:
             SaleReturnItem.objects.create(sale_return=sale_return, **item_data)
             
-        update_inventory_for_return(sale_return)
-        create_ledger_for_return(sale_return)
+        process_return_inventory_and_ledger(sale_return)
         mock_create_audit_event(sale_return.original_sale)
         
     return sale_return

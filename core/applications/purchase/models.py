@@ -149,6 +149,12 @@ class PurchaseItem(TimeBasedModel):
         decimal_places=2,
         help_text=_("Snapshot of Product.purchase_cost at order time."),
     )
+    discount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        help_text=_("Discount applied to this line item."),
+    )
 
     class Meta(auto_prefetch.Model.Meta):
         verbose_name = _("Purchase Item")
@@ -159,4 +165,6 @@ class PurchaseItem(TimeBasedModel):
 
     @property
     def received_value(self):
-        return self.quantity_received * self.purchase_cost
+        # Discount is assumed to be a fixed total line discount. Prorate if partially received.
+        prorated_discount = (self.discount / self.quantity_ordered) * self.quantity_received if self.quantity_ordered else 0
+        return max(0, (self.quantity_received * self.purchase_cost) - prorated_discount)

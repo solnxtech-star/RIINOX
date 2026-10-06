@@ -9,7 +9,7 @@ from core.applications.inventory.api.serializers import (
     StockAdjustmentRequestSerializer, StockTransferSerializer, 
     InventorySerializer, InventoryLedgerEntrySerializer
 )
-from core.applications.inventory.services import request_stock_adjustment, approve_stock_adjustment, transfer_stock
+from core.applications.inventory.services import request_stock_adjustment, approve_stock_adjustment, single_transfer_stock
 from core.applications.inventory.api.schemas import (
     stock_adjustment_create_example, stock_transfer_example,
     inventory_schema, ledger_entry_schema
@@ -75,9 +75,9 @@ class StockTransferViewSet(viewsets.ViewSet):
             source_wh = Warehouse.objects.get(id=data['source_warehouse_id'])
             dest_wh = Warehouse.objects.get(id=data['destination_warehouse_id'])
 
-            transfer_stock(
-                source_wh=source_wh,
-                dest_wh=dest_wh,
+            single_transfer_stock(
+                source_warehouse=source_wh,
+                destination_warehouse=dest_wh,
                 product=product,
                 variant=variant,
                 batch=batch,

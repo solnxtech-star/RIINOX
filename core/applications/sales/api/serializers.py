@@ -6,17 +6,17 @@ class SaleItemSerializer(serializers.ModelSerializer):
         model = SaleItem
         fields = [
             'id', 'sale', 'product', 'variant', 'product_name', 'product_sku', 
-            'quantity', 'returned_quantity', 'unit_price', 'discount', 
-            'discount_type', 'tax', 'tax_rate', 'total'
+            'quantity', 'returned_quantity', 'unit_name', 'unit_multiplier',
+            'unit_price', 'discount', 'discount_type', 'tax', 'tax_rate', 'total'
         ]
-        read_only_fields = ['total', 'returned_quantity']
+        read_only_fields = ['total', 'returned_quantity', 'unit_multiplier']
 
 class SaleItemCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = SaleItem
         fields = [
             'product', 'variant', 'product_name', 'product_sku', 
-            'quantity', 'unit_price', 'discount', 'discount_type', 
+            'quantity', 'unit_name', 'unit_price', 'discount', 'discount_type', 
             'tax', 'tax_rate'
         ]
 

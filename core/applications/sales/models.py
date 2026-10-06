@@ -11,6 +11,7 @@ from core.helper.enums import (
     RefundMethodChoices,
     ItemConditionChoices,
     RestockActionChoices,
+    UnitOfMeasureChoices,
 )
 
 class Sale(TimeBasedModel):
@@ -65,6 +66,13 @@ class SaleItem(TimeBasedModel):
     
     quantity = models.PositiveIntegerField(default=1)
     returned_quantity = models.PositiveIntegerField(default=0)
+    
+    unit_name = models.CharField(
+        max_length=10, 
+        choices=UnitOfMeasureChoices.choices, 
+        default=UnitOfMeasureChoices.PIECE
+    )
+    unit_multiplier = models.DecimalField(max_digits=10, decimal_places=3, default=1.0)
     
     unit_price = models.DecimalField(max_digits=12, decimal_places=2)
     discount = models.DecimalField(max_digits=12, decimal_places=2, default=0)

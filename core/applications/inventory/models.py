@@ -174,8 +174,23 @@ class StockAdjustmentRequest(TimeBasedModel):
     requested_quantity_change = models.IntegerField(
         help_text=_("Signed: positive to add stock, negative to remove."),
     )
-    reason = models.TextField(
-        help_text=_("Why this adjustment is being requested."),
+    requested_unit = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        help_text=_("The unit selected by the user in the UI (e.g. 'Bottle')."),
+    )
+    adjustment_reason = models.CharField(
+        max_length=20,
+        choices=VarianceReasonChoices.choices,
+        blank=True,
+        null=True,
+        help_text=_("Standardized reason for this adjustment."),
+    )
+    notes = models.TextField(
+        blank=True,
+        null=True,
+        help_text=_("Optional note for this adjustment."),
     )
     requested_by = auto_prefetch.ForeignKey(
         settings.AUTH_USER_MODEL,
