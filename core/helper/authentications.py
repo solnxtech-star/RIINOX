@@ -87,8 +87,21 @@ class CustomJWTAuthentication(JWTAuthentication):
         #     )
         #     serializer.is_valid(raise_exception=True)
         #     user.timezone = serializer.validated_data.get("timezone")
-        # else:
-        #     raise drf_exception.PermissionDenied(
         #         "You need an account id to gain access"
         #     )
         return user
+
+from drf_spectacular.extensions import OpenApiAuthenticationExtension
+
+class CustomJWTAuthenticationScheme(OpenApiAuthenticationExtension):
+    target_class = "core.helper.authentications.CustomJWTAuthentication"
+    name = "jwtAuth"
+    match_subclasses = True
+    priority = -1
+
+    def get_security_definition(self, auto_schema):
+        return {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+        }

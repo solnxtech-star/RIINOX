@@ -1,6 +1,7 @@
 from rest_framework import viewsets, mixins, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiResponse
 from core.applications.inventory.models import StockAdjustmentRequest, Inventory, InventoryLedgerEntry
 from core.applications.products.models import Product, ProductVariant, ProductBatch
@@ -26,6 +27,7 @@ from core.applications.inventory.api.schemas import (
 class StockAdjustmentViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     queryset = StockAdjustmentRequest.objects.all()
     serializer_class = StockAdjustmentRequestSerializer
+    permission_classes = [IsAuthenticated]
 
     def create(self, request, *args, **kwargs):
         # Instead of directly creating, use the service layer
@@ -56,6 +58,7 @@ class StockAdjustmentViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, mix
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 class StockTransferViewSet(viewsets.ViewSet):
+    permission_classes = [IsAuthenticated]
     @extend_schema(
         tags=['Inventory'],
         request=StockTransferSerializer,
@@ -92,8 +95,10 @@ class StockTransferViewSet(viewsets.ViewSet):
 class InventoryViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Inventory.objects.select_related('product', 'variant', 'batch', 'warehouse').all()
     serializer_class = InventorySerializer
+    permission_classes = [IsAuthenticated]
 
 @ledger_entry_schema
 class InventoryLedgerEntryViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = InventoryLedgerEntry.objects.select_related('transaction', 'product', 'variant', 'batch', 'warehouse').all()
     serializer_class = InventoryLedgerEntrySerializer
+    permission_classes = [IsAuthenticated]
