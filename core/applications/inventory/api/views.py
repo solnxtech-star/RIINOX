@@ -40,7 +40,9 @@ class StockAdjustmentViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, mix
             batch=serializer.validated_data.get('batch'),
             warehouse=serializer.validated_data['warehouse'],
             quantity_change=serializer.validated_data['requested_quantity_change'],
-            reason=serializer.validated_data['reason'],
+            adjustment_reason=serializer.validated_data.get('adjustment_reason'),
+            notes=serializer.validated_data.get('notes'),
+            requested_unit=serializer.validated_data.get('requested_unit'),
             user=request.user
         )
         return Response(StockAdjustmentRequestSerializer(adj).data, status=status.HTTP_201_CREATED)

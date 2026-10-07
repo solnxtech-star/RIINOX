@@ -8,11 +8,11 @@ class StockAdjustmentRequestSerializer(serializers.ModelSerializer):
         read_only_fields = ['status', 'requested_by', 'reviewed_by', 'reviewed_at', 'rejection_reason']
 
 class StockTransferSerializer(serializers.Serializer):
-    product_id = serializers.IntegerField()
-    variant_id = serializers.IntegerField(required=False, allow_null=True)
-    batch_id = serializers.IntegerField(required=False, allow_null=True)
-    source_warehouse_id = serializers.IntegerField()
-    destination_warehouse_id = serializers.IntegerField()
+    product_id = serializers.UUIDField()
+    variant_id = serializers.UUIDField(required=False, allow_null=True)
+    batch_id = serializers.UUIDField(required=False, allow_null=True)
+    source_warehouse_id = serializers.UUIDField()
+    destination_warehouse_id = serializers.UUIDField()
     quantity = serializers.IntegerField(min_value=1)
 
 class InventorySerializer(serializers.ModelSerializer):

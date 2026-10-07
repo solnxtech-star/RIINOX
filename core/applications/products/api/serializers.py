@@ -30,7 +30,12 @@ class ProductSerializer(serializers.ModelSerializer):
 
 class ProductCreateSerializer(serializers.ModelSerializer):
     quantity_in_stock = serializers.IntegerField(write_only=True, required=False, default=0, help_text="Initial opening stock quantity")
-    warehouse_id = serializers.IntegerField(write_only=True, required=False, help_text="Warehouse ID for opening stock")
+    warehouse_id = serializers.PrimaryKeyRelatedField(
+        queryset=Warehouse.objects.all(),
+        write_only=True, 
+        required=False, 
+        help_text="Warehouse ID for opening stock"
+    )
     
     batches = ProductBatchSerializer(many=True, required=False)
     bulk_discounts = ProductBulkDiscountSerializer(many=True, required=False)
@@ -43,7 +48,7 @@ class ProductCreateSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         quantity_in_stock = validated_data.pop('quantity_in_stock', 0)
-        warehouse_id = validated_data.pop('warehouse_id', None)
+        warehouse = validated_data.pop('warehouse_id', None)
         batches_data = validated_data.pop('batches', [])
         discounts_data = validated_data.pop('bulk_discounts', [])
         units_data = validated_data.pop('unit_conversions', [])
@@ -59,8 +64,7 @@ class ProductCreateSerializer(serializers.ModelSerializer):
             ProductUnitConversion.objects.create(product=product, **unit)
 
         # Trigger Opening Stock Service
-        if quantity_in_stock > 0 and warehouse_id:
-            warehouse = Warehouse.objects.get(id=warehouse_id)
+        if quantity_in_stock > 0 and warehouse:
             user = self.context['request'].user
             create_opening_stock(
                 product=product,

@@ -38,7 +38,7 @@ def process_sale_inventory_and_ledger(sale):
         remaining_qty = item.quantity * item.unit_multiplier
         
         # Order by expiry date (FIFO) to handle multiple batches safely
-        inventory_records = Inventory.objects.select_for_update().filter(
+        inventory_records = Inventory.objects.select_for_update(of=('self',)).filter(
             product=item.product,
             variant=item.variant,
             warehouse=sale.location.warehouse

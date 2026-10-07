@@ -45,7 +45,7 @@ class Transaction(TimeBasedModel):
 
     # Generic relation to the originating document (Invoice, Payment, Adjustment)
     content_type = models.ForeignKey(ContentType, on_delete=models.SET_NULL, null=True, blank=True)
-    object_id = models.PositiveIntegerField(null=True, blank=True)
+    object_id = models.CharField(max_length=255, null=True, blank=True)
     reference = GenericForeignKey("content_type", "object_id")
 
     created_by = auto_prefetch.ForeignKey(

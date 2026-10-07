@@ -224,6 +224,7 @@ class DocumentTemplate(TimeBasedModel):
     file = models.FileField(
         storage=RawCloudinaryStorage(),
         upload_to=MediaHelper.get_template_upload_path,
+        max_length=255,
         help_text=_("The actual template file (e.g. HTML, DOCX)."),
     )
     organization = auto_prefetch.ForeignKey(
