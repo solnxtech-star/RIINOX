@@ -13,7 +13,7 @@ from core.applications.inventory.models import StockAdjustmentRequest
 
 @admin.register(InventoryLedgerEntry)
 class InventoryLedgerEntryAdmin(admin.ModelAdmin):
-    list_display = ("transaction", "product", "warehouse", "quantity_moved", "created_at")
+    list_display = ("id", "transaction", "product", "warehouse", "quantity_moved", "created_at")
     list_filter = ("warehouse",)
     search_fields = ("product__name", "transaction__transaction_id")
     readonly_fields = ("transaction", "product", "variant", "batch", "warehouse", "quantity_moved", "unit_cost", "created_at", "updated_at")
@@ -34,7 +34,7 @@ class InventoryAdmin(admin.ModelAdmin):
     change" the PRD forbids (§9).
     """
 
-    list_display = ("product", "warehouse", "location", "quantity", "updated_at")
+    list_display = ("id", "product", "warehouse", "location", "quantity", "updated_at")
     list_filter = ("warehouse", "location")
     search_fields = (
         "product__name",
@@ -73,6 +73,7 @@ class StockAdjustmentRequestAdmin(admin.ModelAdmin):
     """
 
     list_display = (
+        "id",
         "product",
         "warehouse",
         "requested_quantity_change",
@@ -142,7 +143,7 @@ class PhysicalStockCountItemInline(admin.TabularInline):
 
 @admin.register(PhysicalStockCount)
 class PhysicalStockCountAdmin(admin.ModelAdmin):
-    list_display = ("warehouse", "count_date", "counted_by", "status", "item_count")
+    list_display = ("id", "warehouse", "count_date", "counted_by", "status", "item_count")
     list_filter = ("warehouse", "status")
     search_fields = ("warehouse__name", "warehouse__code", "notes")
     list_select_related = ("warehouse", "counted_by")
@@ -162,7 +163,7 @@ class PhysicalStockCountItemAdmin(admin.ModelAdmin):
     variance across all warehouses this month" (PRD §19, §40).
     """
 
-    list_display = ("count", "product", "expected_quantity", "counted_quantity", "variance_display", "variance_reason")
+    list_display = ("id", "count", "product", "expected_quantity", "counted_quantity", "variance_display", "variance_reason")
     list_filter = ("variance_reason", "count__warehouse")
     search_fields = ("product__name", "product__sku", "notes")
     list_select_related = ("count", "product", "count__warehouse")

@@ -11,7 +11,7 @@ from core.helper.enums import UsersRole
 
 @admin.register(Category)
 class CategoryAdmin(ModelAdmin):
-    list_display = ("name", "organization", "is_active", "product_count")
+    list_display = ("id", "name", "organization", "is_active", "product_count")
     list_filter = ("organization", "is_active")
     search_fields = ("name", "description")
     list_select_related = ("organization",)
@@ -23,7 +23,7 @@ class CategoryAdmin(ModelAdmin):
 
 @admin.register(Brand)
 class BrandAdmin(ModelAdmin):
-    list_display = ("name", "organization", "is_active", "product_count")
+    list_display = ("id", "name", "organization", "is_active", "product_count")
     list_filter = ("organization", "is_active")
     search_fields = ("name",)
     list_select_related = ("organization",)
@@ -83,7 +83,7 @@ class ProductAdmin(ModelAdmin):
         return self.fieldsets_common
 
     def get_list_display(self, request):
-        base = ("name", "sku", "category", "brand", "customer_sale_price", "current_stock", "status_badge")
+        base = ("id", "name", "sku", "category", "brand", "customer_sale_price", "current_stock", "status_badge")
         if self._is_privileged(request.user):
             return base + ("purchase_cost", "vendor_sale_cost")
         return base
