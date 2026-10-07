@@ -23,7 +23,7 @@ Where the values come from:
         "batch": None,
         "warehouse": 2,
         "requested_quantity_change": -5,
-        "reason": "Damaged Goods"
+        "reason": "damaged"
     },
     request_only=True
 )
