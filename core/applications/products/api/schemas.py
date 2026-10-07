@@ -35,7 +35,7 @@ PRODUCT_CREATE_EXAMPLE = {
     ],
     "unit_conversions": [
         {
-            "unit_name": "Carton",
+            "unit_name": "carton",
             "multiplier": "12.000",
             "price_override": "4000.00"
         }
