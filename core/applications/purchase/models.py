@@ -81,6 +81,29 @@ class Purchase(TimeBasedModel):
         null=True,
         help_text=_("Date the goods were or are expected to be delivered."),
     )
+    order_date = models.DateField(
+        blank=True,
+        null=True,
+        help_text=_("Date the order was placed."),
+    )
+    delivery_method = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        help_text=_("Delivery method used for the order (e.g. Supplier Delivery)."),
+    )
+    other_costs = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        help_text=_("Additional costs such as delivery or handling."),
+    )
+    discount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        help_text=_("Global discount applied to the purchase order."),
+    )
     status = models.CharField(
         max_length=20,
         choices=PurchaseStatusChoices.choices,
@@ -104,7 +127,12 @@ class Purchase(TimeBasedModel):
     @property
     def total_value(self):
         """Value of goods actually received, not merely ordered."""
-        return sum(item.received_value for item in self.items.all())
+        return sum(item.received_value for item in self.items.all()) + self.other_costs - self.discount
+
+    @property
+    def ordered_value(self):
+        """Value of goods ordered, before receiving."""
+        return sum(item.ordered_value for item in self.items.all()) + self.other_costs - self.discount
 
     def save(self, *args, **kwargs):
         if not self.purchase_number:
@@ -137,6 +165,22 @@ class PurchaseItem(TimeBasedModel):
         related_name="purchase_items",
         help_text=_("Product being ordered/received."),
     )
+    variant = auto_prefetch.ForeignKey(
+        "products.ProductVariant",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="purchase_items",
+        help_text=_("Specific variant of the product being ordered, if applicable."),
+    )
+    unit = auto_prefetch.ForeignKey(
+        "products.ProductUnitConversion",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="purchase_items",
+        help_text=_("Specific unit of measurement the product is being ordered in."),
+    )
     quantity_ordered = models.PositiveIntegerField(
         help_text=_("Quantity requested from the vendor."),
     )
@@ -168,3 +212,7 @@ class PurchaseItem(TimeBasedModel):
         # Discount is assumed to be a fixed total line discount. Prorate if partially received.
         prorated_discount = (self.discount / self.quantity_ordered) * self.quantity_received if self.quantity_ordered else 0
         return max(0, (self.quantity_received * self.purchase_cost) - prorated_discount)
+
+    @property
+    def ordered_value(self):
+        return max(0, (self.quantity_ordered * self.purchase_cost) - self.discount)
