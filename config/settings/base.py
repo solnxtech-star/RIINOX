@@ -382,6 +382,10 @@ SPECTACULAR_SETTINGS = {
     "SWAGGER_UI_SETTINGS": {
         "persistAuthorization": True,
     },
+    "MAP_DJANGO_FIELD_TO_OPENAPI_TYPE": {
+        "rest_framework.fields.UUIDField": {"type": "string"},
+        "django.db.models.fields.UUIDField": {"type": "string"}
+    }
 }
 # Your stuff...
 # ------------------------------------------------------------------------------
