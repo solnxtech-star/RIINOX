@@ -13,6 +13,45 @@ class PurchaseViewSet(viewsets.ModelViewSet):
     serializer_class = PurchaseSerializer
     permission_classes = [IsAuthenticated]
 
+    def perform_create(self, serializer):
+        from core.applications.notification.audit.services import record as audit_record
+        from core.applications.notification.audit.context import AuditContext
+        from core.applications.notification.audit.action import AuditAction
+        
+        purchase = serializer.save()
+        audit_record(
+            action=AuditAction.PURCHASE_ORDER_CREATED,
+            organization=purchase.organization,
+            actor=self.request.user,
+            resource=purchase,
+            context=AuditContext.from_request(self.request)
+        )
+
+    def perform_update(self, serializer):
+        from core.applications.notification.audit.services import record as audit_record
+        from core.applications.notification.audit.context import AuditContext
+        from core.applications.notification.audit.action import AuditAction
+
+        old_instance = self.get_object()
+        old_data = {"status": old_instance.status}
+        
+        purchase = serializer.save()
+        new_data = {"status": purchase.status}
+        
+        # We can just use PURCHASE_ORDER_APPROVED if status changed to approved,
+        # but tracking generic update is safer if we don't have the exact enum value.
+        action = AuditAction.PURCHASE_ORDER_APPROVED if old_instance.status != purchase.status and purchase.status == 'approved' else "purchase_order.updated"
+        
+        audit_record(
+            action=action,
+            organization=purchase.organization,
+            actor=self.request.user,
+            resource=purchase,
+            previous_values=old_data,
+            new_values=new_data,
+            context=AuditContext.from_request(self.request)
+        )
+
     @action(detail=True, methods=['post'])
     def receive(self, request, pk=None):
         purchase = self.get_object()

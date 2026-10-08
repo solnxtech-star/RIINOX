@@ -11,3 +11,22 @@ class AuditAction:
     MEMBERSHIP_DEACTIVATED = "membership.deactivated"
     MEMBERSHIP_REACTIVATED = "membership.reactivated"
     ROLE_PERMISSIONS_CHANGED = "role.permissions_changed"
+    
+    # Product Events
+    PRODUCT_CREATED = "product.created"
+    PRODUCT_UPDATED = "product.updated"
+    PRODUCT_ARCHIVED = "product.archived"
+    PRODUCT_RESTORED = "product.restored"
+
+    # Inventory Events
+    INVENTORY_ADJUSTED = "inventory.adjusted"
+    INVENTORY_OPENING_STOCK_SET = "inventory.opening_stock_set"
+
+    # Purchase Events
+    PURCHASE_ORDER_CREATED = "purchase_order.created"
+    PURCHASE_ORDER_APPROVED = "purchase_order.approved"
+    PURCHASE_ORDER_RECEIVED = "purchase_order.received"
+    
+    # Sales Events
+    SALES_ORDER_CREATED = "sales_order.created"
+    SALES_ORDER_FULFILLED = "sales_order.fulfilled"

@@ -19,8 +19,17 @@ def mock_create_receipt(sale: Sale):
     pass
 
 def mock_create_audit_event(sale: Sale):
-    """Mock implementation for audit event creation."""
-    pass
+    """Real implementation for audit event creation."""
+    from core.applications.notification.audit.services import record as audit_record
+    from core.applications.notification.audit.action import AuditAction
+    
+    audit_record(
+        action=AuditAction.SALES_ORDER_CREATED,
+        organization=sale.organization,
+        actor=sale.sales_rep,
+        resource=sale,
+        metadata={"total_amount": str(sale.total_amount)} if hasattr(sale, 'total_amount') else {}
+    )
 
 def create_sale(data: dict) -> Sale:
     """Create a Sale and its items, coordinating external side-effects."""

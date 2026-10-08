@@ -40,4 +40,4 @@ class SalesAPITest(APITestCase):
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         results = response.data.get('results', []) if isinstance(response.data, dict) else response.data
-        self.assertEqual(type(results), list)
+        self.assertIsInstance(results, list)

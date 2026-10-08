@@ -4,6 +4,8 @@ from django.utils import timezone
 from django.contrib.contenttypes.models import ContentType
 from core.applications.inventory.models import Inventory, InventoryLedgerEntry, StockAdjustmentRequest
 from core.applications.transactions.services import create_transaction, TransactionData      
+from core.applications.notification.audit.services import record as audit_record
+from core.applications.notification.audit.action import AuditAction
 from core.helper.enums import (
     TransactionTypeChoices, 
     TransactionStatusChoices,
@@ -104,6 +106,14 @@ def process_sale_inventory_and_ledger(sale):
     if ledger_entries:
         InventoryLedgerEntry.objects.bulk_create(ledger_entries)
 
+    audit_record(
+        action=AuditAction.SALES_ORDER_FULFILLED,
+        organization=sale.organization,
+        actor=sale.sales_rep,
+        resource=sale,
+        metadata={"total_items": len(ledger_entries)}
+    )
+
 @transaction.atomic
 def process_return_inventory_and_ledger(sale_return):
     """
@@ -179,6 +189,14 @@ def create_opening_stock(product, variant, batch, warehouse, quantity, user):
     inventory.quantity = quantity
     inventory.save(update_fields=['quantity'])
 
+    audit_record(
+        action=AuditAction.INVENTORY_OPENING_STOCK_SET,
+        organization=product.organization,
+        actor=user,
+        resource=product,
+        metadata={"quantity_change": quantity, "warehouse_id": str(warehouse.id)}
+    )
+
 
 @transaction.atomic
 def request_stock_adjustment(product, variant, batch, warehouse, quantity_change, adjustment_reason, notes, requested_unit, user):
@@ -248,6 +266,15 @@ def approve_stock_adjustment(adjustment_id, admin_user):
     )
     inventory.quantity += adjustment.requested_quantity_change
     inventory.save(update_fields=['quantity'])
+
+    audit_record(
+        action=AuditAction.INVENTORY_ADJUSTED,
+        organization=adjustment.product.organization,
+        actor=admin_user,
+        resource=adjustment.product,
+        reason=adjustment.adjustment_reason or "Stock Adjustment Approved",
+        metadata={"quantity_change": adjustment.requested_quantity_change, "warehouse_id": str(adjustment.warehouse.id)}
+    )
 
 
 @transaction.atomic
@@ -400,6 +427,14 @@ def receive_purchase_order(purchase, items_received, user):
         inventory.save(update_fields=['quantity'])
         
     InventoryLedgerEntry.objects.bulk_create(entries)
+
+    audit_record(
+        action=AuditAction.PURCHASE_ORDER_RECEIVED,
+        organization=purchase.organization,
+        actor=user,
+        resource=purchase,
+        metadata={"items_received": len(items_received)}
+    )
 
 @transaction.atomic
 def finalize_physical_stock_count(count_id, admin_user):
