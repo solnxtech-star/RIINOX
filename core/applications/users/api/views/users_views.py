@@ -1,5 +1,6 @@
 import logging
 from smtplib import SMTPRecipientsRefused
+from typing import ClassVar
 
 from django.contrib.auth import logout
 from django.contrib.auth import update_session_auth_hash
@@ -473,6 +474,7 @@ class UserViewSet(ModelViewSet):
         serializer.is_valid(raise_exception=True)
         user = serializer.user
         user.is_active = True
+        user.is_verified = True
         user.save()
 
         signals.user_activated.send(
@@ -698,26 +700,7 @@ class InvitationViewSet(viewsets.GenericViewSet):
 # --------------------------------------------------------------------------- #
 # Team side: organization-scoped, permission-gated.
 # --------------------------------------------------------------------------- #
-_ACTION_PERMISSIONS = {
-    "list": HasOrgPermission(PermissionCode.VIEW_TEAM),
-    "roles": HasOrgPermission(PermissionCode.INVITE_TEAM_MEMBER),  # populates the invite form
-    "create": HasOrgPermission(PermissionCode.INVITE_TEAM_MEMBER),
-    "resend": HasOrgPermission(PermissionCode.INVITE_TEAM_MEMBER),
-    "revoke": HasOrgPermission(PermissionCode.REVOKE_INVITATION),
-}
-_DEFAULT_PERMISSION = HasOrgPermission(PermissionCode.VIEW_TEAM)
-
-_STATUS_FILTERS = {
-    "pending": lambda qs: qs.pending(),
-    "expired": lambda qs: qs.expired(),  # derived from expires_at, not a stored status
-    "accepted": lambda qs: qs.filter(status=InvitationStatus.ACCEPTED),
-    "revoked": lambda qs: qs.filter(status=InvitationStatus.REVOKED),
-}
-
-_TEAM_TAGS = ["Team invitations"]
-
-
-@extend_schema_view(**ORGANIZATION_INVITATION_SCHEMA )
+@extend_schema_view(**ORGANIZATION_INVITATION_SCHEMA)
 class OrganizationInvitationViewSet(
     OrganizationScopedMixin,
     mixins.ListModelMixin,
@@ -727,34 +710,58 @@ class OrganizationInvitationViewSet(
     /organizations/{organization_id}/invitations/
 
     The organization comes from the URL and is verified against the caller's
-    active membership by HasOrgPermission. Views never read it from the body.
+    active membership by HasOrgPermission. It is never read from the body.
     """
 
     queryset = Invitation.objects.none()  # real queryset: get_queryset()
     serializer_class = InvitationSerializer
     # Anything other than a UUID is a 404 at the router, never a database error.
-    lookup_value_regex = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+    lookup_value_regex = (
+        r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+    )
     filter_backends = [SearchFilter, OrderingFilter]
     search_fields = ["name", "email"]
     ordering_fields = ["created_at", "expires_at", "name", "email"]
     ordering = ["-created_at"]
 
+    # -- per-action configuration ------------------------------------------ #
+    action_permissions: ClassVar = {
+        "list": HasOrgPermission(PermissionCode.VIEW_TEAM),
+        "roles": HasOrgPermission(PermissionCode.INVITE_TEAM_MEMBER),  # populates the invite form
+        "create": HasOrgPermission(PermissionCode.INVITE_TEAM_MEMBER),
+        "resend": HasOrgPermission(PermissionCode.INVITE_TEAM_MEMBER),
+        "revoke": HasOrgPermission(PermissionCode.REVOKE_INVITATION),
+    }
+    default_permission = HasOrgPermission(PermissionCode.VIEW_TEAM)
+
+    action_serializers: ClassVar = {
+        "create": InvitationCreateSerializer,
+        "revoke": InvitationRevokeSerializer,
+        "roles": RoleOptionSerializer,
+    }
+
+    status_filters: ClassVar = {
+        "pending": lambda qs: qs.pending(),
+        "expired": lambda qs: qs.expired(),  # derived from expires_at, not stored
+        "accepted": lambda qs: qs.filter(status=InvitationStatus.ACCEPTED),
+        "revoked": lambda qs: qs.filter(status=InvitationStatus.REVOKED),
+    }
+
     # -- plumbing ---------------------------------------------------------- #
     def get_permissions(self):
-        permission = _ACTION_PERMISSIONS.get(self.action, _DEFAULT_PERMISSION)
+        permission = self.action_permissions.get(self.action, self.default_permission)
         return [permissions.IsAuthenticated(), permission()]
 
     def get_serializer_class(self):
-        return {
-            "create": InvitationCreateSerializer,
-            "revoke": InvitationRevokeSerializer,
-            "roles": RoleOptionSerializer,
-        }.get(self.action, InvitationSerializer)
+        return self.action_serializers.get(self.action, self.serializer_class)
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
         if not getattr(self, "swagger_fake_view", False):
-            context.update(organization=self.organization, actor_membership=self.membership)
+            context.update(
+                organization=self.organization,
+                actor_membership=self.membership,
+            )
         return context
 
     def get_queryset(self):
@@ -765,41 +772,53 @@ class OrganizationInvitationViewSet(
 
         requested = self.request.query_params.get("status")
         if requested:
-            apply_filter = _STATUS_FILTERS.get(requested)
+            apply_filter = self.status_filters.get(requested)
             if apply_filter is None:
-                raise ValidationError({"status": [f"Choose one of: {', '.join(_STATUS_FILTERS)}."]})
+                raise ValidationError(
+                    {"status": [f"Choose one of: {', '.join(self.status_filters)}."]}
+                )
             queryset = apply_filter(queryset)
         return queryset
 
     def _audit_context(self) -> AuditContext:
         return AuditContext.from_request(self.request)
 
-    # -- endpoints --------------------------------------------------------- #
-    # `list` comes from ListModelMixin; its schema is attached by extend_schema_view above.
+    def _present(self, invitation) -> dict:
+        """Serialize with the response serializer, whatever the action's request serializer is."""
+        return InvitationSerializer(
+            invitation, context=self.get_serializer_context()
+        ).data
 
-    @action(detail=False, methods=["get"], url_path="roles", url_name="roles", pagination_class=None)
+    # -- endpoints --------------------------------------------------------- #
+    # `list` comes from ListModelMixin; its schema is attached by extend_schema_view.
+
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="roles",
+        url_name="roles",
+        pagination_class=None,
+    )
     def roles(self, request, *args, **kwargs):
         """Roles the caller may assign: feeds the "Assign Role" dropdown."""
         roles = invitation_services.assignable_roles(self.organization, self.membership)
-        return Response(RoleOptionSerializer(roles, many=True).data)
+        return Response(self.get_serializer(roles, many=True).data)
 
     def create(self, request, *args, **kwargs):
         """Invite someone to this organization. The email is sent after the transaction commits."""
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
 
         issued = invitation_services.create_invitation(
             organization=self.organization,
             inviter=request.user,
-            name=serializer.validated_data["name"],
-            email=serializer.validated_data["email"],
-            role=serializer.validated_data["role"],
+            name=data["name"],
+            email=data["email"],
+            role=data["role"],
             audit_context=self._audit_context(),
         )
-        return Response(
-            InvitationSerializer(issued.invitation, context=self.get_serializer_context()).data,
-            status=status.HTTP_201_CREATED,
-        )
+        return Response(self._present(issued.invitation), status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["post"], url_path="resend", url_name="resend")
     def resend(self, request, pk=None, *args, **kwargs):
@@ -810,11 +829,11 @@ class OrganizationInvitationViewSet(
             actor=request.user,
             audit_context=self._audit_context(),
         )
-        return Response(InvitationSerializer(issued.invitation, context=self.get_serializer_context()).data)
+        return Response(self._present(issued.invitation))
 
     @action(detail=True, methods=["post"], url_path="revoke", url_name="revoke")
     def revoke(self, request, pk=None, *args, **kwargs):
-        """Cancel a pending invitation. The record is kept for history (PRD §44)."""
+        """Cancel a pending invitation. The record is kept for history."""
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -825,4 +844,4 @@ class OrganizationInvitationViewSet(
             reason=serializer.validated_data["reason"],
             audit_context=self._audit_context(),
         )
-        return Response(InvitationSerializer(invitation, context=self.get_serializer_context()).data)
+        return Response(self._present(invitation))

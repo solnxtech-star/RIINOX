@@ -532,37 +532,41 @@ class MembershipUpdateSerializer(serializers.ModelSerializer):
         return MembershipSerializer(instance, context=self.context).data
 
 
-# ===========================================================================
-# Invitations: team side (authenticated, organization-scoped)
-# ===========================================================================
+class AssignableRoleField(serializers.PrimaryKeyRelatedField):
+    """
+    A role the current caller may assign in the current organization.
+
+    The queryset is resolved per request from the serializer context
+    (`organization`, `actor_membership`), using the same function that feeds
+    the "Assign Role" dropdown. Without that context nothing is assignable.
+    """
+
+    default_error_messages = {
+        "does_not_exist": "Select a valid role for this organization.",
+        "incorrect_type": "Invalid role identifier.",
+    }
+
+    def get_queryset(self):
+        organization = self.context.get("organization")
+        actor_membership = self.context.get("actor_membership")
+        if organization is None or actor_membership is None:
+            return Role.objects.none()
+        return assignable_roles(organization, actor_membership)
+
+
 class InvitationCreateSerializer(serializers.Serializer):
     """
     Body of POST /organizations/{organization_id}/invitations/.
 
-    The organization is never in the body: it comes from the URL, verified
-    against the caller's membership. The view passes `organization` and
-    `actor_membership` in the serializer context.
+    The organization comes from the URL, never the body. The view supplies
+    `organization` and `actor_membership` through the serializer context.
     """
 
-    name = serializers.CharField(max_length=255)
+    name = serializers.CharField(max_length=255, trim_whitespace=True)
     email = serializers.EmailField()
-    role = serializers.PrimaryKeyRelatedField(
-        queryset=Role.objects.none(),
-        error_messages={"does_not_exist": "Select a valid role for this organization."},
-    )
+    role = AssignableRoleField()
 
-    def get_fields(self):
-        fields = super().get_fields()
-        organization = self.context.get("organization")
-        actor_membership = self.context.get("actor_membership")
-        fields["role"].queryset = (
-            assignable_roles(organization, actor_membership)
-            if organization and actor_membership
-            else Role.objects.none()
-        )
-        return fields
-
-    def validate_email(self, value):
+    def validate_email(self, value: str) -> str:
         return value.strip().lower()
 
 
@@ -571,24 +575,14 @@ class InvitationSerializer(serializers.ModelSerializer):
 
     role_name = serializers.CharField(source="role.name", read_only=True)
     invited_by_name = serializers.CharField(source="invited_by.name", read_only=True, allow_null=True)
-    # Includes the derived "expired", so the UI needs no date logic.
     status = serializers.CharField(source="display_status", read_only=True)
 
     class Meta:
         model = Invitation
         fields = [
-            "id",
-            "name",
-            "email",
-            "role",
-            "role_name",
-            "status",
-            "expires_at",
-            "last_sent_at",
-            "invited_by_name",
-            "accepted_at",
-            "revoked_at",
-            "created_at",
+            "id", "name", "email", "role", "role_name", "status",
+            "expires_at", "last_sent_at", "invited_by_name",
+            "accepted_at", "revoked_at", "created_at",
         ]
         read_only_fields = fields
 
@@ -600,11 +594,11 @@ class InvitationRevokeSerializer(serializers.Serializer):
 
 
 class RoleOptionSerializer(serializers.ModelSerializer):
-    """Feeds the "Assign Role" dropdown (use with services.invitations.assignable_roles)."""
+    """Feeds the "Assign Role" dropdown. Use with `assignable_roles()`."""
 
     class Meta:
         model = Role
-        fields = ["id", "name", "slug", "description"]
+        fields = ["id", "name", "slug", "description", "is_system"]
         read_only_fields = fields
 
 
@@ -684,3 +678,13 @@ class StatesQuerySerializer(serializers.Serializer):
             msg = "Unknown country code."
             raise serializers.ValidationError(msg)
         return value
+
+class ValidationErrorSerializer(serializers.Serializer):
+    """Shape of a field-validation error (400). Used for API docs only."""
+
+    code = serializers.CharField(help_text="Always VALIDATION_ERROR.")
+    detail = serializers.CharField(help_text="Always 'Invalid input.'")
+    errors = serializers.DictField(
+        child=serializers.ListField(child=serializers.CharField()),
+        help_text="Field name mapped to its list of error messages.",
+    )
