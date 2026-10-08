@@ -61,7 +61,7 @@ class Inventory(TimeBasedModel):
         related_name="inventory_records",
         help_text=_("Specific shelf/rack this stock is placed at, if tracked."),
     )
-    quantity = models.PositiveIntegerField(
+    quantity = models.IntegerField(
         default=0,
         editable=False,
         help_text=_("Current on-hand quantity. System-maintained — see InventoryLedgerEntry."),

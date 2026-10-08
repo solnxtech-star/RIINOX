@@ -18,10 +18,10 @@ Where the values come from:
 
 `requested_quantity_change` is required and can be negative (shrinkage/loss) or positive (found stock).""",
     value={
-        "product": 1,
+        "product": "d290f1ee-6c54-4b01-90e6-d701748f0851",
         "variant": None,
         "batch": None,
-        "warehouse": 2,
+        "warehouse": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
         "requested_quantity_change": -5,
         "reason": "damaged"
     },
@@ -46,11 +46,11 @@ Where the values come from:
 
 `quantity` is required. `variant_id` and `batch_id` are optional to transfer specific variants/batches.""",
     value={
-        "product_id": 1,
+        "product_id": "d290f1ee-6c54-4b01-90e6-d701748f0851",
         "variant_id": None,
         "batch_id": None,
-        "source_warehouse_id": 1,
-        "destination_warehouse_id": 2,
+        "source_warehouse_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "destination_warehouse_id": "184d0b2b-6c58-47bc-9b63-1d01f11a8c88",
         "quantity": 50
     },
     request_only=True

@@ -9,12 +9,14 @@ from core.helper.enums import (
     TransactionStatusChoices,
     RestockActionChoices,
     ApprovalStatusChoices,
-    UsersRole
+    UsersRole,
+    PhysicalCountStatusChoices
 )
 
 from django.db.models import F
 
 from rest_framework.exceptions import ValidationError
+from core.applications.inventory.models import PhysicalStockCount
 
 @transaction.atomic
 def process_sale_inventory_and_ledger(sale):
@@ -48,13 +50,35 @@ def process_sale_inventory_and_ledger(sale):
         total_available = sum(inv.quantity for inv in inventory_records)
         
         # We only block the sale if the product STRICTLY tracks inventory.
-        # If track_inventory=False (e.g. for Services or untracked items), we let it go negative.
         if total_available < remaining_qty and item.product.track_inventory:
             raise ValidationError(
                 f"Out of stock: {item.product.name}. "
                 f"The cashier requested {remaining_qty}, but the system only has {total_available} available. "
                 "Please restock or do a physical count."
             )
+
+        if not item.product.track_inventory:
+            # Untracked products (e.g. services) can freely go negative.
+            # We don't need FIFO, just pick or create the default inventory record and deduct.
+            inv, _ = Inventory.objects.get_or_create(
+                product=item.product,
+                variant=item.variant,
+                batch=None,
+                warehouse=sale.location.warehouse
+            )
+            inv.quantity -= remaining_qty
+            inv.save(update_fields=['quantity'])
+            
+            ledger_entries.append(InventoryLedgerEntry(
+                transaction=transaction_record,
+                product=item.product,
+                variant=item.variant,
+                batch=None,
+                warehouse=sale.location.warehouse,
+                quantity_moved=-remaining_qty,
+                unit_cost=item.product.purchase_cost
+            ))
+            continue
 
         for inv in inventory_records:
             if remaining_qty <= 0:
@@ -376,3 +400,58 @@ def receive_purchase_order(purchase, items_received, user):
         inventory.save(update_fields=['quantity'])
         
     InventoryLedgerEntry.objects.bulk_create(entries)
+
+@transaction.atomic
+def finalize_physical_stock_count(count_id, admin_user):
+    """
+    Finalizes a DRAFT physical stock count.
+    For each item with a variance, updates the Inventory quantity directly and
+    records an InventoryLedgerEntry of type CORRECTION to document the variance.
+    """
+    count = PhysicalStockCount.objects.prefetch_related('items__product', 'warehouse__organization').get(id=count_id)
+    if count.status != PhysicalCountStatusChoices.DRAFT:
+        raise ValidationError("Only DRAFT stock counts can be finalized.")
+        
+    transaction_record = create_transaction(TransactionData(
+        transaction_id=f"COUNT-{count.id}"[:50],
+        organization=count.warehouse.organization,
+        transaction_type=TransactionTypeChoices.STOCK_ADJUSTMENT,
+        status=TransactionStatusChoices.COMPLETED,
+        content_type=ContentType.objects.get_for_model(count),
+        object_id=count.id,
+        created_by=admin_user
+    ))
+
+    ledger_entries = []
+    
+    for item in count.items.all():
+        variance = item.counted_quantity - item.expected_quantity
+        if variance == 0:
+            continue
+            
+        inv, _ = Inventory.objects.select_for_update().get_or_create(
+            product=item.product,
+            variant=item.variant,
+            batch=None,
+            warehouse=count.warehouse
+        )
+        
+        inv.quantity += variance
+        inv.save(update_fields=['quantity'])
+        
+        ledger_entries.append(InventoryLedgerEntry(
+            transaction=transaction_record,
+            product=item.product,
+            variant=item.variant,
+            batch=None,
+            warehouse=count.warehouse,
+            quantity_moved=variance,
+            unit_cost=item.product.purchase_cost
+        ))
+
+    if ledger_entries:
+        InventoryLedgerEntry.objects.bulk_create(ledger_entries)
+        
+    count.status = PhysicalCountStatusChoices.COMPLETED
+    count.save(update_fields=['status'])
+    return count

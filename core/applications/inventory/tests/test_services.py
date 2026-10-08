@@ -89,6 +89,67 @@ class InventoryServicesTest(TestCase):
         with self.assertRaises(DRFValidationError):
             process_sale_inventory_and_ledger(sale)
 
+    def test_process_sale_untracked_inventory_allows_negative(self):
+        # Create a product that does NOT track inventory (e.g., a Service)
+        untracked_product = ProductFactory(organization=self.org, track_inventory=False)
+        # Create initial inventory with 0 stock
+        create_opening_stock(untracked_product, None, None, self.warehouse, 0, self.user)
+        
+        sale = Sale.objects.create(
+            sale_id=f"SALE-{uuid.uuid4().hex[:5]}",
+            organization=self.org,
+            customer=self.customer,
+            location=self.location,
+            sales_rep=self.user
+        )
+        SaleItem.objects.create(
+            sale=sale,
+            product=untracked_product,
+            product_name=untracked_product.name,
+            quantity=10,
+            unit_multiplier=1.0,
+            unit_price=10.0
+        )
+        
+        # This should NOT raise an exception despite 0 stock
+        process_sale_inventory_and_ledger(sale)
+        
+        inventory = Inventory.objects.get(product=untracked_product, warehouse=self.warehouse)
+        # The stock should have gone negative
+        self.assertEqual(inventory.quantity, -10)
+        self.assertTrue(InventoryLedgerEntry.objects.filter(product=untracked_product, quantity_moved=-10).exists())
+
+    @patch('core.applications.inventory.services.Inventory.objects.select_for_update')
+    def test_process_sale_concurrency_locking(self, mock_select_for_update):
+        # Setup a mock to return our inventory objects
+        # We just want to assert that select_for_update is called with correct kwargs
+        mock_qs = MagicMock()
+        mock_qs.filter.return_value.order_by.return_value = []
+        mock_select_for_update.return_value = mock_qs
+        
+        sale = Sale.objects.create(
+            sale_id=f"SALE-{uuid.uuid4().hex[:5]}",
+            organization=self.org,
+            customer=self.customer,
+            location=self.location,
+            sales_rep=self.user
+        )
+        SaleItem.objects.create(
+            sale=sale,
+            product=self.product,
+            product_name=self.product.name,
+            quantity=10,
+            unit_multiplier=1.0,
+            unit_price=10.0
+        )
+        
+        try:
+            process_sale_inventory_and_ledger(sale)
+        except DRFValidationError:
+            pass # We expect validation error due to empty mock_qs stock
+            
+        mock_select_for_update.assert_called_once_with(of=('self',))
+
     def test_process_return_inventory_and_ledger(self):
         create_opening_stock(self.product, None, None, self.warehouse, 40, self.user)
         
@@ -143,6 +204,38 @@ class InventoryServicesTest(TestCase):
         # Should auto-approve because user is superuser
         self.assertEqual(adj.status, ApprovalStatusChoices.APPROVED)
         
+        inventory = Inventory.objects.get(product=self.product, warehouse=self.warehouse)
+        self.assertEqual(inventory.quantity, 20)
+
+    def test_request_stock_adjustment_non_admin_stays_pending(self):
+        non_admin_user = UserFactory(email="nonadmin@test.com")
+        non_admin_user.is_superuser = False
+        non_admin_user.save()
+        
+        adj = request_stock_adjustment(
+            product=self.product,
+            variant=None,
+            batch=None,
+            warehouse=self.warehouse,
+            quantity_change=20,
+            adjustment_reason="FOUND",
+            notes="Found some",
+            requested_unit="pieces",
+            user=non_admin_user
+        )
+        # Should stay pending for non-admins
+        self.assertEqual(adj.status, ApprovalStatusChoices.PENDING)
+        
+        # Stock should not be updated yet
+        inventory_exists = Inventory.objects.filter(product=self.product, warehouse=self.warehouse).exists()
+        self.assertFalse(inventory_exists)
+        
+        # 3. Now an admin approves it
+        approve_stock_adjustment(adj.id, self.user)
+        adj.refresh_from_db()
+        self.assertEqual(adj.status, ApprovalStatusChoices.APPROVED)
+        
+        # 4. Stock should now be updated
         inventory = Inventory.objects.get(product=self.product, warehouse=self.warehouse)
         self.assertEqual(inventory.quantity, 20)
 
@@ -205,3 +298,33 @@ class InventoryServicesTest(TestCase):
         
         inventory = Inventory.objects.get(product=self.product, warehouse=self.warehouse)
         self.assertEqual(inventory.quantity, 50)
+
+    def test_finalize_physical_stock_count(self):
+        create_opening_stock(self.product, None, None, self.warehouse, 50, self.user)
+        
+        from django.utils import timezone
+        from core.applications.inventory.models import PhysicalStockCount, PhysicalStockCountItem
+        from core.helper.enums import PhysicalCountStatusChoices
+        from core.applications.inventory.services import finalize_physical_stock_count
+        
+        count = PhysicalStockCount.objects.create(
+            warehouse=self.warehouse,
+            counted_by=self.user,
+            count_date=timezone.now().date(),
+        )
+        
+        PhysicalStockCountItem.objects.create(
+            count=count,
+            product=self.product,
+            expected_quantity=50,
+            counted_quantity=45,
+        )
+        
+        finalize_physical_stock_count(count.id, self.user)
+        
+        count.refresh_from_db()
+        self.assertEqual(count.status, PhysicalCountStatusChoices.COMPLETED)
+        
+        inv = Inventory.objects.get(product=self.product, warehouse=self.warehouse)
+        self.assertEqual(inv.quantity, 45)
+        self.assertTrue(InventoryLedgerEntry.objects.filter(product=self.product, quantity_moved=-5).exists())
