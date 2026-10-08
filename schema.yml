@@ -1,0 +1,5907 @@
+openapi: 3.0.3
+info:
+  title: riinox-backend API
+  version: 1.0.0
+  description: Documentation of API endpoints of invoive-management-backend
+paths:
+  /api/adjustments/:
+    get:
+      operationId: adjustments_list
+      tags:
+      - Inventory
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/StockAdjustmentRequest'
+          description: ''
+    post:
+      operationId: adjustments_create
+      tags:
+      - Inventory
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StockAdjustmentRequest'
+            examples:
+              RequestStockAdjustment:
+                value:
+                  product: d290f1ee-6c54-4b01-90e6-d701748f0851
+                  variant: null
+                  batch: null
+                  warehouse: f47ac10b-58cc-4372-a567-0e02b2c3d479
+                  requested_quantity_change: -5
+                  reason: damaged
+                summary: Create a new stock adjustment request
+                description: |-
+                  Requests a change in stock.
+
+                  What happens in one transaction:
+
+                  - a `StockAdjustmentRequest` is created with a status of `PENDING`;
+                  - if the user is an Admin/Owner, it is manually or auto-approved later to modify stock and create an `InventoryLedgerEntry`.
+
+                  Where the values come from:
+
+                  - `product`: GET `/api/products/products/`
+                  - `warehouse`: GET `/api/warehouse/warehouses/`
+                  - `variant` and `batch`: Optional, specifies the exact inventory bucket to adjust.
+
+                  `requested_quantity_change` is required and can be negative (shrinkage/loss) or positive (found stock).
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/StockAdjustmentRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/StockAdjustmentRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StockAdjustmentRequest'
+          description: ''
+  /api/adjustments/{id}/:
+    get:
+      operationId: adjustments_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        description: A UUID string identifying this Stock Adjustment Request.
+        required: true
+      tags:
+      - Inventory
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StockAdjustmentRequest'
+          description: ''
+  /api/adjustments/{id}/approve/:
+    post:
+      operationId: adjustments_approve_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        description: A UUID string identifying this Stock Adjustment Request.
+        required: true
+      tags:
+      - Inventory
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StockAdjustmentRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/StockAdjustmentRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/StockAdjustmentRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          description: Adjustment Approved
+  /api/auth-token/:
+    post:
+      operationId: auth_token_create
+      tags:
+      - auth-token
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AuthToken'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AuthToken'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthToken'
+        required: true
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthToken'
+          description: ''
+  /api/auth/jwt/login/:
+    post:
+      operationId: auth_jwt_login_create
+      description: |-
+        Takes a set of user credentials and returns an access and refresh JSON web
+        token pair to prove the authentication of those credentials.
+      tags:
+      - auth
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CustomTokenObtainPair'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CustomTokenObtainPair'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomTokenObtainPair'
+          description: ''
+  /api/auth/jwt/refresh/:
+    post:
+      operationId: auth_jwt_refresh_create
+      description: |-
+        Takes a refresh type JSON web token and returns an access type JSON web
+        token if the refresh token is valid.
+      tags:
+      - auth
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TokenRefresh'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRefresh'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenRefresh'
+          description: ''
+  /api/auth/jwt/verify/:
+    post:
+      operationId: auth_jwt_verify_create
+      description: |-
+        Takes a token and indicates if it is valid.  This view provides no
+        information about a token's fitness for a particular use.
+      tags:
+      - auth
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TokenVerify'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenVerify'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenVerify'
+          description: ''
+  /api/balances/:
+    get:
+      operationId: balances_list
+      description: Retrieves current stock balances across all products and warehouses.
+      summary: List Inventory Balances
+      tags:
+      - Inventory
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Inventory'
+          description: ''
+  /api/balances/{id}/:
+    get:
+      operationId: balances_retrieve
+      description: Fetch a specific inventory record by ID.
+      summary: Retrieve Specific Inventory Balance
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        description: A UUID string identifying this Inventory.
+        required: true
+      tags:
+      - Inventory
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Inventory'
+          description: ''
+  /api/business-type/:
+    get:
+      operationId: business_type_list
+      description: The catalog of business types, ordered for display. Use `?context=onboarding`
+        to get only the cards shown on the onboarding screen; without it you get every
+        active type (for the later "edit business types" screen). `code` is the stable
+        key the other endpoints use.
+      summary: List business types
+      parameters:
+      - in: query
+        name: context
+        schema:
+          type: string
+          enum:
+          - onboarding
+        description: '`onboarding` returns only the cards shown on the onboarding
+          screen.'
+      tags:
+      - Business Types
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BusinessType'
+          description: Business types.
+        '401':
+          description: Authentication credentials were not provided or are invalid.
+  /api/business-type/{code}/:
+    get:
+      operationId: business_type_retrieve
+      description: One business type by its `code` (for example `wholesale_distribution`).
+      summary: Retrieve a business type
+      parameters:
+      - in: path
+        name: code
+        schema:
+          type: string
+          description: Stable key, e.g. 'wholesale_distribution'.
+        required: true
+      tags:
+      - Business Types
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BusinessType'
+          description: The business type.
+        '401':
+          description: Authentication credentials were not provided or are invalid.
+        '404':
+          description: Not found. Also returned when the resource belongs to an organization
+            the caller isn't a member of.
+  /api/invitations/accept/:
+    post:
+      operationId: invitations_accept
+      description: |-
+        Authenticated. Accepts an invitation; the account must have a verified
+        email matching the invited address. Repeating a successful accept
+        returns the same membership (idempotent, PRD §45).
+      summary: Accept an invitation
+      tags:
+      - Invitations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AcceptInvitation'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AcceptInvitation'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AcceptInvitation'
+        required: true
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvitationAccepted'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: EMAIL_NOT_VERIFIED, INVITATION_EMAIL_MISMATCH, USER_LIMIT_REACHED
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: INVITATION_INVALID
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: ALREADY_MEMBER, MEMBERSHIP_INACTIVE
+        '410':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: INVITATION_EXPIRED
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: Rate limited.
+  /api/invitations/validate/{token}/:
+    get:
+      operationId: invitations_validate
+      description: |-
+        Public. Returns what the frontend needs to render the invitation
+        before the invitee registers or logs in. Unknown, revoked and used
+        tokens are indistinguishable by design.
+      summary: Preview an invitation
+      parameters:
+      - in: path
+        name: token
+        schema:
+          type: string
+          pattern: ^[\w-]+$
+        required: true
+      tags:
+      - Invitations
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvitationPreview'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: INVITATION_INVALID
+        '410':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: INVITATION_EXPIRED
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: Rate limited.
+  /api/ledger/:
+    get:
+      operationId: ledger_list
+      description: Retrieves the immutable audit trail of all stock movements (adjustments,
+        sales, transfers).
+      summary: List Inventory Ledger Entries
+      tags:
+      - Inventory
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/InventoryLedgerEntry'
+          description: ''
+  /api/ledger/{id}/:
+    get:
+      operationId: ledger_retrieve
+      description: Fetch a specific ledger entry by ID.
+      summary: Retrieve Specific Ledger Entry
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        description: A UUID string identifying this Inventory Ledger Entry.
+        required: true
+      tags:
+      - Inventory
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InventoryLedgerEntry'
+          description: ''
+  /api/memberships/:
+    get:
+      operationId: memberships_list
+      description: 'Memberships the caller can see: **their own**, plus **every membership
+        of the organizations they manage** (Owner or Administrator). Regular members
+        therefore see only themselves. Filter with `?organization=`.'
+      summary: List memberships
+      parameters:
+      - in: query
+        name: organization
+        schema:
+          type: string
+        description: Only memberships of this organization.
+      tags:
+      - Memberships
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Membership'
+          description: Visible memberships.
+        '400':
+          description: Malformed `organization` filter.
+        '401':
+          description: Authentication credentials were not provided or are invalid.
+  /api/memberships/{id}/:
+    get:
+      operationId: memberships_retrieve
+      description: 'One membership: user, organization, role, active/accepted status
+        and (for pending invitations) the expiry. Only visible if it is the caller''s
+        own or belongs to an organization they manage.'
+      summary: Retrieve a membership
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        description: A UUID string identifying this Membership.
+        required: true
+      tags:
+      - Memberships
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Membership'
+          description: The membership.
+        '401':
+          description: Authentication credentials were not provided or are invalid.
+        '404':
+          description: Not found. Also returned when the resource belongs to an organization
+            the caller isn't a member of.
+    put:
+      operationId: memberships_update
+      description: |-
+        Changes a member's **role** and/or **active** flag. **Administrators and Owners** only.
+
+        Rules: the Owner's membership can't be changed; only the Owner can change an Administrator or grant the Administrator role; the Owner role is never assignable; nobody can change their own membership; a role must belong to the membership's organization.
+      summary: Update a membership
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        description: A UUID string identifying this Membership.
+        required: true
+      tags:
+      - Memberships
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MembershipUpdate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/MembershipUpdate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/MembershipUpdate'
+        required: true
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Membership'
+          description: The updated membership.
+        '400':
+          description: A membership rule was violated.
+        '401':
+          description: Authentication credentials were not provided or are invalid.
+        '403':
+          description: The caller is a member but not an Administrator or Owner of
+            this organization.
+        '404':
+          description: Not found. Also returned when the resource belongs to an organization
+            the caller isn't a member of.
+    patch:
+      operationId: memberships_partial_update
+      description: |-
+        Changes a member's **role** and/or **active** flag. **Administrators and Owners** only.
+
+        Rules: the Owner's membership can't be changed; only the Owner can change an Administrator or grant the Administrator role; the Owner role is never assignable; nobody can change their own membership; a role must belong to the membership's organization.
+      summary: Partially update a membership
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        description: A UUID string identifying this Membership.
+        required: true
+      tags:
+      - Memberships
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedMembershipUpdate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedMembershipUpdate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedMembershipUpdate'
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Membership'
+          description: The updated membership.
+        '400':
+          description: A membership rule was violated.
+        '401':
+          description: Authentication credentials were not provided or are invalid.
+        '403':
+          description: The caller is a member but not an Administrator or Owner of
+            this organization.
+        '404':
+          description: Not found. Also returned when the resource belongs to an organization
+            the caller isn't a member of.
+    delete:
+      operationId: memberships_destroy
+      description: '**Administrators and Owners** only. A pending invitation is **deleted**;
+        an accepted member is **deactivated, not deleted**, so history and audit references
+        stay intact, and they immediately lose access to the organization. The same
+        protections as updating apply (Owner, own membership, Administrators). There
+        is no self-service leave endpoint yet.'
+      summary: Remove a member or revoke an invitation
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        description: A UUID string identifying this Membership.
+        required: true
+      tags:
+      - Memberships
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '204':
+          description: Removed.
+        '400':
+          description: A membership rule was violated.
+        '401':
+          description: Authentication credentials were not provided or are invalid.
+        '403':
+          description: The caller is a member but not an Administrator or Owner of
+            this organization.
+        '404':
+          description: Not found. Also returned when the resource belongs to an organization
+            the caller isn't a member of.
+  /api/memberships/invite/:
+    post:
+      operationId: memberships_invite_create
+      description: |-
+        Emails an invitation to join an organization. Only **Administrators and Owners of that organization** can invite; the organization must be one the caller belongs to.
+
+        Rules:
+        - the role must belong to the organization; the **Owner** role can never be granted by invitation, and only the **Owner** can invite an **Administrator**;
+        - someone who is already a member, or already has an unexpired invitation, can't be invited again;
+        - an **expired** invitation to the same email is refreshed (new token and expiry) instead of duplicated;
+        - pending invitations count against the plan's **user limit**.
+
+        The email is sent only after the invitation is saved.
+      summary: Invite a member by email
+      tags:
+      - Invitations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvitationCreate'
+            examples:
+              InviteAFront-deskUser:
+                value:
+                  organization: 1
+                  role: 7
+                  invited_email: new.hire@techify.com
+                summary: Invite a front-desk user
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/InvitationCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/InvitationCreate'
+        required: true
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvitationSent'
+          description: Invitation created and emailed.
+        '400':
+          description: Unknown organization or role, already a member, already invited,
+            or a role rule was broken.
+        '401':
+          description: Authentication credentials were not provided or are invalid.
+        '403':
+          description: Not an Administrator/Owner of the organization, or the plan's
+            user limit is reached.
+  /api/meta-data/countries/:
+    get:
+      operationId: meta_data_countries_retrieve
+      description: Every ISO 3166-1 country, sorted by name. `code` is the two-letter
+        alpha-2 code the other endpoints accept (for example `country` when creating
+        an organization). Static data, safe to cache.
+      summary: List countries
+      tags:
+      - Metadata
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              description: Browsers may cache this response (`private, max-age=86400`).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Option'
+              examples:
+                Countries:
+                  value:
+                  - - code: GH
+                      name: Ghana
+                    - code: NG
+                      name: Nigeria
+          description: Countries.
+        '401':
+          description: Authentication credentials were not provided or are invalid.
+  /api/meta-data/currencies/:
+    get:
+      operationId: meta_data_currencies_retrieve
+      description: ISO 4217 currencies, sorted by name, feeding the **Base currency**
+        dropdown. Precious metals, testing codes and supranational units (`XAU`, `XTS`,
+        `XXX`...) are excluded. Static data, safe to cache.
+      summary: List currencies
+      tags:
+      - Metadata
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              description: Browsers may cache this response (`private, max-age=86400`).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Option'
+              examples:
+                Currencies:
+                  value:
+                  - - code: GHS
+                      name: Ghana Cedi
+                    - code: NGN
+                      name: Naira
+          description: Currencies.
+        '401':
+          description: Authentication credentials were not provided or are invalid.
+  /api/meta-data/states/:
+    get:
+      operationId: meta_data_states_retrieve
+      description: |-
+        The states, provinces or regions of one country, feeding the **City/Region** dropdown. Reload it whenever the selected country changes.
+
+        A valid country whose states haven't been added yet returns an **empty list**, not an error. In that case show a free-text field: the API accepts any state text for such countries.
+      summary: List states or regions of a country
+      parameters:
+      - in: query
+        name: country
+        schema:
+          type: string
+          maxLength: 2
+          minLength: 2
+        required: true
+      tags:
+      - Metadata
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              description: Browsers may cache this response (`private, max-age=3600`).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/StateOption'
+              examples:
+                Nigeria:
+                  value:
+                  - - name: Abia
+                      code: NG-AB
+                    - name: Adamawa
+                      code: NG-AD
+          description: States of the country (possibly empty).
+        '400':
+          description: Missing or unknown country code.
+        '401':
+          description: Authentication credentials were not provided or are invalid.
+  /api/organizations/:
+    get:
+      operationId: organizations_list
+      description: 'Organizations the authenticated user is an **accepted, active
+        member** of. Deactivated organizations and memberships are excluded. Each
+        entry includes the plan and the organization''s business types (primary first).
+        Members are not embedded: use `GET /organizations/{id}/members/`.'
+      summary: List my organizations
+      tags:
+      - Organizations
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Organization'
+          description: Organizations the user belongs to.
+        '401':
+          description: Authentication credentials were not provided or are invalid.
+    post:
+      operationId: organizations_create
+      description: |-
+        Creates a tenant from the two onboarding screens: the chosen **business type** and the **business details**, submitted together so no half-created organization can exist.
+
+        What happens in one transaction:
+        - the caller becomes the organization's **Owner**;
+        - the chosen type becomes the **primary business type** (add more later with `PUT /organizations/{id}/business-types/`);
+        - the built-in roles, the **Free plan** subscription, document numbering sequences and the shared default invoice/receipt templates are set up.
+
+        Where the values come from:
+        - `business_type`: `GET /business-types/?context=onboarding`.
+        - `country`, `currency`: `GET /metadata/countries/` and `GET /metadata/currencies/` (ISO codes). **Both are fixed after creation**, so the currency must be right the first time.
+        - `state`: `GET /metadata/states/?country=<code>`. It must match one of the listed states; if that list is empty for the chosen country, any text is accepted.
+
+        `phone` is optional and normalised to international format using the organization's country (`0803 123 4567` becomes `+2348031234567` for `NG`). Branding and templates are configured later with `PATCH /organizations/{id}/`.
+      summary: Create an organization (onboarding)
+      tags:
+      - Organizations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrganizationCreate'
+            examples:
+              RetailShopInNigeria:
+                value:
+                  business_type: retail
+                  name: Okafor & Sons Stores
+                  registration_number: RC1234567
+                  country: NG
+                  state: Rivers
+                  address: 12 Aba Road, Port Harcourt
+                  postal_code: '500001'
+                  tax_id: '2345678901'
+                  currency: NGN
+                  staff_size: 6-10
+                summary: Retail shop in Nigeria
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/OrganizationCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/OrganizationCreate'
+        required: true
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+          description: Organization created; the caller is its Owner.
+        '400':
+          description: Validation error. Field-level checks run first; the state and
+            phone checks run only once those pass, so they are reported in a later
+            response.
+        '401':
+          description: Authentication credentials were not provided or are invalid.
+  /api/organizations/{organization_id}/invitations/:
+    get:
+      operationId: organization_invitations_list
+      description: Invitations of this organization. Search by name or email; paginated.
+      summary: List invitations
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - in: path
+        name: organization_id
+        schema:
+          type: string
+          pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
+        required: true
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      - in: query
+        name: status
+        schema:
+          type: string
+          enum:
+          - accepted
+          - expired
+          - pending
+          - revoked
+        description: Filter by invitation status.
+      tags:
+      - Team invitations
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Invitation'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: NOT_ORGANIZATION_MEMBER
+    post:
+      operationId: organization_invitations_create
+      description: Invite someone to this organization. The email is sent after the
+        transaction commits.
+      summary: Invite a team member
+      parameters:
+      - in: path
+        name: organization_id
+        schema:
+          type: string
+          pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
+        required: true
+      tags:
+      - Team invitations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvitationCreate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/InvitationCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/InvitationCreate'
+        required: true
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Invitation'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: PERMISSION_DENIED, ROLE_NOT_ASSIGNABLE, USER_LIMIT_REACHED
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: NOT_ORGANIZATION_MEMBER
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: ALREADY_MEMBER, MEMBERSHIP_INACTIVE, ALREADY_INVITED
+  /api/organizations/{organization_id}/invitations/{id}/resend/:
+    post:
+      operationId: organization_invitations_resend
+      description: Issue a fresh link (the old one stops working) and extend the expiry.
+      summary: Resend an invitation
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
+        required: true
+      - in: path
+        name: organization_id
+        schema:
+          type: string
+          pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
+        required: true
+      tags:
+      - Team invitations
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Invitation'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: PERMISSION_DENIED, ROLE_NOT_ASSIGNABLE, USER_LIMIT_REACHED
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: NOT_ORGANIZATION_MEMBER, INVITATION_NOT_FOUND
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: INVITATION_NOT_PENDING
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: INVITATION_RESEND_TOO_SOON
+  /api/organizations/{organization_id}/invitations/{id}/revoke/:
+    post:
+      operationId: organization_invitations_revoke
+      description: Cancel a pending invitation. The record is kept for history (PRD
+        §44).
+      summary: Revoke an invitation
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
+        required: true
+      - in: path
+        name: organization_id
+        schema:
+          type: string
+          pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
+        required: true
+      tags:
+      - Team invitations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvitationRevoke'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/InvitationRevoke'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/InvitationRevoke'
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Invitation'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: PERMISSION_DENIED, ROLE_NOT_ASSIGNABLE
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: NOT_ORGANIZATION_MEMBER, INVITATION_NOT_FOUND
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: INVITATION_NOT_PENDING
+  /api/organizations/{organization_id}/invitations/roles/:
+    get:
+      operationId: organization_invitations_roles
+      description: 'Roles the caller may assign: feeds the "Assign Role" dropdown.'
+      summary: Roles the caller can assign
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - in: path
+        name: organization_id
+        schema:
+          type: string
+          pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
+        required: true
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - Team invitations
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RoleOption'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: NOT_ORGANIZATION_MEMBER
+  /api/organizations/{id}/:
+    get:
+      operationId: organizations_retrieve
+      description: A single organization with its plan and business types. Available
+        to every active member of the organization. Members and roles have their own
+        endpoints.
+      summary: Retrieve an organization
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        description: A UUID string identifying this Organization.
+        required: true
+      tags:
+      - Organizations
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+          description: The organization.
+        '401':
+          description: Authentication credentials were not provided or are invalid.
+        '404':
+          description: Not found. Also returned when the resource belongs to an organization
+            the caller isn't a member of.
+    put:
+      operationId: organizations_update
+      description: |-
+        Updates the organization's profile and branding: name, contact details, address and postal code, tax ID, CAC/RC number, timezone, logo, header/footer and document templates. **Administrators and Owners** only.
+
+        - `country` and `currency` are fixed after creation, and business types have their own endpoint. Sending either field is ignored.
+        - `state` is validated against the organization's stored country, and `phone` is normalised to international format using it.
+        - A document template must be a shared default or one owned by this organization; **custom templates** additionally require a plan that includes them.
+
+        Returns the full organization.
+      summary: Update an organization
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        description: A UUID string identifying this Organization.
+        required: true
+      tags:
+      - Organizations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrganizationUpdate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/OrganizationUpdate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/OrganizationUpdate'
+        required: true
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+          description: The updated organization.
+        '400':
+          description: Validation error.
+        '401':
+          description: Authentication credentials were not provided or are invalid.
+        '403':
+          description: The caller is a member but not an Administrator or Owner of
+            this organization.
+        '404':
+          description: Not found. Also returned when the resource belongs to an organization
+            the caller isn't a member of.
+    patch:
+      operationId: organizations_partial_update
+      description: |-
+        Updates the organization's profile and branding: name, contact details, address and postal code, tax ID, CAC/RC number, timezone, logo, header/footer and document templates. **Administrators and Owners** only.
+
+        - `country` and `currency` are fixed after creation, and business types have their own endpoint. Sending either field is ignored.
+        - `state` is validated against the organization's stored country, and `phone` is normalised to international format using it.
+        - A document template must be a shared default or one owned by this organization; **custom templates** additionally require a plan that includes them.
+
+        Returns the full organization.
+      summary: Partially update an organization
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        description: A UUID string identifying this Organization.
+        required: true
+      tags:
+      - Organizations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedOrganizationUpdate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedOrganizationUpdate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedOrganizationUpdate'
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+          description: The updated organization.
+        '400':
+          description: Validation error.
+        '401':
+          description: Authentication credentials were not provided or are invalid.
+        '403':
+          description: The caller is a member but not an Administrator or Owner of
+            this organization.
+        '404':
+          description: Not found. Also returned when the resource belongs to an organization
+            the caller isn't a member of.
+  /api/organizations/{id}/business-types/:
+    put:
+      operationId: organizations_business_types_update
+      description: |-
+        Replaces the **full set** of business types: send every type the organization should have and mark exactly one as primary. The primary type drives terminology and dashboard defaults. Idempotent: sending the same body twice changes nothing. **Administrators and Owners** only.
+
+        Codes come from `GET /business-types/`.
+      summary: Replace an organization's business types
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        description: A UUID string identifying this Organization.
+        required: true
+      tags:
+      - Organizations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrganizationBusinessTypesUpdate'
+            examples:
+              RetailAndWholesale:
+                value:
+                  business_types:
+                  - retail
+                  - wholesale_distribution
+                  primary_business_type: retail
+                summary: Retail and wholesale
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/OrganizationBusinessTypesUpdate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/OrganizationBusinessTypesUpdate'
+        required: true
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+          description: The organization with its new business types.
+        '400':
+          description: Empty selection, duplicates, unknown code, or a primary type
+            that isn't in the selection.
+        '401':
+          description: Authentication credentials were not provided or are invalid.
+        '403':
+          description: The caller is a member but not an Administrator or Owner of
+            this organization.
+        '404':
+          description: Not found. Also returned when the resource belongs to an organization
+            the caller isn't a member of.
+  /api/organizations/{id}/deactivate/:
+    delete:
+      operationId: organizations_deactivate_destroy
+      description: 'Soft-deactivates the organization. **Owner** only. Organizations
+        are never hard-deleted (`DELETE /organizations/{id}/` returns 405): deactivation
+        keeps every business record, but the organization disappears from all members''
+        lists and the API. Reactivation is a support action. Calling it again returns
+        404, as the organization is no longer visible.'
+      summary: Deactivate an organization
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        description: A UUID string identifying this Organization.
+        required: true
+      tags:
+      - Organizations
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Detail'
+              examples:
+                Deactivated:
+                  value:
+                    detail: Organization 'Okafor & Sons Stores' deactivated.
+          description: Deactivated.
+        '401':
+          description: Authentication credentials were not provided or are invalid.
+        '403':
+          description: The caller is a member but not the Owner of this organization.
+        '404':
+          description: Not found. Also returned when the resource belongs to an organization
+            the caller isn't a member of.
+  /api/organizations/{id}/members/:
+    get:
+      operationId: organizations_members_retrieve
+      description: 'Everyone in the organization, **including pending invitations**
+        (`accepted: false`, with the invited email in `user`). Ordered by when they
+        joined or were invited. Paginated when your project paginates by default.
+        **Administrators and Owners** only.'
+      summary: List organization members
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        description: A UUID string identifying this Organization.
+        required: true
+      tags:
+      - Organizations
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OrganizationMember'
+              examples:
+                Owner,AnAdministratorAndAPendingInvitation:
+                  value:
+                  - - id: 1
+                      user: owner@techify.com
+                      role: Owner
+                      active: true
+                      accepted: true
+                      joined_at: '2026-09-01T09:00:00Z'
+                    - id: 2
+                      user: admin@techify.com
+                      role: Administrator
+                      active: true
+                      accepted: true
+                      joined_at: '2026-09-02T10:30:00Z'
+                    - id: 3
+                      user: new.hire@techify.com
+                      role: Front Desk
+                      active: true
+                      accepted: false
+                      joined_at: '2026-09-05T08:15:00Z'
+                  summary: Owner, an administrator and a pending invitation
+          description: Members and pending invitations.
+        '401':
+          description: Authentication credentials were not provided or are invalid.
+        '403':
+          description: The caller is a member but not an Administrator or Owner of
+            this organization.
+        '404':
+          description: Not found. Also returned when the resource belongs to an organization
+            the caller isn't a member of.
+  /api/organizations/{id}/roles/:
+    get:
+      operationId: organizations_roles_retrieve
+      description: Roles defined for this organization (built-in and custom); feeds
+        the role picker when inviting or changing a member. The Owner role is listed
+        but can never be assigned to another member. **Administrators and Owners**
+        only.
+      summary: List assignable roles
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        description: A UUID string identifying this Organization.
+        required: true
+      tags:
+      - Organizations
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Role'
+          description: The organization's roles.
+        '401':
+          description: Authentication credentials were not provided or are invalid.
+        '403':
+          description: The caller is a member but not an Administrator or Owner of
+            this organization.
+        '404':
+          description: Not found. Also returned when the resource belongs to an organization
+            the caller isn't a member of.
+  /api/products/:
+    get:
+      operationId: products_list
+      description: Retrieves a list of all products along with their nested batches,
+        discounts, and unit conversions.
+      summary: List all Products
+      tags:
+      - Products
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Product'
+          description: ''
+    post:
+      operationId: products_create
+      description: |-
+        Creates a product, optionally including opening stock, nested batches, bulk discounts, and unit conversions.
+
+        What happens in one transaction:
+
+        - the `Product` is created;
+        - nested records (`ProductBatch`, `ProductBulkDiscount`, `ProductUnitConversion`) are created;
+        - if `quantity_in_stock` > 0 and `warehouse_id` is passed, `create_opening_stock` is called to create the initial `Inventory` and `InventoryLedgerEntry`.
+
+        Where the values come from:
+
+        - `category`: GET `/api/products/categories/`
+        - `brand`: GET `/api/products/brands/`
+        - `warehouse_id`: GET `/api/warehouse/warehouses/` (optional, needed if `quantity_in_stock` > 0).
+
+        `track_inventory` is a boolean. If `True`, inventory ledger is strictly enforced. `quantity_in_stock` is optional. `current_stock` cannot be modified here.
+      summary: Create a New Product
+      tags:
+      - Products
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductCreate'
+            examples:
+              CompleteProductPayload:
+                value:
+                  name: Premium Wireless Headphones
+                  sku: WH-1000XM5
+                  barcode: '4905524933923'
+                  organization: 1
+                  category: 1
+                  brand: 1
+                  description: Noise-cancelling over-ear headphones.
+                  quality_grade: Grade A
+                  unit_of_measurement: pcs
+                  product_type: physical
+                  tax_config: taxable
+                  tax_rate: '15.00'
+                  track_inventory: true
+                  purchase_cost: '250.00'
+                  vendor_sale_cost: '270.00'
+                  customer_sale_price: '350.00'
+                  minimum_stock_level: 10
+                  quantity_in_stock: 50
+                  warehouse_id: 1
+                  batches:
+                  - expiry_date: '2028-12-31'
+                    cost_price: '245.00'
+                    selling_price: '350.00'
+                  bulk_discounts:
+                  - min_quantity: 10
+                    discount_amount: '20.00'
+                  unit_conversions:
+                  - unit_name: carton
+                    multiplier: '12.000'
+                    price_override: '4000.00'
+                summary: Complete Product Payload
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ProductCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ProductCreate'
+        required: true
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductCreate'
+          description: ''
+  /api/products/{id}/:
+    get:
+      operationId: products_retrieve
+      description: Fetch a specific product by its ID.
+      summary: Retrieve a Product
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        description: A UUID string identifying this Product.
+        required: true
+      tags:
+      - Products
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+          description: ''
+    put:
+      operationId: products_update
+      description: Fully update a product. Can also update nested relations.
+      summary: Update a Product
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        description: A UUID string identifying this Product.
+        required: true
+      tags:
+      - Products
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductCreate'
+            examples:
+              UpdateProductPayload:
+                value:
+                  name: Premium Wireless Headphones
+                  sku: WH-1000XM5
+                  barcode: '4905524933923'
+                  organization: 1
+                  category: 1
+                  brand: 1
+                  description: Noise-cancelling over-ear headphones.
+                  quality_grade: Grade A
+                  unit_of_measurement: pcs
+                  product_type: physical
+                  tax_config: taxable
+                  tax_rate: '15.00'
+                  track_inventory: true
+                  purchase_cost: '250.00'
+                  vendor_sale_cost: '270.00'
+                  customer_sale_price: '350.00'
+                  minimum_stock_level: 10
+                  quantity_in_stock: 50
+                  warehouse_id: 1
+                  batches:
+                  - expiry_date: '2028-12-31'
+                    cost_price: '245.00'
+                    selling_price: '350.00'
+                  bulk_discounts:
+                  - min_quantity: 10
+                    discount_amount: '20.00'
+                  unit_conversions:
+                  - unit_name: carton
+                    multiplier: '12.000'
+                    price_override: '4000.00'
+                summary: Update Product Payload
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ProductCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ProductCreate'
+        required: true
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductCreate'
+          description: ''
+    patch:
+      operationId: products_partial_update
+      description: Partially update a product's fields.
+      summary: Partially Update a Product
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        description: A UUID string identifying this Product.
+        required: true
+      tags:
+      - Products
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedProductCreate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedProductCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedProductCreate'
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductCreate'
+          description: ''
+    delete:
+      operationId: products_destroy
+      description: Removes a product from the database.
+      summary: Delete a Product
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        description: A UUID string identifying this Product.
+        required: true
+      tags:
+      - Products
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/purchases/:
+    get:
+      operationId: purchases_list
+      description: Returns a paginated list of all purchase orders for the authenticated
+        user's organization. Supports filtering by vendor, status, and date range.
+      summary: List Purchase Orders
+      tags:
+      - Purchases
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Purchase'
+          description: ''
+    post:
+      operationId: purchases_create
+      description: Creates a new Purchase Order (supplier invoice equivalent). The
+        system does NOT generate an invoice for the vendor. Instead, you record their
+        invoice against this purchase. Orders do NOT impact the inventory ledger until
+        the goods are received.
+      summary: Create a Purchase Order
+      tags:
+      - Purchases
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Purchase'
+            examples:
+              StandardPurchaseOrderCreation:
+                value:
+                  organization: a1b2c3d4e5f64789b1c2d3e4f5a6b7c8
+                  vendor: f1e2d3c4b5a64789b1c2d3e4f5a6b7c8
+                  warehouse: c1d2e3f4a5b64789b1c2d3e4f5a6b7c8
+                  ordered_by: b1a2c3d4e5f64789b1c2d3e4f5a6b7c8
+                  delivery_method: Supplier Delivery
+                  other_costs: 50000.0
+                  discount: 0.0
+                  order_date: '2026-10-08'
+                  delivery_date: '2026-10-15'
+                  notes: Urgent order for Q4 restocking.
+                summary: Standard Purchase Order Creation
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Purchase'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Purchase'
+        required: true
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Purchase'
+          description: ''
+  /api/purchases/{id}/:
+    get:
+      operationId: purchases_retrieve
+      description: Fetch detailed information about a single purchase order, including
+        all associated line items, receiving history, and payments.
+      summary: Retrieve a Purchase Order
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        description: A UUID string identifying this Purchase.
+        required: true
+      tags:
+      - Purchases
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Purchase'
+          description: ''
+    put:
+      operationId: purchases_update
+      description: Fully replace all details of a draft purchase order. Note that
+        confirmed or received orders cannot have their core items updated directly.
+      summary: Update a Purchase Order
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        description: A UUID string identifying this Purchase.
+        required: true
+      tags:
+      - Purchases
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Purchase'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Purchase'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Purchase'
+        required: true
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Purchase'
+          description: ''
+    patch:
+      operationId: purchases_partial_update
+      description: Update specific fields of a purchase order, like attaching a `vendor_invoice_number`
+        after it has been received from the supplier.
+      summary: Partially Update a Purchase Order
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        description: A UUID string identifying this Purchase.
+        required: true
+      tags:
+      - Purchases
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedPurchase'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedPurchase'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedPurchase'
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Purchase'
+          description: ''
+    delete:
+      operationId: purchases_destroy
+      description: Permanently deletes a draft purchase order. Orders that have already
+        received goods or registered payments cannot be deleted, but they can be cancelled/voided.
+      summary: Delete a Purchase Order
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        description: A UUID string identifying this Purchase.
+        required: true
+      tags:
+      - Purchases
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/purchases/{id}/receive/:
+    post:
+      operationId: purchases_receive_create
+      description: Records the actual quantities received from the supplier for specific
+        line items in this purchase order. This action generates Inventory Ledger
+        Entries and updates the product's `current_stock`.
+      summary: Receive Goods
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        description: A UUID string identifying this Purchase.
+        required: true
+      tags:
+      - Purchases
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PurchaseReceive'
+            examples:
+              PartialOrFullGoodsReceipt:
+                value:
+                  items_received:
+                  - item_id: 9b1deb4d3b7d4bad9bdd2b0d7b3dcb6d
+                    quantity_received: 50
+                summary: Partial or Full Goods Receipt
+                description: Records the physical receipt of goods from a supplier
+                  against the purchase order, which impacts the actual inventory ledger.
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PurchaseReceive'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PurchaseReceive'
+        required: true
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          description: Purchase Received and Inventory Updated Successfully.
+        '400':
+          description: Validation error (e.g., trying to receive more items than ordered,
+            or item_id does not exist on this purchase).
+  /api/sales/:
+    get:
+      operationId: sales_list
+      description: Retrieve a paginated list of all sales records.
+      summary: List Sales
+      tags:
+      - Sales
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Sale'
+          description: Successful retrieval of sales list
+    post:
+      operationId: sales_create
+      description: |-
+        Create a new sale record along with its line items. Triggers inventory update, ledger entry, and invoicing.
+
+        What happens in one transaction:
+
+        - the `Sale` and multiple `SaleItem` records are created;
+        - inventory quantities are deducted automatically across batches using FIFO via the `update_inventory_for_sale` service;
+        - an `InventoryLedgerEntry` is logged for every stock movement.
+
+        Where the values come from:
+
+        - `organization`: GET `/api/organizations/`
+        - `customer`: GET `/api/users/customers/`
+        - `location`: GET `/api/warehouse/warehouses/`
+        - `product` (in items): GET `/api/products/products/`
+        - `unit_name` (in items): Optional, must match one of the product's `unit_conversions` or base unit.
+
+        `items` must be an array of sale items. `quantity` is multiplied by the unit's `multiplier` behind the scenes.
+      summary: Create Sale
+      tags:
+      - Sales
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaleCreate'
+            examples:
+              ExampleSaleRequest:
+                value:
+                  organization: 1
+                  customer: 1
+                  location: 1
+                  sales_rep: 1
+                  payment_status: unpaid
+                  fulfillment_status: unfulfilled
+                  currency: USD
+                  reference_number: PO-12345
+                  due_date: '2026-10-31'
+                  billing_address: 123 Business Rd
+                  shipping_address: 456 Logistics Ave
+                  subtotal: '500.00'
+                  discount_amount: '50.00'
+                  tax_amount: '22.50'
+                  notes: Thank you for shopping with us.
+                  items:
+                  - product: 1
+                    variant: 1
+                    product_name: Pro Widget v2
+                    product_sku: WDG-PRO-2
+                    quantity: 2
+                    unit_price: '250.00'
+                    discount: '25.00'
+                    discount_type: fixed
+                    tax: '11.25'
+                    tax_rate: '5.00'
+                summary: Standard sale payload
+                description: Provides organization, customer, location, sales rep,
+                  and a list of sale items. Note that 'id', 'sale', and 'total' are
+                  not required in the items list during creation.
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SaleCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SaleCreate'
+        required: true
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Sale'
+          description: Sale created successfully
+  /api/sales/{id}/:
+    get:
+      operationId: sales_retrieve
+      description: Retrieve detailed information about a specific sale by its ID.
+      summary: Retrieve Sale
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        description: A UUID string identifying this Sale.
+        required: true
+      tags:
+      - Sales
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Sale'
+          description: Successful retrieval of sale details
+    put:
+      operationId: sales_update
+      description: Update an existing sale record entirely.
+      summary: Update Sale
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        description: A UUID string identifying this Sale.
+        required: true
+      tags:
+      - Sales
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaleCreate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SaleCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SaleCreate'
+        required: true
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Sale'
+          description: Sale updated successfully
+    patch:
+      operationId: sales_partial_update
+      description: Partially update an existing sale record.
+      summary: Partial Update Sale
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        description: A UUID string identifying this Sale.
+        required: true
+      tags:
+      - Sales
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedSaleCreate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedSaleCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedSaleCreate'
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Sale'
+          description: Sale partially updated successfully
+    delete:
+      operationId: sales_destroy
+      description: 'Delete a sale record. Warning: this may orphan related ledger
+        or invoice entries if not handled via service layer.'
+      summary: Delete Sale
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        description: A UUID string identifying this Sale.
+        required: true
+      tags:
+      - Sales
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '204':
+          description: Sale deleted successfully
+  /api/sales/returns/:
+    get:
+      operationId: sales_returns_list
+      description: Retrieve a paginated list of all sale returns.
+      summary: List Sale Returns
+      tags:
+      - Sales
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SaleReturn'
+          description: Successful retrieval of returns list
+    post:
+      operationId: sales_returns_create
+      description: |-
+        Create a new sale return against an original sale, specifying the returned items.
+
+        What happens in one transaction:
+
+        - the `SaleReturn` and `SaleReturnItem` records are created;
+        - returned stock is added back to the `Inventory` pool (if `restock_action="return_to_stock"`) via `update_inventory_for_return`;
+        - an `InventoryLedgerEntry` is recorded.
+
+        Where the values come from:
+
+        - `original_sale`: GET `/api/sales/sales/`
+        - `sale_item` (in items): Must be an ID from the original sale's items.
+        - `restock_action` (in items): Must be `return_to_stock` or `damage`.
+
+        `refund_amount` and `condition` are required fields for the return items.
+      summary: Create Sale Return
+      tags:
+      - Sales
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaleReturnCreate'
+            examples:
+              ExampleSaleReturnRequest:
+                value:
+                  original_sale: 1
+                  organization: 1
+                  return_reason: DEFECTIVE
+                  refund_amount: '250.00'
+                  refund_method: original_payment
+                  items:
+                  - sale_item: 1
+                    quantity: 1
+                    refund_amount: '250.00'
+                    condition: defective
+                    restock_action: return_to_stock
+                summary: Standard return payload
+                description: Provides original_sale ID, organization, and the specific
+                  items being returned. 'sale_return' and 'id' should be omitted in
+                  the items array.
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SaleReturnCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SaleReturnCreate'
+        required: true
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SaleReturn'
+          description: Sale return created successfully
+  /api/sales/returns/{id}/:
+    get:
+      operationId: sales_returns_retrieve
+      description: Retrieve detailed information about a specific sale return.
+      summary: Retrieve Sale Return
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        description: A UUID string identifying this Sale Return.
+        required: true
+      tags:
+      - Sales
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SaleReturn'
+          description: Successful retrieval of return details
+    put:
+      operationId: sales_returns_update
+      description: Update an existing sale return completely.
+      summary: Update Sale Return
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        description: A UUID string identifying this Sale Return.
+        required: true
+      tags:
+      - Sales
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaleReturnCreate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SaleReturnCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SaleReturnCreate'
+        required: true
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SaleReturn'
+          description: Sale return updated successfully
+    patch:
+      operationId: sales_returns_partial_update
+      description: Partially update an existing sale return.
+      summary: Partial Update Sale Return
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        description: A UUID string identifying this Sale Return.
+        required: true
+      tags:
+      - Sales
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedSaleReturnCreate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedSaleReturnCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedSaleReturnCreate'
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SaleReturn'
+          description: Sale return partially updated successfully
+    delete:
+      operationId: sales_returns_destroy
+      description: Delete a sale return record.
+      summary: Delete Sale Return
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        description: A UUID string identifying this Sale Return.
+        required: true
+      tags:
+      - Sales
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '204':
+          description: Sale return deleted successfully
+  /api/schema/:
+    get:
+      operationId: schema_retrieve
+      description: |-
+        OpenApi3 schema for this API. Format can be selected via content negotiation.
+
+        - YAML: application/vnd.oai.openapi
+        - JSON: application/vnd.oai.openapi+json
+      parameters:
+      - in: query
+        name: format
+        schema:
+          type: string
+          enum:
+          - json
+          - yaml
+      - in: query
+        name: lang
+        schema:
+          type: string
+          enum:
+          - af
+          - ar
+          - ar-dz
+          - ast
+          - az
+          - be
+          - bg
+          - bn
+          - br
+          - bs
+          - ca
+          - ckb
+          - cs
+          - cy
+          - da
+          - de
+          - dsb
+          - el
+          - en
+          - en-au
+          - en-gb
+          - eo
+          - es
+          - es-ar
+          - es-co
+          - es-mx
+          - es-ni
+          - es-ve
+          - et
+          - eu
+          - fa
+          - fi
+          - fr
+          - fy
+          - ga
+          - gd
+          - gl
+          - he
+          - hi
+          - hr
+          - hsb
+          - hu
+          - hy
+          - ia
+          - id
+          - ig
+          - io
+          - is
+          - it
+          - ja
+          - ka
+          - kab
+          - kk
+          - km
+          - kn
+          - ko
+          - ky
+          - lb
+          - lt
+          - lv
+          - mk
+          - ml
+          - mn
+          - mr
+          - ms
+          - my
+          - nb
+          - ne
+          - nl
+          - nn
+          - os
+          - pa
+          - pl
+          - pt
+          - pt-br
+          - ro
+          - ru
+          - sk
+          - sl
+          - sq
+          - sr
+          - sr-latn
+          - sv
+          - sw
+          - ta
+          - te
+          - tg
+          - th
+          - tk
+          - tr
+          - tt
+          - udm
+          - ug
+          - uk
+          - ur
+          - uz
+          - vi
+          - zh-hans
+          - zh-hant
+      tags:
+      - schema
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/vnd.oai.openapi:
+              schema:
+                type: object
+                additionalProperties: {}
+            application/yaml:
+              schema:
+                type: object
+                additionalProperties: {}
+            application/vnd.oai.openapi+json:
+              schema:
+                type: object
+                additionalProperties: {}
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/transfers/execute/:
+    post:
+      operationId: transfers_execute_create
+      tags:
+      - Inventory
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StockTransfer'
+            examples:
+              TransferStock:
+                value:
+                  product_id: d290f1ee-6c54-4b01-90e6-d701748f0851
+                  variant_id: null
+                  batch_id: null
+                  source_warehouse_id: f47ac10b-58cc-4372-a567-0e02b2c3d479
+                  destination_warehouse_id: 184d0b2b-6c58-47bc-9b63-1d01f11a8c88
+                  quantity: 50
+                summary: Transfer stock between branches
+                description: |-
+                  Atomically transfer stock from one warehouse to another.
+
+                  What happens in one transaction:
+
+                  - stock is deducted from `source_warehouse_id` `Inventory`;
+                  - stock is added to `destination_warehouse_id` `Inventory`;
+                  - `InventoryLedgerEntry` records are created for both locations to track the movement.
+
+                  Where the values come from:
+
+                  - `product_id`: GET `/api/products/products/`
+                  - `source_warehouse_id` & `destination_warehouse_id`: GET `/api/warehouse/warehouses/`
+
+                  `quantity` is required. `variant_id` and `batch_id` are optional to transfer specific variants/batches.
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/StockTransfer'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/StockTransfer'
+        required: true
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          description: Transfer Successful
+  /api/users/:
+    get:
+      operationId: users_list
+      tags:
+      - User
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CustomUser'
+          description: ''
+    post:
+      operationId: users_create
+      tags:
+      - User
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CustomUserCreate'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CustomUserCreate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CustomUserCreate'
+        required: true
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomUserCreate'
+          description: ''
+  /api/users/{id}/:
+    get:
+      operationId: users_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this User.
+        required: true
+      tags:
+      - User
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomUser'
+          description: ''
+    put:
+      operationId: users_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this User.
+        required: true
+      tags:
+      - User
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CustomUser'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CustomUser'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CustomUser'
+        required: true
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomUser'
+          description: ''
+    patch:
+      operationId: users_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this User.
+        required: true
+      tags:
+      - User
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedCustomUser'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedCustomUser'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedCustomUser'
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomUser'
+          description: ''
+    delete:
+      operationId: users_destroy
+      description: |-
+        Handles the deletion of an existing user instance.
+
+        Parameters:
+            request: The request object.
+            *args: Variable length argument list.
+            **kwargs: Arbitrary keyword arguments.
+
+        Returns:
+            A response with a status code of 204 (No Content)
+            indicating the deletion was successful.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this User.
+        required: true
+      tags:
+      - User
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/users/activation/:
+    post:
+      operationId: users_activation_create
+      tags:
+      - User
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Activation'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Activation'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Activation'
+        required: true
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Activation'
+          description: ''
+  /api/users/logout/:
+    get:
+      operationId: users_logout_retrieve
+      tags:
+      - auth
+      - User Management
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomUser'
+          description: ''
+  /api/users/me/:
+    get:
+      operationId: users_me_retrieve
+      tags:
+      - User
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetUser'
+          description: ''
+    put:
+      operationId: users_me_update
+      tags:
+      - User
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/GetUser'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GetUser'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/GetUser'
+        required: true
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetUser'
+          description: ''
+    patch:
+      operationId: users_me_partial_update
+      tags:
+      - User
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedGetUser'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedGetUser'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedGetUser'
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetUser'
+          description: ''
+    delete:
+      operationId: users_me_destroy
+      tags:
+      - User
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/users/metadatas/:
+    post:
+      operationId: users_metadatas_create
+      tags:
+      - auth
+      - User Management
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CustomUser'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CustomUser'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CustomUser'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/users/resend_activation/:
+    post:
+      operationId: users_resend_activation_create
+      tags:
+      - User
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SendEmailReset'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendEmailReset'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SendEmailReset'
+        required: true
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendEmailReset'
+          description: ''
+  /api/users/reset_email/:
+    post:
+      operationId: users_reset_email_create
+      tags:
+      - User
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SendEmailReset'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendEmailReset'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SendEmailReset'
+        required: true
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendEmailReset'
+          description: ''
+  /api/users/reset_email_confirm/:
+    post:
+      operationId: users_reset_email_confirm_create
+      tags:
+      - User
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UsernameResetConfirm'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UsernameResetConfirm'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UsernameResetConfirm'
+        required: true
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsernameResetConfirm'
+          description: ''
+  /api/users/reset_password/:
+    post:
+      operationId: users_reset_password_create
+      tags:
+      - User
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SendEmailReset'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendEmailReset'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SendEmailReset'
+        required: true
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendEmailReset'
+          description: ''
+  /api/users/reset_password_confirm/:
+    post:
+      operationId: users_reset_password_confirm_create
+      tags:
+      - User
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PasswordResetConfirmRetype'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetConfirmRetype'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PasswordResetConfirmRetype'
+        required: true
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PasswordResetConfirmRetype'
+          description: ''
+  /api/users/set_email/:
+    post:
+      operationId: users_set_email_create
+      tags:
+      - User
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SetUsername'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetUsername'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SetUsername'
+        required: true
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetUsername'
+          description: ''
+  /api/users/set_password/:
+    post:
+      operationId: users_set_password_create
+      tags:
+      - User
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SetPasswordRetype'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetPasswordRetype'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SetPasswordRetype'
+        required: true
+      security:
+      - jwtAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetPasswordRetype'
+          description: ''
+components:
+  schemas:
+    AcceptInvitation:
+      type: object
+      description: |-
+        Body of POST /invitations/accept/. Shape only: every rule (verified email,
+        matching address, expiry, seats) lives in services.accept_invitation.
+      properties:
+        token:
+          type: string
+          description: The invitation token from the email link.
+          pattern: ^[\w-]{20,128}$
+      required:
+      - token
+    Activation:
+      type: object
+      description: |-
+        Serializer for user activation.
+        It validates the token and checks if the user is active.
+        If the user is active, it raises a PermissionDenied exception.
+        If the token is invalid, it raises a BadRequest exception.
+        If the user is not active, it returns the validated data.
+      properties:
+        email:
+          type: string
+          format: email
+        token:
+          type: string
+      required:
+      - email
+      - token
+    AdjustmentReasonEnum:
+      enum:
+      - damaged
+      - missing
+      - wrong_entry
+      - unrecorded_return
+      - warehouse_error
+      - other
+      type: string
+      description: |-
+        * `damaged` - Damaged
+        * `missing` - Missing
+        * `wrong_entry` - Wrong Entry
+        * `unrecorded_return` - Unrecorded Return
+        * `warehouse_error` - Warehouse Error
+        * `other` - Other
+    AuthToken:
+      type: object
+      properties:
+        username:
+          type: string
+          writeOnly: true
+        password:
+          type: string
+          writeOnly: true
+        token:
+          type: string
+          readOnly: true
+      required:
+      - password
+      - token
+      - username
+    BlankEnum:
+      enum:
+      - ''
+    BusinessType:
+      type: object
+      description: Catalog entry; feeds the onboarding cards.
+      properties:
+        id:
+          type: string
+          readOnly: true
+        code:
+          type: string
+          readOnly: true
+          description: Stable key, e.g. 'wholesale_distribution'.
+          pattern: ^[-a-zA-Z0-9_]+$
+        name:
+          type: string
+          readOnly: true
+        description:
+          type: string
+          readOnly: true
+        icon:
+          type: string
+          readOnly: true
+          description: Icon key resolved by the frontend, e.g. 'shopping-basket'.
+        highlights:
+          readOnly: true
+          description: Short feature tags shown on the onboarding card.
+      required:
+      - code
+      - description
+      - highlights
+      - icon
+      - id
+      - name
+    ConditionEnum:
+      enum:
+      - new
+      - open_box
+      - damaged
+      - defective
+      type: string
+      description: |-
+        * `new` - New
+        * `open_box` - Open Box
+        * `damaged` - Damaged
+        * `defective` - Defective
+    CustomTokenObtainPair:
+      type: object
+      properties:
+        email:
+          type: string
+          writeOnly: true
+        password:
+          type: string
+          writeOnly: true
+      required:
+      - email
+      - password
+    CustomUser:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          title: Full Name
+          maxLength: 255
+        is_active:
+          type: boolean
+          title: Active
+        email:
+          type: string
+          format: email
+          title: Email Address
+          maxLength: 254
+      required:
+      - email
+      - id
+    CustomUserCreate:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          title: Full Name
+          maxLength: 255
+        email:
+          type: string
+          format: email
+          title: Email Address
+          maxLength: 254
+        password:
+          type: string
+          writeOnly: true
+        re_password:
+          type: string
+          writeOnly: true
+      required:
+      - email
+      - id
+      - password
+      - re_password
+    Detail:
+      type: object
+      properties:
+        detail:
+          type: string
+      required:
+      - detail
+    DiscountTypeEnum:
+      enum:
+      - percentage
+      - fixed
+      type: string
+      description: |-
+        * `percentage` - Percentage
+        * `fixed` - Fixed Amount
+    Error:
+      type: object
+      description: Shape of every business-rule error (PRD §46). Used for API docs
+        only.
+      properties:
+        code:
+          type: string
+          description: Stable machine-readable error code.
+        detail:
+          type: string
+          description: Human-readable message.
+      required:
+      - code
+      - detail
+    FulfillmentStatusEnum:
+      enum:
+      - unfulfilled
+      - partially_fulfilled
+      - fulfilled
+      - canceled
+      type: string
+      description: |-
+        * `unfulfilled` - Unfulfilled
+        * `partially_fulfilled` - Partially Fulfilled
+        * `fulfilled` - Fulfilled
+        * `canceled` - Canceled
+    GetUser:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        email:
+          type: string
+          format: email
+          title: Email Address
+          maxLength: 254
+        name:
+          type: string
+          title: Full Name
+          maxLength: 255
+        is_active:
+          type: boolean
+          title: Active
+      required:
+      - email
+      - id
+    Inventory:
+      type: object
+      properties:
+        id:
+          type: string
+          readOnly: true
+        visible:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        quantity:
+          type: integer
+          readOnly: true
+          description: Current on-hand quantity. System-maintained — see InventoryLedgerEntry.
+        product:
+          type: string
+          description: Product this stock level is for.
+        variant:
+          type: string
+          nullable: true
+          description: Specific variant of the product, if applicable.
+        batch:
+          type: string
+          nullable: true
+          description: Specific batch of the product, if applicable.
+        warehouse:
+          type: string
+          description: Warehouse this stock level applies to.
+        location:
+          type: string
+          nullable: true
+          description: Specific shelf/rack this stock is placed at, if tracked.
+      required:
+      - created_at
+      - id
+      - product
+      - quantity
+      - updated_at
+      - warehouse
+    InventoryLedgerEntry:
+      type: object
+      properties:
+        id:
+          type: string
+          readOnly: true
+        visible:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        quantity_moved:
+          type: integer
+          maximum: 2147483647
+          minimum: -2147483648
+          description: Positive for stock coming in, negative for stock going out.
+        unit_cost:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          nullable: true
+          description: Cost basis per unit at the time of movement, useful for COGS
+            calculation.
+        transaction:
+          type: string
+        product:
+          type: string
+        variant:
+          type: string
+          nullable: true
+          description: Optional specific variant involved in the movement.
+        batch:
+          type: string
+          nullable: true
+          description: Optional specific batch involved in the movement.
+        warehouse:
+          type: string
+      required:
+      - created_at
+      - id
+      - product
+      - quantity_moved
+      - transaction
+      - updated_at
+      - warehouse
+    Invitation:
+      type: object
+      description: Staff-side list/detail. Never exposes the token or its hash.
+      properties:
+        id:
+          type: string
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+          title: Invitee name
+        email:
+          type: string
+          format: email
+          readOnly: true
+          title: Invitee email
+        role:
+          type: string
+          readOnly: true
+        role_name:
+          type: string
+          readOnly: true
+        status:
+          type: string
+          readOnly: true
+        expires_at:
+          type: string
+          format: date-time
+          readOnly: true
+        last_sent_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        invited_by_name:
+          type: string
+          readOnly: true
+          nullable: true
+        accepted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        revoked_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - accepted_at
+      - created_at
+      - email
+      - expires_at
+      - id
+      - invited_by_name
+      - last_sent_at
+      - name
+      - revoked_at
+      - role
+      - role_name
+      - status
+    InvitationAccepted:
+      type: object
+      description: 'Response of a successful accept: what the frontend needs to switch
+        organization.'
+      properties:
+        membership_id:
+          type: string
+          readOnly: true
+        organization_id:
+          type: string
+          readOnly: true
+        organization_name:
+          type: string
+          readOnly: true
+        role:
+          type: string
+          readOnly: true
+      required:
+      - membership_id
+      - organization_id
+      - organization_name
+      - role
+    InvitationCreate:
+      type: object
+      description: |-
+        Body of POST /organizations/{organization_id}/invitations/.
+
+        The organization is never in the body: it comes from the URL, verified
+        against the caller's membership. The view passes `organization` and
+        `actor_membership` in the serializer context.
+      properties:
+        name:
+          type: string
+          maxLength: 255
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+      required:
+      - email
+      - name
+      - role
+    InvitationPreview:
+      type: object
+      description: |-
+        Public preview shown before the invitee signs up or logs in. Deliberately
+        minimal: no ids, no token, no other members, and a masked email.
+      properties:
+        organization:
+          type: string
+          readOnly: true
+        role:
+          type: string
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+          title: Invitee name
+        invited_email:
+          type: string
+          readOnly: true
+        expires_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - expires_at
+      - invited_email
+      - name
+      - organization
+      - role
+    InvitationRevoke:
+      type: object
+      description: Optional body of POST .../invitations/{id}/revoke/; the reason
+        goes to the audit log.
+      properties:
+        reason:
+          type: string
+          default: ''
+          maxLength: 500
+    InvitationSent:
+      type: object
+      properties:
+        detail:
+          type: string
+        id:
+          type: string
+          readOnly: true
+      required:
+      - detail
+      - id
+    Membership:
+      type: object
+      description: |-
+        Membership detail (read-only). Every row is a real member; pending
+        invitations are a separate resource. Load with
+        Membership.objects.with_user_and_role().select_related("organization").
+      properties:
+        id:
+          type: string
+          readOnly: true
+        user:
+          type: integer
+          readOnly: true
+        user_name:
+          type: string
+          readOnly: true
+        user_email:
+          type: string
+          format: email
+          readOnly: true
+        organization:
+          type: string
+          readOnly: true
+        organization_name:
+          type: string
+          readOnly: true
+        role:
+          type: string
+          readOnly: true
+          description: Must belong to the same organization as this membership.
+        role_name:
+          type: string
+          readOnly: true
+        role_slug:
+          type: string
+          readOnly: true
+        is_active:
+          type: boolean
+          readOnly: true
+          description: Inactive memberships grant nothing (suspended or removed member).
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - is_active
+      - organization
+      - organization_name
+      - role
+      - role_name
+      - role_slug
+      - user
+      - user_email
+      - user_name
+    MembershipUpdate:
+      type: object
+      description: |-
+        Body of PUT/PATCH /memberships/{id}/: change a member's role and/or active
+        flag. Who may change whom is enforced in services.update_membership.
+        (Unchanged: `role` and `is_active` still exist on Membership.)
+      properties:
+        role:
+          type: string
+          description: Must belong to the same organization as this membership.
+        is_active:
+          type: boolean
+          description: Inactive memberships grant nothing (suspended or removed member).
+      required:
+      - role
+    NullEnum:
+      enum:
+      - null
+    Option:
+      type: object
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+      required:
+      - code
+      - name
+    Organization:
+      type: object
+      description: |-
+        Read serializer. Load through Organization.objects.for_user(user).with_detail()
+        so plan and business types are preloaded. Members are intentionally NOT
+        embedded: use the members action.
+      properties:
+        id:
+          type: string
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+          description: Trading name.
+        legal_name:
+          type: string
+          readOnly: true
+        business_types:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrganizationBusinessType'
+          readOnly: true
+        primary_business_type:
+          type: string
+          nullable: true
+          readOnly: true
+        registration_number:
+          type: string
+          readOnly: true
+        state:
+          type: string
+          readOnly: true
+          description: State/province/region of the business address.
+        address:
+          type: string
+          readOnly: true
+        phone:
+          type: string
+          readOnly: true
+        email:
+          type: string
+          format: email
+          readOnly: true
+        staff_size:
+          allOf:
+          - $ref: '#/components/schemas/StaffSizeEnum'
+          readOnly: true
+          title: Number of staff
+        country:
+          type: string
+          readOnly: true
+          description: ISO 3166-1 alpha-2 country code.
+        currency:
+          type: string
+          readOnly: true
+          description: ISO 4217 currency code.
+        timezone:
+          type: string
+          readOnly: true
+        domain:
+          type: string
+          readOnly: true
+          nullable: true
+          title: Custom Domain
+          description: Optional custom domain (e.g. acme.com).
+        logo:
+          type: string
+          format: uri
+          readOnly: true
+          nullable: true
+          description: Logo to display on invoices and receipts.
+        plan:
+          allOf:
+          - $ref: '#/components/schemas/Plan'
+          readOnly: true
+        is_active:
+          type: boolean
+          readOnly: true
+          title: Active
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - address
+      - business_types
+      - country
+      - created_at
+      - currency
+      - domain
+      - email
+      - id
+      - is_active
+      - legal_name
+      - logo
+      - name
+      - phone
+      - plan
+      - primary_business_type
+      - registration_number
+      - staff_size
+      - state
+      - timezone
+      - updated_at
+    OrganizationBusinessType:
+      type: object
+      description: A business type as attached to one organization.
+      properties:
+        id:
+          type: string
+          readOnly: true
+        code:
+          type: string
+          description: Stable key, e.g. 'wholesale_distribution'.
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+        is_primary:
+          type: boolean
+          readOnly: true
+      required:
+      - code
+      - id
+      - is_primary
+      - name
+    OrganizationBusinessTypesUpdate:
+      type: object
+      description: |-
+        Body of PUT /organizations/{id}/business-types/ (replaces the whole set).
+            {"business_types": ["retail", "wholesale_distribution"],
+             "primary_business_type": "retail"}
+      properties:
+        business_types:
+          type: array
+          items:
+            type: string
+            description: Stable key, e.g. 'wholesale_distribution'.
+        primary_business_type:
+          type: string
+          description: Stable key, e.g. 'wholesale_distribution'.
+      required:
+      - business_types
+      - primary_business_type
+    OrganizationCreate:
+      type: object
+      description: |-
+        Body of POST /organizations/: onboarding screen 1 (business type) and
+        screen 2 (business details) submitted together, so no half-created
+        organization can exist.
+
+        Branding and templates belong to a later onboarding step.
+
+        Timezone is not collected from the onboarding request. The service layer
+        applies the default timezone of Africa/Lagos through OrganizationProfile.
+      properties:
+        id:
+          type: string
+          readOnly: true
+        business_type:
+          type: string
+          description: Stable key, e.g. 'wholesale_distribution'.
+          writeOnly: true
+        name:
+          type: string
+          description: Trading name.
+          maxLength: 255
+        registration_number:
+          type: string
+          maxLength: 100
+        country:
+          type: string
+          description: ISO 3166-1 alpha-2 country code.
+          maxLength: 2
+        state:
+          type: string
+          description: State/province/region of the business address.
+          maxLength: 100
+        address:
+          type: string
+        postal_code:
+          type: string
+          nullable: true
+          title: Postal/ZIP code
+          maxLength: 20
+        tax_id:
+          type: string
+          maxLength: 100
+        currency:
+          type: string
+          description: ISO 4217 currency code.
+          maxLength: 3
+        phone:
+          type: string
+          maxLength: 30
+        staff_size:
+          allOf:
+          - $ref: '#/components/schemas/StaffSizeEnum'
+          title: Number of staff
+      required:
+      - address
+      - business_type
+      - country
+      - currency
+      - id
+      - name
+      - phone
+      - staff_size
+      - state
+    OrganizationMember:
+      type: object
+      description: |-
+        One row of GET /organizations/{id}/members/. Pending invitations have no
+        user yet, so `user` falls back to the invited email; `accepted` tells them
+        apart. Load rows with Membership.objects.with_user_and_role().
+      properties:
+        id:
+          type: string
+          readOnly: true
+        user:
+          type: string
+          format: email
+          readOnly: true
+          description: Email of the member, or the invited email for a pending invite
+        role:
+          type: string
+          readOnly: true
+          description: Role name, e.g. Administrator
+        active:
+          type: boolean
+          readOnly: true
+        joined_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - active
+      - id
+      - joined_at
+      - role
+      - user
+    OrganizationUpdate:
+      type: object
+      description: |-
+        Body of PUT/PATCH /organizations/{id}/ (profile + branding). Business types
+        have their own action.
+
+        country and currency are deliberately not editable here: they are fixed at
+        creation, because changing currency after transactions exist would rewrite
+        the meaning of historical records. State and phone are still validated
+        against the organization's stored country (see the validation mixin).
+
+        Template fields are generated from the model FKs (so `limit_choices_to` on
+        type/active still applies) and re-scoped per organization in get_fields():
+        shared defaults + this organization's own templates. Without that, any
+        organization could assign another tenant's custom template by primary key.
+      properties:
+        name:
+          type: string
+          description: Trading name.
+          maxLength: 255
+        legal_name:
+          type: string
+          maxLength: 255
+        registration_number:
+          type: string
+          maxLength: 100
+        tax_id:
+          type: string
+          maxLength: 100
+        state:
+          type: string
+          description: State/province/region of the business address.
+          maxLength: 100
+        address:
+          type: string
+        postal_code:
+          type: string
+          nullable: true
+          title: Postal/ZIP code
+          maxLength: 20
+        phone:
+          type: string
+          maxLength: 30
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        staff_size:
+          title: Number of staff
+          oneOf:
+          - $ref: '#/components/schemas/StaffSizeEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        timezone:
+          type: string
+          maxLength: 64
+        domain:
+          type: string
+          nullable: true
+          title: Custom Domain
+          description: Optional custom domain (e.g. acme.com).
+          maxLength: 255
+        logo:
+          type: string
+          format: uri
+          nullable: true
+          description: Logo to display on invoices and receipts.
+        header_text:
+          type: string
+          nullable: true
+          maxLength: 255
+        footer_text:
+          type: string
+          nullable: true
+          maxLength: 255
+        invoice_template:
+          type: string
+          nullable: true
+        receipt_template:
+          type: string
+          nullable: true
+        quote_template:
+          type: string
+          nullable: true
+        credit_note_template:
+          type: string
+          nullable: true
+      required:
+      - name
+    PasswordResetConfirmRetype:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        token:
+          type: string
+        new_password:
+          type: string
+        re_new_password:
+          type: string
+      required:
+      - email
+      - new_password
+      - re_new_password
+      - token
+    PatchedCustomUser:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          title: Full Name
+          maxLength: 255
+        is_active:
+          type: boolean
+          title: Active
+        email:
+          type: string
+          format: email
+          title: Email Address
+          maxLength: 254
+    PatchedGetUser:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        email:
+          type: string
+          format: email
+          title: Email Address
+          maxLength: 254
+        name:
+          type: string
+          title: Full Name
+          maxLength: 255
+        is_active:
+          type: boolean
+          title: Active
+    PatchedMembershipUpdate:
+      type: object
+      description: |-
+        Body of PUT/PATCH /memberships/{id}/: change a member's role and/or active
+        flag. Who may change whom is enforced in services.update_membership.
+        (Unchanged: `role` and `is_active` still exist on Membership.)
+      properties:
+        role:
+          type: string
+          description: Must belong to the same organization as this membership.
+        is_active:
+          type: boolean
+          description: Inactive memberships grant nothing (suspended or removed member).
+    PatchedOrganizationUpdate:
+      type: object
+      description: |-
+        Body of PUT/PATCH /organizations/{id}/ (profile + branding). Business types
+        have their own action.
+
+        country and currency are deliberately not editable here: they are fixed at
+        creation, because changing currency after transactions exist would rewrite
+        the meaning of historical records. State and phone are still validated
+        against the organization's stored country (see the validation mixin).
+
+        Template fields are generated from the model FKs (so `limit_choices_to` on
+        type/active still applies) and re-scoped per organization in get_fields():
+        shared defaults + this organization's own templates. Without that, any
+        organization could assign another tenant's custom template by primary key.
+      properties:
+        name:
+          type: string
+          description: Trading name.
+          maxLength: 255
+        legal_name:
+          type: string
+          maxLength: 255
+        registration_number:
+          type: string
+          maxLength: 100
+        tax_id:
+          type: string
+          maxLength: 100
+        state:
+          type: string
+          description: State/province/region of the business address.
+          maxLength: 100
+        address:
+          type: string
+        postal_code:
+          type: string
+          nullable: true
+          title: Postal/ZIP code
+          maxLength: 20
+        phone:
+          type: string
+          maxLength: 30
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        staff_size:
+          title: Number of staff
+          oneOf:
+          - $ref: '#/components/schemas/StaffSizeEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        timezone:
+          type: string
+          maxLength: 64
+        domain:
+          type: string
+          nullable: true
+          title: Custom Domain
+          description: Optional custom domain (e.g. acme.com).
+          maxLength: 255
+        logo:
+          type: string
+          format: uri
+          nullable: true
+          description: Logo to display on invoices and receipts.
+        header_text:
+          type: string
+          nullable: true
+          maxLength: 255
+        footer_text:
+          type: string
+          nullable: true
+          maxLength: 255
+        invoice_template:
+          type: string
+          nullable: true
+        receipt_template:
+          type: string
+          nullable: true
+        quote_template:
+          type: string
+          nullable: true
+        credit_note_template:
+          type: string
+          nullable: true
+    PatchedProductCreate:
+      type: object
+      properties:
+        id:
+          type: string
+          readOnly: true
+        quantity_in_stock:
+          type: integer
+          writeOnly: true
+          default: 0
+          description: Initial opening stock quantity
+        warehouse_id:
+          type: string
+          writeOnly: true
+          description: Warehouse ID for opening stock
+        batches:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductBatch'
+        bulk_discounts:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductBulkDiscount'
+        unit_conversions:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductUnitConversion'
+        visible:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        name:
+          type: string
+          title: Product Name
+          description: Customer-facing product name.
+          maxLength: 255
+        sku:
+          type: string
+          description: Internal stock-keeping unit code, unique within the organization.
+          maxLength: 100
+        barcode:
+          type: string
+          nullable: true
+          title: Barcode / QR Code
+          description: Scannable barcode or QR payload used for quick lookup (PRD
+            §35).
+          maxLength: 100
+        description:
+          type: string
+          nullable: true
+          description: Longer product description shown to staff and customers.
+        quality_grade:
+          type: string
+          nullable: true
+          description: Free-form product quality/grade label, e.g. 'Grade A'.
+          maxLength: 50
+        unit_of_measurement:
+          allOf:
+          - $ref: '#/components/schemas/UnitNameEnum'
+          description: |-
+            Unit stock quantities for this product are counted in.
+
+            * `pcs` - Piece(s)
+            * `kg` - Kilogram
+            * `g` - Gram
+            * `l` - Litre
+            * `ml` - Millilitre
+            * `box` - Box
+            * `pack` - Pack
+            * `carton` - Carton
+            * `dozen` - Dozen
+            * `m` - Metre
+            * `other` - Other
+        product_type:
+          allOf:
+          - $ref: '#/components/schemas/ProductTypeEnum'
+          description: |-
+            Type of product (e.g., Physical, Service, Digital).
+
+            * `physical` - Physical
+            * `service` - Service
+            * `digital` - Digital
+            * `bundle` - Bundle
+            * `consumable` - Consumable
+            * `non_stock` - Non-Stock
+        tax_config:
+          allOf:
+          - $ref: '#/components/schemas/TaxConfigEnum'
+          description: |-
+            Tax configuration for this product.
+
+            * `taxable` - Taxable
+            * `non_taxable` - Non-Taxable
+            * `exempt` - Exempt
+        tax_rate:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,3}(?:\.\d{0,2})?$
+          nullable: true
+          description: Specific percentage tax rate override, if applicable.
+        track_inventory:
+          type: boolean
+          description: Whether to enforce inventory ledger tracking for this product.
+        track_batches:
+          type: boolean
+          description: Whether to enforce batch tracking requirements for this product.
+        purchase_cost:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          description: Admin-only. What the business pays the vendor per unit.
+        vendor_sale_cost:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          description: Admin-only. Cost basis used for vendor-facing terms.
+        customer_sale_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          description: Price charged to customers. Visible to Staff but not editable
+            by them.
+        minimum_stock_level:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          description: Triggers LOW_STOCK notifications when on-hand quantity reaches
+            this.
+        low_stock_alert_unit:
+          nullable: true
+          description: |-
+            The unit for the low stock alert (e.g. 'carton'). If not set, defaults to base unit.
+
+            * `pcs` - Piece(s)
+            * `kg` - Kilogram
+            * `g` - Gram
+            * `l` - Litre
+            * `ml` - Millilitre
+            * `box` - Box
+            * `pack` - Pack
+            * `carton` - Carton
+            * `dozen` - Dozen
+            * `m` - Metre
+            * `other` - Other
+          oneOf:
+          - $ref: '#/components/schemas/UnitNameEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        opening_stock:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          description: Stock quantity recorded when the product was first created.
+        status:
+          allOf:
+          - $ref: '#/components/schemas/StatusD6cEnum'
+          readOnly: true
+          description: |-
+            Lifecycle status. Archived/discontinued products stay visible in historical records.
+
+            * `active` - Active
+            * `inactive` - Inactive
+            * `discontinued` - Discontinued
+            * `archived` - Archived
+        organization:
+          type: string
+          description: Organization this product belongs to.
+        category:
+          type: string
+          nullable: true
+          description: Category this product is grouped under.
+        brand:
+          type: string
+          nullable: true
+          description: Manufacturer/brand of this product, if applicable.
+        created_by:
+          type: integer
+          nullable: true
+    PatchedPurchase:
+      type: object
+      properties:
+        id:
+          type: string
+          readOnly: true
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PurchaseItem'
+          readOnly: true
+        visible:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        purchase_number:
+          type: string
+          readOnly: true
+          description: Auto-generated sequential reference, e.g. 'PO-2026-0004'.
+        vendor_invoice_number:
+          type: string
+          nullable: true
+          description: The vendor's own invoice/reference number for this order.
+          maxLength: 100
+        supporting_document:
+          type: string
+          format: uri
+          nullable: true
+          description: Vendor invoice, waybill, or delivery note supporting this purchase.
+        delivery_date:
+          type: string
+          format: date
+          nullable: true
+          description: Date the goods were or are expected to be delivered.
+        order_date:
+          type: string
+          format: date
+          nullable: true
+          description: Date the order was placed.
+        delivery_method:
+          type: string
+          nullable: true
+          description: Delivery method used for the order (e.g. Supplier Delivery).
+          maxLength: 100
+        other_costs:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          description: Additional costs such as delivery or handling.
+        discount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          description: Global discount applied to the purchase order.
+        status:
+          allOf:
+          - $ref: '#/components/schemas/PurchaseStatusEnum'
+          description: |-
+            Lifecycle status of this purchase order.
+
+            * `draft` - Draft
+            * `ordered` - Ordered
+            * `partially_received` - Partially Received
+            * `received` - Received
+            * `cancelled` - Cancelled
+        notes:
+          type: string
+          nullable: true
+          description: Internal notes about this purchase.
+        organization:
+          type: string
+          description: Organization this purchase order belongs to.
+        vendor:
+          type: string
+          description: Vendor this order was placed with.
+        warehouse:
+          type: string
+          description: Warehouse the received goods will be stocked into.
+        ordered_by:
+          type: integer
+          nullable: true
+          description: 'Admin/Owner who placed this order (PRD §10: Admin-only purchasing).'
+        received_by:
+          type: integer
+          nullable: true
+          description: User who physically received and checked in the goods.
+    PatchedSaleCreate:
+      type: object
+      properties:
+        organization:
+          type: string
+        customer:
+          type: string
+        location:
+          type: string
+        sales_rep:
+          type: integer
+          nullable: true
+        payment_status:
+          $ref: '#/components/schemas/PaymentStatusEnum'
+        fulfillment_status:
+          $ref: '#/components/schemas/FulfillmentStatusEnum'
+        currency:
+          type: string
+          maxLength: 3
+        reference_number:
+          type: string
+          nullable: true
+          maxLength: 100
+        due_date:
+          type: string
+          format: date
+          nullable: true
+        billing_address:
+          type: string
+          nullable: true
+        shipping_address:
+          type: string
+          nullable: true
+        subtotal:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        discount_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        tax_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        notes:
+          type: string
+          nullable: true
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SaleItemCreate'
+    PatchedSaleReturnCreate:
+      type: object
+      properties:
+        original_sale:
+          type: string
+        organization:
+          type: string
+        return_reason:
+          type: string
+        refund_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        refund_method:
+          $ref: '#/components/schemas/RefundMethodEnum'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SaleReturnItemCreate'
+    PaymentStatusEnum:
+      enum:
+      - unpaid
+      - partially_paid
+      - paid
+      - refunded
+      type: string
+      description: |-
+        * `unpaid` - Unpaid
+        * `partially_paid` - Partially Paid
+        * `paid` - Paid
+        * `refunded` - Refunded
+    Plan:
+      type: object
+      description: The subscription Plan linked to an organization.
+      properties:
+        id:
+          type: string
+          readOnly: true
+        name:
+          type: string
+          maxLength: 50
+        description:
+          type: string
+          nullable: true
+        price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+        is_active:
+          type: boolean
+      required:
+      - id
+      - name
+    Product:
+      type: object
+      properties:
+        id:
+          type: string
+          readOnly: true
+        batches:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductBatch'
+          readOnly: true
+        bulk_discounts:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductBulkDiscount'
+          readOnly: true
+        unit_conversions:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductUnitConversion'
+          readOnly: true
+        current_stock:
+          type: integer
+          readOnly: true
+        visible:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        name:
+          type: string
+          title: Product Name
+          description: Customer-facing product name.
+          maxLength: 255
+        sku:
+          type: string
+          description: Internal stock-keeping unit code, unique within the organization.
+          maxLength: 100
+        barcode:
+          type: string
+          nullable: true
+          title: Barcode / QR Code
+          description: Scannable barcode or QR payload used for quick lookup (PRD
+            §35).
+          maxLength: 100
+        description:
+          type: string
+          nullable: true
+          description: Longer product description shown to staff and customers.
+        quality_grade:
+          type: string
+          nullable: true
+          description: Free-form product quality/grade label, e.g. 'Grade A'.
+          maxLength: 50
+        unit_of_measurement:
+          allOf:
+          - $ref: '#/components/schemas/UnitNameEnum'
+          description: |-
+            Unit stock quantities for this product are counted in.
+
+            * `pcs` - Piece(s)
+            * `kg` - Kilogram
+            * `g` - Gram
+            * `l` - Litre
+            * `ml` - Millilitre
+            * `box` - Box
+            * `pack` - Pack
+            * `carton` - Carton
+            * `dozen` - Dozen
+            * `m` - Metre
+            * `other` - Other
+        product_type:
+          allOf:
+          - $ref: '#/components/schemas/ProductTypeEnum'
+          description: |-
+            Type of product (e.g., Physical, Service, Digital).
+
+            * `physical` - Physical
+            * `service` - Service
+            * `digital` - Digital
+            * `bundle` - Bundle
+            * `consumable` - Consumable
+            * `non_stock` - Non-Stock
+        tax_config:
+          allOf:
+          - $ref: '#/components/schemas/TaxConfigEnum'
+          description: |-
+            Tax configuration for this product.
+
+            * `taxable` - Taxable
+            * `non_taxable` - Non-Taxable
+            * `exempt` - Exempt
+        tax_rate:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,3}(?:\.\d{0,2})?$
+          nullable: true
+          description: Specific percentage tax rate override, if applicable.
+        track_inventory:
+          type: boolean
+          description: Whether to enforce inventory ledger tracking for this product.
+        track_batches:
+          type: boolean
+          description: Whether to enforce batch tracking requirements for this product.
+        purchase_cost:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          description: Admin-only. What the business pays the vendor per unit.
+        vendor_sale_cost:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          description: Admin-only. Cost basis used for vendor-facing terms.
+        customer_sale_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          description: Price charged to customers. Visible to Staff but not editable
+            by them.
+        minimum_stock_level:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          description: Triggers LOW_STOCK notifications when on-hand quantity reaches
+            this.
+        low_stock_alert_unit:
+          nullable: true
+          description: |-
+            The unit for the low stock alert (e.g. 'carton'). If not set, defaults to base unit.
+
+            * `pcs` - Piece(s)
+            * `kg` - Kilogram
+            * `g` - Gram
+            * `l` - Litre
+            * `ml` - Millilitre
+            * `box` - Box
+            * `pack` - Pack
+            * `carton` - Carton
+            * `dozen` - Dozen
+            * `m` - Metre
+            * `other` - Other
+          oneOf:
+          - $ref: '#/components/schemas/UnitNameEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        opening_stock:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          description: Stock quantity recorded when the product was first created.
+        status:
+          allOf:
+          - $ref: '#/components/schemas/StatusD6cEnum'
+          description: |-
+            Lifecycle status. Archived/discontinued products stay visible in historical records.
+
+            * `active` - Active
+            * `inactive` - Inactive
+            * `discontinued` - Discontinued
+            * `archived` - Archived
+        organization:
+          type: string
+          description: Organization this product belongs to.
+        category:
+          type: string
+          nullable: true
+          description: Category this product is grouped under.
+        brand:
+          type: string
+          nullable: true
+          description: Manufacturer/brand of this product, if applicable.
+        created_by:
+          type: integer
+          nullable: true
+      required:
+      - batches
+      - bulk_discounts
+      - created_at
+      - current_stock
+      - id
+      - name
+      - organization
+      - sku
+      - unit_conversions
+      - updated_at
+    ProductBatch:
+      type: object
+      properties:
+        id:
+          type: string
+          readOnly: true
+        batch_number:
+          type: string
+          description: Identifier for the batch. Auto-generated if left blank.
+          maxLength: 100
+        expiry_date:
+          type: string
+          format: date
+          nullable: true
+          description: Optional expiry date for this batch.
+        cost_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          nullable: true
+          description: Optional batch-specific cost price.
+        selling_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          nullable: true
+          description: Optional batch-specific selling price.
+      required:
+      - id
+    ProductBulkDiscount:
+      type: object
+      properties:
+        id:
+          type: string
+          readOnly: true
+        min_quantity:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          description: Minimum number of items required to trigger this discount.
+        discount_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          description: Fixed discount amount applied.
+      required:
+      - discount_amount
+      - id
+      - min_quantity
+    ProductCreate:
+      type: object
+      properties:
+        id:
+          type: string
+          readOnly: true
+        quantity_in_stock:
+          type: integer
+          writeOnly: true
+          default: 0
+          description: Initial opening stock quantity
+        warehouse_id:
+          type: string
+          writeOnly: true
+          description: Warehouse ID for opening stock
+        batches:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductBatch'
+        bulk_discounts:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductBulkDiscount'
+        unit_conversions:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductUnitConversion'
+        visible:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        name:
+          type: string
+          title: Product Name
+          description: Customer-facing product name.
+          maxLength: 255
+        sku:
+          type: string
+          description: Internal stock-keeping unit code, unique within the organization.
+          maxLength: 100
+        barcode:
+          type: string
+          nullable: true
+          title: Barcode / QR Code
+          description: Scannable barcode or QR payload used for quick lookup (PRD
+            §35).
+          maxLength: 100
+        description:
+          type: string
+          nullable: true
+          description: Longer product description shown to staff and customers.
+        quality_grade:
+          type: string
+          nullable: true
+          description: Free-form product quality/grade label, e.g. 'Grade A'.
+          maxLength: 50
+        unit_of_measurement:
+          allOf:
+          - $ref: '#/components/schemas/UnitNameEnum'
+          description: |-
+            Unit stock quantities for this product are counted in.
+
+            * `pcs` - Piece(s)
+            * `kg` - Kilogram
+            * `g` - Gram
+            * `l` - Litre
+            * `ml` - Millilitre
+            * `box` - Box
+            * `pack` - Pack
+            * `carton` - Carton
+            * `dozen` - Dozen
+            * `m` - Metre
+            * `other` - Other
+        product_type:
+          allOf:
+          - $ref: '#/components/schemas/ProductTypeEnum'
+          description: |-
+            Type of product (e.g., Physical, Service, Digital).
+
+            * `physical` - Physical
+            * `service` - Service
+            * `digital` - Digital
+            * `bundle` - Bundle
+            * `consumable` - Consumable
+            * `non_stock` - Non-Stock
+        tax_config:
+          allOf:
+          - $ref: '#/components/schemas/TaxConfigEnum'
+          description: |-
+            Tax configuration for this product.
+
+            * `taxable` - Taxable
+            * `non_taxable` - Non-Taxable
+            * `exempt` - Exempt
+        tax_rate:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,3}(?:\.\d{0,2})?$
+          nullable: true
+          description: Specific percentage tax rate override, if applicable.
+        track_inventory:
+          type: boolean
+          description: Whether to enforce inventory ledger tracking for this product.
+        track_batches:
+          type: boolean
+          description: Whether to enforce batch tracking requirements for this product.
+        purchase_cost:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          description: Admin-only. What the business pays the vendor per unit.
+        vendor_sale_cost:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          description: Admin-only. Cost basis used for vendor-facing terms.
+        customer_sale_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          description: Price charged to customers. Visible to Staff but not editable
+            by them.
+        minimum_stock_level:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          description: Triggers LOW_STOCK notifications when on-hand quantity reaches
+            this.
+        low_stock_alert_unit:
+          nullable: true
+          description: |-
+            The unit for the low stock alert (e.g. 'carton'). If not set, defaults to base unit.
+
+            * `pcs` - Piece(s)
+            * `kg` - Kilogram
+            * `g` - Gram
+            * `l` - Litre
+            * `ml` - Millilitre
+            * `box` - Box
+            * `pack` - Pack
+            * `carton` - Carton
+            * `dozen` - Dozen
+            * `m` - Metre
+            * `other` - Other
+          oneOf:
+          - $ref: '#/components/schemas/UnitNameEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        opening_stock:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          description: Stock quantity recorded when the product was first created.
+        status:
+          allOf:
+          - $ref: '#/components/schemas/StatusD6cEnum'
+          readOnly: true
+          description: |-
+            Lifecycle status. Archived/discontinued products stay visible in historical records.
+
+            * `active` - Active
+            * `inactive` - Inactive
+            * `discontinued` - Discontinued
+            * `archived` - Archived
+        organization:
+          type: string
+          description: Organization this product belongs to.
+        category:
+          type: string
+          nullable: true
+          description: Category this product is grouped under.
+        brand:
+          type: string
+          nullable: true
+          description: Manufacturer/brand of this product, if applicable.
+        created_by:
+          type: integer
+          nullable: true
+      required:
+      - created_at
+      - id
+      - name
+      - organization
+      - sku
+      - status
+      - updated_at
+    ProductTypeEnum:
+      enum:
+      - physical
+      - service
+      - digital
+      - bundle
+      - consumable
+      - non_stock
+      type: string
+      description: |-
+        * `physical` - Physical
+        * `service` - Service
+        * `digital` - Digital
+        * `bundle` - Bundle
+        * `consumable` - Consumable
+        * `non_stock` - Non-Stock
+    ProductUnitConversion:
+      type: object
+      properties:
+        id:
+          type: string
+          readOnly: true
+        unit_name:
+          allOf:
+          - $ref: '#/components/schemas/UnitNameEnum'
+          description: |-
+            Name of the alternative unit, e.g. 'carton'.
+
+            * `pcs` - Piece(s)
+            * `kg` - Kilogram
+            * `g` - Gram
+            * `l` - Litre
+            * `ml` - Millilitre
+            * `box` - Box
+            * `pack` - Pack
+            * `carton` - Carton
+            * `dozen` - Dozen
+            * `m` - Metre
+            * `other` - Other
+        multiplier:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,7}(?:\.\d{0,3})?$
+          description: Multiplier against the base unit. E.g. if base is Pieces and
+            unit is Carton of 12, multiplier is 12.
+        price_override:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          nullable: true
+          description: Optional specific selling price for this unit, overriding the
+            multiplier math.
+      required:
+      - id
+      - multiplier
+      - unit_name
+    Purchase:
+      type: object
+      properties:
+        id:
+          type: string
+          readOnly: true
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PurchaseItem'
+          readOnly: true
+        visible:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        purchase_number:
+          type: string
+          readOnly: true
+          description: Auto-generated sequential reference, e.g. 'PO-2026-0004'.
+        vendor_invoice_number:
+          type: string
+          nullable: true
+          description: The vendor's own invoice/reference number for this order.
+          maxLength: 100
+        supporting_document:
+          type: string
+          format: uri
+          nullable: true
+          description: Vendor invoice, waybill, or delivery note supporting this purchase.
+        delivery_date:
+          type: string
+          format: date
+          nullable: true
+          description: Date the goods were or are expected to be delivered.
+        order_date:
+          type: string
+          format: date
+          nullable: true
+          description: Date the order was placed.
+        delivery_method:
+          type: string
+          nullable: true
+          description: Delivery method used for the order (e.g. Supplier Delivery).
+          maxLength: 100
+        other_costs:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          description: Additional costs such as delivery or handling.
+        discount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          description: Global discount applied to the purchase order.
+        status:
+          allOf:
+          - $ref: '#/components/schemas/PurchaseStatusEnum'
+          description: |-
+            Lifecycle status of this purchase order.
+
+            * `draft` - Draft
+            * `ordered` - Ordered
+            * `partially_received` - Partially Received
+            * `received` - Received
+            * `cancelled` - Cancelled
+        notes:
+          type: string
+          nullable: true
+          description: Internal notes about this purchase.
+        organization:
+          type: string
+          description: Organization this purchase order belongs to.
+        vendor:
+          type: string
+          description: Vendor this order was placed with.
+        warehouse:
+          type: string
+          description: Warehouse the received goods will be stocked into.
+        ordered_by:
+          type: integer
+          nullable: true
+          description: 'Admin/Owner who placed this order (PRD §10: Admin-only purchasing).'
+        received_by:
+          type: integer
+          nullable: true
+          description: User who physically received and checked in the goods.
+      required:
+      - created_at
+      - id
+      - items
+      - organization
+      - purchase_number
+      - updated_at
+      - vendor
+      - warehouse
+    PurchaseItem:
+      type: object
+      properties:
+        id:
+          type: string
+          readOnly: true
+        visible:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        quantity_ordered:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          description: Quantity requested from the vendor.
+        quantity_received:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          description: Quantity actually received so far. Only this enters inventory
+            (PRD §10).
+        purchase_cost:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          description: Snapshot of Product.purchase_cost at order time.
+        discount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          description: Discount applied to this line item.
+        purchase:
+          type: string
+          description: Purchase order this line item belongs to.
+        product:
+          type: string
+          description: Product being ordered/received.
+        variant:
+          type: string
+          nullable: true
+          description: Specific variant of the product being ordered, if applicable.
+        unit:
+          type: string
+          nullable: true
+          description: Specific unit of measurement the product is being ordered in.
+      required:
+      - created_at
+      - id
+      - product
+      - purchase
+      - purchase_cost
+      - quantity_ordered
+      - updated_at
+    PurchaseReceive:
+      type: object
+      properties:
+        items_received:
+          type: array
+          items:
+            $ref: '#/components/schemas/PurchaseReceiveItem'
+      required:
+      - items_received
+    PurchaseReceiveItem:
+      type: object
+      properties:
+        item_id:
+          type: string
+        quantity_received:
+          type: integer
+          minimum: 1
+      required:
+      - item_id
+      - quantity_received
+    PurchaseStatusEnum:
+      enum:
+      - draft
+      - ordered
+      - partially_received
+      - received
+      - cancelled
+      type: string
+      description: |-
+        * `draft` - Draft
+        * `ordered` - Ordered
+        * `partially_received` - Partially Received
+        * `received` - Received
+        * `cancelled` - Cancelled
+    RefundMethodEnum:
+      enum:
+      - store_credit
+      - original_payment
+      - cash
+      type: string
+      description: |-
+        * `store_credit` - Store Credit
+        * `original_payment` - Original Payment
+        * `cash` - Cash
+    RestockActionEnum:
+      enum:
+      - return_to_stock
+      - write_off
+      - quarantine
+      type: string
+      description: |-
+        * `return_to_stock` - Return to Stock
+        * `write_off` - Write Off
+        * `quarantine` - Quarantine
+    Role:
+      type: object
+      description: Roles an organization can assign (feeds the invite-team role picker).
+      properties:
+        id:
+          type: string
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+        slug:
+          type: string
+          readOnly: true
+          description: Stable key, e.g. 'sales-representative'.
+        description:
+          type: string
+          readOnly: true
+          nullable: true
+        is_system:
+          type: boolean
+          readOnly: true
+          description: True for the PRD's default roles; protects name/slug from editing.
+      required:
+      - description
+      - id
+      - is_system
+      - name
+      - slug
+    RoleOption:
+      type: object
+      description: Feeds the "Assign Role" dropdown (use with services.invitations.assignable_roles).
+      properties:
+        id:
+          type: string
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+        slug:
+          type: string
+          readOnly: true
+          description: Stable key, e.g. 'sales-representative'.
+        description:
+          type: string
+          readOnly: true
+          nullable: true
+      required:
+      - description
+      - id
+      - name
+      - slug
+    Sale:
+      type: object
+      properties:
+        id:
+          type: string
+          readOnly: true
+        sale_id:
+          type: string
+          readOnly: true
+        organization:
+          type: string
+        customer:
+          type: string
+        location:
+          type: string
+        sales_rep:
+          type: integer
+          nullable: true
+        payment_status:
+          $ref: '#/components/schemas/PaymentStatusEnum'
+        fulfillment_status:
+          $ref: '#/components/schemas/FulfillmentStatusEnum'
+        currency:
+          type: string
+          maxLength: 3
+        reference_number:
+          type: string
+          nullable: true
+          maxLength: 100
+        due_date:
+          type: string
+          format: date
+          nullable: true
+        billing_address:
+          type: string
+          nullable: true
+        shipping_address:
+          type: string
+          nullable: true
+        subtotal:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        discount_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        tax_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        total:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+          readOnly: true
+        notes:
+          type: string
+          nullable: true
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SaleItem'
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - customer
+      - id
+      - items
+      - location
+      - organization
+      - sale_id
+      - total
+    SaleCreate:
+      type: object
+      properties:
+        organization:
+          type: string
+        customer:
+          type: string
+        location:
+          type: string
+        sales_rep:
+          type: integer
+          nullable: true
+        payment_status:
+          $ref: '#/components/schemas/PaymentStatusEnum'
+        fulfillment_status:
+          $ref: '#/components/schemas/FulfillmentStatusEnum'
+        currency:
+          type: string
+          maxLength: 3
+        reference_number:
+          type: string
+          nullable: true
+          maxLength: 100
+        due_date:
+          type: string
+          format: date
+          nullable: true
+        billing_address:
+          type: string
+          nullable: true
+        shipping_address:
+          type: string
+          nullable: true
+        subtotal:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        discount_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        tax_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        notes:
+          type: string
+          nullable: true
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SaleItemCreate'
+      required:
+      - customer
+      - items
+      - location
+      - organization
+    SaleItem:
+      type: object
+      properties:
+        id:
+          type: string
+          readOnly: true
+        sale:
+          type: string
+        product:
+          type: string
+        variant:
+          type: string
+          nullable: true
+        product_name:
+          type: string
+          maxLength: 255
+        product_sku:
+          type: string
+          nullable: true
+          maxLength: 100
+        quantity:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        returned_quantity:
+          type: integer
+          readOnly: true
+        unit_name:
+          $ref: '#/components/schemas/UnitNameEnum'
+        unit_multiplier:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,7}(?:\.\d{0,3})?$
+          readOnly: true
+        unit_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        discount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        discount_type:
+          $ref: '#/components/schemas/DiscountTypeEnum'
+        tax:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        tax_rate:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,3}(?:\.\d{0,2})?$
+        total:
+          type: string
+          readOnly: true
+      required:
+      - id
+      - product
+      - product_name
+      - returned_quantity
+      - sale
+      - total
+      - unit_multiplier
+      - unit_price
+    SaleItemCreate:
+      type: object
+      properties:
+        product:
+          type: string
+        variant:
+          type: string
+          nullable: true
+        product_name:
+          type: string
+          maxLength: 255
+        product_sku:
+          type: string
+          nullable: true
+          maxLength: 100
+        quantity:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        unit_name:
+          $ref: '#/components/schemas/UnitNameEnum'
+        unit_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        discount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        discount_type:
+          $ref: '#/components/schemas/DiscountTypeEnum'
+        tax:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        tax_rate:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,3}(?:\.\d{0,2})?$
+      required:
+      - product
+      - product_name
+      - unit_price
+    SaleReturn:
+      type: object
+      properties:
+        id:
+          type: string
+          readOnly: true
+        original_sale:
+          type: string
+        organization:
+          type: string
+        return_reason:
+          type: string
+        refund_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        refund_method:
+          $ref: '#/components/schemas/RefundMethodEnum'
+        status:
+          allOf:
+          - $ref: '#/components/schemas/SaleReturnStatusEnum'
+          readOnly: true
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SaleReturnItem'
+          readOnly: true
+      required:
+      - id
+      - items
+      - organization
+      - original_sale
+      - refund_amount
+      - return_reason
+      - status
+    SaleReturnCreate:
+      type: object
+      properties:
+        original_sale:
+          type: string
+        organization:
+          type: string
+        return_reason:
+          type: string
+        refund_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        refund_method:
+          $ref: '#/components/schemas/RefundMethodEnum'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SaleReturnItemCreate'
+      required:
+      - items
+      - organization
+      - original_sale
+      - refund_amount
+      - return_reason
+    SaleReturnItem:
+      type: object
+      properties:
+        id:
+          type: string
+          readOnly: true
+        sale_return:
+          type: string
+        sale_item:
+          type: string
+        quantity:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        refund_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        condition:
+          $ref: '#/components/schemas/ConditionEnum'
+        restock_action:
+          $ref: '#/components/schemas/RestockActionEnum'
+      required:
+      - id
+      - refund_amount
+      - sale_item
+      - sale_return
+    SaleReturnItemCreate:
+      type: object
+      properties:
+        sale_item:
+          type: string
+        quantity:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        refund_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        condition:
+          $ref: '#/components/schemas/ConditionEnum'
+        restock_action:
+          $ref: '#/components/schemas/RestockActionEnum'
+      required:
+      - refund_amount
+      - sale_item
+    SaleReturnStatusEnum:
+      enum:
+      - pending
+      - completed
+      - reversed
+      - failed
+      type: string
+      description: |-
+        * `pending` - Pending
+        * `completed` - Completed
+        * `reversed` - Reversed
+        * `failed` - Failed
+    SendEmailReset:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+      required:
+      - email
+    SetPasswordRetype:
+      type: object
+      properties:
+        new_password:
+          type: string
+        re_new_password:
+          type: string
+        current_password:
+          type: string
+      required:
+      - current_password
+      - new_password
+      - re_new_password
+    SetUsername:
+      type: object
+      properties:
+        current_password:
+          type: string
+        new_email:
+          type: string
+          format: email
+          title: Email Address
+          maxLength: 254
+      required:
+      - current_password
+      - new_email
+    StaffSizeEnum:
+      enum:
+      - 1-5
+      - 6-10
+      - 11-50
+      - 50+
+      type: string
+      description: |-
+        * `1-5` - 1–5
+        * `6-10` - 6–10
+        * `11-50` - 11–50
+        * `50+` - 50+
+    StateOption:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 100
+        code:
+          type: string
+          description: ISO 3166-2 subdivision code, e.g. 'NG-AB'.
+          maxLength: 10
+      required:
+      - name
+    StatusD6cEnum:
+      enum:
+      - active
+      - inactive
+      - discontinued
+      - archived
+      type: string
+      description: |-
+        * `active` - Active
+        * `inactive` - Inactive
+        * `discontinued` - Discontinued
+        * `archived` - Archived
+    StockAdjustmentRequest:
+      type: object
+      properties:
+        id:
+          type: string
+          readOnly: true
+        visible:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        requested_quantity_change:
+          type: integer
+          maximum: 2147483647
+          minimum: -2147483648
+          description: 'Signed: positive to add stock, negative to remove.'
+        requested_unit:
+          type: string
+          nullable: true
+          description: The unit selected by the user in the UI (e.g. 'Bottle').
+          maxLength: 50
+        adjustment_reason:
+          nullable: true
+          description: |-
+            Standardized reason for this adjustment.
+
+            * `damaged` - Damaged
+            * `missing` - Missing
+            * `wrong_entry` - Wrong Entry
+            * `unrecorded_return` - Unrecorded Return
+            * `warehouse_error` - Warehouse Error
+            * `other` - Other
+          oneOf:
+          - $ref: '#/components/schemas/AdjustmentReasonEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        notes:
+          type: string
+          nullable: true
+          description: Optional note for this adjustment.
+        status:
+          allOf:
+          - $ref: '#/components/schemas/StockAdjustmentRequestStatusEnum'
+          readOnly: true
+          description: |-
+            Approval state — only APPROVED requests result in a stock movement.
+
+            * `not_required` - Not Required
+            * `pending` - Pending Approval
+            * `approved` - Approved
+            * `rejected` - Rejected
+        reviewed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+          description: When this request was approved or rejected.
+        rejection_reason:
+          type: string
+          readOnly: true
+          nullable: true
+          description: Required explanation when the request is rejected.
+        product:
+          type: string
+          description: Product the adjustment applies to.
+        variant:
+          type: string
+          nullable: true
+          description: Variant the adjustment applies to, if applicable.
+        batch:
+          type: string
+          nullable: true
+          description: Batch the adjustment applies to, if applicable.
+        warehouse:
+          type: string
+          description: Warehouse the adjustment applies to.
+        requested_by:
+          type: integer
+          readOnly: true
+          nullable: true
+          description: User who raised this request.
+        reviewed_by:
+          type: integer
+          readOnly: true
+          nullable: true
+          description: Admin/Owner who approved or rejected this request.
+      required:
+      - created_at
+      - id
+      - product
+      - rejection_reason
+      - requested_by
+      - requested_quantity_change
+      - reviewed_at
+      - reviewed_by
+      - status
+      - updated_at
+      - warehouse
+    StockAdjustmentRequestStatusEnum:
+      enum:
+      - not_required
+      - pending
+      - approved
+      - rejected
+      type: string
+      description: |-
+        * `not_required` - Not Required
+        * `pending` - Pending Approval
+        * `approved` - Approved
+        * `rejected` - Rejected
+    StockTransfer:
+      type: object
+      properties:
+        product_id:
+          type: string
+        variant_id:
+          type: string
+          nullable: true
+        batch_id:
+          type: string
+          nullable: true
+        source_warehouse_id:
+          type: string
+        destination_warehouse_id:
+          type: string
+        quantity:
+          type: integer
+          minimum: 1
+      required:
+      - destination_warehouse_id
+      - product_id
+      - quantity
+      - source_warehouse_id
+    TaxConfigEnum:
+      enum:
+      - taxable
+      - non_taxable
+      - exempt
+      type: string
+      description: |-
+        * `taxable` - Taxable
+        * `non_taxable` - Non-Taxable
+        * `exempt` - Exempt
+    TokenRefresh:
+      type: object
+      properties:
+        access:
+          type: string
+          readOnly: true
+        refresh:
+          type: string
+          writeOnly: true
+      required:
+      - access
+      - refresh
+    TokenVerify:
+      type: object
+      properties:
+        token:
+          type: string
+          writeOnly: true
+      required:
+      - token
+    UnitNameEnum:
+      enum:
+      - pcs
+      - kg
+      - g
+      - l
+      - ml
+      - box
+      - pack
+      - carton
+      - dozen
+      - m
+      - other
+      type: string
+      description: |-
+        * `pcs` - Piece(s)
+        * `kg` - Kilogram
+        * `g` - Gram
+        * `l` - Litre
+        * `ml` - Millilitre
+        * `box` - Box
+        * `pack` - Pack
+        * `carton` - Carton
+        * `dozen` - Dozen
+        * `m` - Metre
+        * `other` - Other
+    UsernameResetConfirm:
+      type: object
+      properties:
+        new_email:
+          type: string
+          format: email
+          title: Email
+      required:
+      - new_email
+  securitySchemes:
+    jwtAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    tokenAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: Token-based authentication with required prefix "Token"
