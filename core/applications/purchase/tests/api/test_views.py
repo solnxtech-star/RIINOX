@@ -72,13 +72,13 @@ class PurchaseAPITest(APITestCase):
             ]
         }
         
-        # 1. Real user hits the receive endpoint
+        # Real user hits the receive endpoint
         response = self.client.post(url, data, format='json')
         
-        # 2. Verify success
+        # Verify success
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         
-        # 3. Verify backend state updated correctly
+        # Verify backend state updated correctly
         self.purchase_item.refresh_from_db()
         self.assertEqual(self.purchase_item.quantity_received, 50)
         

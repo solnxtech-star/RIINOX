@@ -385,7 +385,11 @@ SPECTACULAR_SETTINGS = {
     "MAP_DJANGO_FIELD_TO_OPENAPI_TYPE": {
         "rest_framework.fields.UUIDField": {"type": "string"},
         "django.db.models.fields.UUIDField": {"type": "string"}
-    }
+    },
+    "POSTPROCESSING_HOOKS": [
+        "drf_spectacular.hooks.postprocess_schema_enums",
+        "core.helper.openapi.remove_uuid_format"
+    ]
 }
 # Your stuff...
 # ------------------------------------------------------------------------------
