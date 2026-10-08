@@ -166,12 +166,23 @@ class BusinessRuleError(Exception):
         self.extra = extra or {}
 
 
+from django.db.models import ProtectedError
+
 def api_exception_handler(exc, context):
     """One error shape for everything: {"code", "detail", ...}."""
     if isinstance(exc, BusinessRuleError):
         return Response(
             {"code": exc.code, "detail": exc.message, **exc.extra},
             status=exc.status_code,
+        )
+
+    if isinstance(exc, ProtectedError):
+        return Response(
+            {
+                "code": "PROTECTED_ERROR", 
+                "detail": "Cannot delete this record because it is referenced by other existing records."
+            },
+            status=status.HTTP_409_CONFLICT,
         )
 
     response = drf_exception_handler(exc, context)

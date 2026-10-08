@@ -57,7 +57,7 @@ class StockAdjustmentViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, mix
             approve_stock_adjustment(pk, request.user)
             return Response({"status": "approved"}, status=status.HTTP_200_OK)
         except ValueError as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"code": "APPROVAL_ERROR", "detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 class StockTransferViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
@@ -91,7 +91,7 @@ class StockTransferViewSet(viewsets.ViewSet):
             )
             return Response({"status": "transfer completed"}, status=status.HTTP_200_OK)
         except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"code": "TRANSFER_ERROR", "detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 @inventory_schema
 class InventoryViewSet(viewsets.ReadOnlyModelViewSet):

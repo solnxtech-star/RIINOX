@@ -27,4 +27,4 @@ class PurchaseViewSet(viewsets.ModelViewSet):
             )
             return Response({"status": "received"}, status=status.HTTP_200_OK)
         except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"code": "RECEIVE_ERROR", "detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
