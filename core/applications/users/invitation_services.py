@@ -11,11 +11,12 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from core.applications.notification import audit
+from core.applications.notification.audit import services as audit
 from core.applications.notification.audit.action import AuditAction
 from core.applications.notification.audit.context import AuditContext
 from core.applications.users.defaults import ADMINISTRATOR_ROLE_SLUG
 from core.applications.users.defaults import OWNER_ROLE_SLUG
+from core.applications.users.email import deliver_invitation_email
 from core.applications.users.errors import InvitationErrorCode as Err
 from core.applications.users.errors import fail
 from core.applications.users.models import Invitation
@@ -145,15 +146,17 @@ def _get_organization_invitation(organization, invitation_id) -> Invitation:
     return invitation
 
 
-def _dispatch_email(invitation_id, raw_token: str) -> None:
-    from core.applications.users.tasks import send_invitation_email  # written in Step 6
+# def _dispatch_email(invitation_id, raw_token: str) -> None:
+#     from core.applications.users.tasks import send_invitation_email  # written in Step 6
 
-    send_invitation_email.delay(str(invitation_id), raw_token)
+#     send_invitation_email.delay(str(invitation_id), raw_token)
 
 
 def _send_after_commit(invitation: Invitation, raw_token: str) -> None:
     # Never email for a transaction that rolled back.
-    transaction.on_commit(partial(_dispatch_email, invitation.pk, raw_token))
+    transaction.on_commit(
+        partial(deliver_invitation_email, invitation, raw_token)
+    )
 
 
 def _retire_expired_pending(organization, email: str, *, actor, now, audit_context) -> None:

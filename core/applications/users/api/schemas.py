@@ -665,104 +665,432 @@ def _errors(*codes: Err):
 
 
 # --------------------------------------------------------------------------- #
+# Shared pieces
+# --------------------------------------------------------------------------- #
+ORGANIZATION_ID_PARAM = OpenApiParameter(
+    name="organization_id",
+    type=OpenApiTypes.UUID,
+    location=OpenApiParameter.PATH,
+    description=(
+        "The organization whose team is being managed. The caller must have an active "
+        "membership in it. It always comes from the URL and is never read from the request body."
+    ),
+)
+
+_AUTH_NOTE = (
+    "**Auth:** requires a valid access token (`401` otherwise). The organization in the URL is "
+    "checked against the caller's active membership: if the caller is not a member, the API "
+    "answers `404` (not `403`), so the existence of other organizations is never revealed."
+)
+
+_STATUS_NOTE = (
+    "**Invitation statuses:** `pending` (sent, waiting), `accepted` (invitee joined), "
+    "`revoked` (cancelled by the team), `expired` (pending but past `expires_at`). "
+    "`expired` is derived from the date, so the frontend needs no date logic: "
+    "just render `status`. Revoked and accepted records are kept for history."
+)
+
+_ROLE_RULES = (
+    "**Role rules:** a role must belong to this organization. **Owner** can never be assigned "
+    "through an invitation. **Administrator** can only be assigned, resent or revoked by the "
+    "Owner. Always populate the role dropdown from `GET .../invitations/roles/`, which already "
+    "applies these rules for the current user."
+)
+
+_VALIDATION_EXAMPLE = OpenApiExample(
+    "Validation error",
+    value={
+        "code": "VALIDATION_ERROR",
+        "detail": "Invalid input.",
+        "errors": {"role": ["Select a valid role for this organization."]},
+    },
+    response_only=True,
+    status_codes=["400"],
+)
+
+# --------------------------------------------------------------------------- #
 # Public side: InvitationViewSet
 # Keys are the viewset's method names.
 # --------------------------------------------------------------------------- #
+_TOKEN_NOTE = (
+    "**Token:** the raw token from the email link (`/accept-invite?token=...`). It is single-use "
+    "and only ever exists in the email and the link. The API stores a hash, so it cannot be "
+    "recovered: if it is lost, the team has to **resend** the invitation, which also kills the old link."
+)
+
+_PUBLIC_ERRORS_NOTE = (
+    "**Errors:** every error body is `{\"code\": \"...\", \"detail\": \"...\"}`. Branch on `code`, "
+    "never on `detail` (the text may change). Field validation errors (`400`) use "
+    "`{\"code\": \"VALIDATION_ERROR\", \"detail\": ..., \"errors\": {\"<field>\": [...]}}`."
+)
+
+_RETRY_AFTER = OpenApiParameter(
+    "Retry-After",
+    OpenApiTypes.INT,
+    OpenApiParameter.HEADER,
+    response=[429],
+    description="Seconds to wait before trying again.",
+)
+
+
+def _coded(description: str, *examples: tuple[str, Err, str]) -> OpenApiResponse:
+    """An error response with one example body per (name, code, detail)."""
+    return OpenApiResponse(
+        ErrorSerializer,
+        description=description,
+        examples=[
+            OpenApiExample(name, value={"code": code.value, "detail": detail}, response_only=True)
+            for name, code, detail in examples
+        ],
+    )
+
+
 INVITATION_SCHEMA = {
+    # ------------------------------------------------------------- validate
     "validate_invite": extend_schema(
         operation_id="invitations_validate",
         tags=PUBLIC_TAGS,
         summary="Preview an invitation",
+        description=(
+            "**Public: no login needed** (`auth=[]`). Call it as soon as the invite page opens, "
+            "to show *who invited you, to which organization and in what role* before the "
+            "invitee signs up or logs in. It changes nothing: the token stays valid.\n\n"
+            f"{_TOKEN_NOTE}\n\n"
+            "**What is returned:** only the display fields needed for the screen: the organization "
+            "name, the role name, the invited email and the expiry. Nothing else about the "
+            "organization or its members is exposed.\n\n"
+            "**How to use the result**\n"
+            "- Show `invited_email` and ask the user to sign up or log in **with that address**: "
+            "accept will fail for any other account.\n"
+            "- Pre-fill the email field on the signup form and make it read-only.\n"
+            "- Show `expires_at` in the user's local time.\n\n"
+            "**Not found vs expired**\n"
+            "- `404 INVITATION_INVALID`: the token is unknown, already used, revoked, or the "
+            "organization is deactivated. The API deliberately does not say which, so the "
+            "message must stay generic. A new invitation is the only recovery.\n"
+            "- `410 INVITATION_EXPIRED`: the invitation was real but is past `expires_at`. "
+            "Tell the user to ask for a new one; the team can resend it.\n\n"
+            "**Rate limit:** per client. On `429` wait for `Retry-After`; never retry in a loop.\n\n"
+            f"{_PUBLIC_ERRORS_NOTE}"
+        ),
+        auth=[],
+        parameters=[
+            OpenApiParameter(
+                name="token",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Invitation token from the email link.",
+            ),
+            _RETRY_AFTER,
+        ],
         responses={
-            200: org_serializers.InvitationPreviewSerializer,
-            404: _errors(Err.INVITATION_INVALID),
-            410: _errors(Err.INVITATION_EXPIRED),
-            429: error_response("Rate limited."),
+            200: OpenApiResponse(
+                response=org_serializers.InvitationPreviewSerializer,
+                description="The invitation is valid and can still be accepted.",
+                examples=[
+                    OpenApiExample(
+                        "Valid invitation",
+                        value={
+                            "organization": "Okafor & Sons Stores",
+                            "role": "Front Desk",
+                            "invited_email": "new.hire@techify.com",
+                            "expires_at": "2026-10-15T08:15:00Z",
+                        },
+                        response_only=True,
+                    )
+                ],
+            ),
+            400: org_serializers.ValidationErrorSerializer,
+            404: _coded(
+                "Unknown, used or revoked token, or deactivated organization.",
+                ("Invalid", Err.INVITATION_INVALID, "This invitation link is not valid."),
+            ),
+            410: _coded(
+                "The invitation has expired.",
+                ("Expired", Err.INVITATION_EXPIRED, "This invitation has expired."),
+            ),
+            429: error_response("Too many requests. See `Retry-After`."),
         },
     ),
+    # --------------------------------------------------------------- accept
     "accept_invite": extend_schema(
         operation_id="invitations_accept",
         tags=PUBLIC_TAGS,
         summary="Accept an invitation",
+        description=(
+            "Turns the invitation into a membership of the organization. This is the step "
+            "that consumes the token.\n\n"
+            "**Auth:** the caller must be **signed in** (`401` otherwise) and their account's "
+            "email must be **verified** and **equal to the invited email**.\n\n"
+            f"{_TOKEN_NOTE}\n\n"
+            "**Workflow**\n"
+            "1. Open the link and call **validate** to render the invite screen.\n"
+            "2. If the user is not signed in, send them to sign up or log in **with the invited "
+            "email**, then to email verification if needed. Keep the token across these redirects "
+            "(in memory or `sessionStorage`).\n"
+            "3. Call this endpoint with the token.\n"
+            "4. On `200`, route the user into the organization.\n\n"
+            "**Body:** `token` (required).\n\n"
+            "**Result:** `200` with the accepted membership/organization details. The membership "
+            "is active immediately and the token can no longer be used.\n\n"
+            "**What to do for each error**\n"
+            "- `401`: not signed in. Send them to login and come back.\n"
+            "- `403 EMAIL_NOT_VERIFIED`: send them to email verification, then back here.\n"
+            "- `403 INVITATION_EMAIL_MISMATCH`: signed in as the wrong account. Say which account "
+            "is active and offer *Log out and switch account*. Never offer to accept anyway.\n"
+            "- `403 USER_LIMIT_REACHED`: the organization has no free seat. The invitee cannot fix "
+            "this; ask them to contact an admin.\n"
+            "- `404 INVITATION_INVALID` / `410 INVITATION_EXPIRED`: same handling as in validate.\n"
+            "- `409 ALREADY_MEMBER`: not a failure for the user. Route them into the organization "
+            "with a soft message.\n"
+            "- `409 MEMBERSHIP_INACTIVE`: they were removed or deactivated earlier. Show that their "
+            "access was deactivated and to contact an admin. Retrying will not help.\n"
+            "- `429`: wait for `Retry-After`.\n\n"
+            "**Double clicks:** disable the button while the request is in flight. A second call "
+            "after a successful first one returns `404 INVITATION_INVALID` or `409 ALREADY_MEMBER`, "
+            "which looks like a failure but is not.\n\n"
+            f"{_PUBLIC_ERRORS_NOTE}"
+        ),
         request=org_serializers.AcceptInvitationSerializer,
+        parameters=[_RETRY_AFTER],
+        examples=[
+            OpenApiExample(
+                "Accept",
+                value={"token": "<token-from-the-email-link>"},
+                request_only=True,
+            ),
+        ],
         responses={
             200: org_serializers.InvitationAcceptedSerializer,
-            403: _errors(
-                Err.EMAIL_NOT_VERIFIED,
-                Err.INVITATION_EMAIL_MISMATCH,
-                Err.USER_LIMIT_REACHED,
+            400: org_serializers.ValidationErrorSerializer,
+            401: _coded(
+                "Not signed in.",
+                ("Not authenticated", Err.NOT_AUTHENTICATED, "Authentication credentials were not provided."),
             ),
-            404: _errors(Err.INVITATION_INVALID),
-            409: _errors(Err.ALREADY_MEMBER, Err.MEMBERSHIP_INACTIVE),
-            410: _errors(Err.INVITATION_EXPIRED),
-            429: error_response("Rate limited."),
+            403: _coded(
+                "The account cannot accept this invitation.",
+                ("Email not verified", Err.EMAIL_NOT_VERIFIED, "Verify your email address first."),
+                ("Wrong account", Err.INVITATION_EMAIL_MISMATCH, "This invitation was sent to a different email."),
+                ("No free seat", Err.USER_LIMIT_REACHED, "This organization has reached its user limit."),
+            ),
+            404: _coded(
+                "Unknown, used or revoked token, or deactivated organization.",
+                ("Invalid", Err.INVITATION_INVALID, "This invitation link is not valid."),
+            ),
+            409: _coded(
+                "The user already has a membership in this organization.",
+                ("Already a member", Err.ALREADY_MEMBER, "You are already a member of this organization."),
+                ("Inactive membership", Err.MEMBERSHIP_INACTIVE, "Your membership is inactive."),
+            ),
+            410: _coded(
+                "The invitation has expired.",
+                ("Expired", Err.INVITATION_EXPIRED, "This invitation has expired."),
+            ),
+            429: error_response("Too many requests. See `Retry-After`."),
         },
     ),
 }
-
 
 # --------------------------------------------------------------------------- #
 # Team side: OrganizationInvitationViewSet
 # --------------------------------------------------------------------------- #
 ORGANIZATION_INVITATION_SCHEMA = {
+    # ----------------------------------------------------------------- list
     "list": extend_schema(
         operation_id="organization_invitations_list",
         tags=TEAM_TAGS,
         summary="List invitations",
-        description="Invitations of this organization. Search by name or email; paginated.",
+        description=(
+            "Invitations of this organization, newest first. Use it to render the team's "
+            "'Pending invitations' table.\n\n"
+            "**Permission:** `VIEW_TEAM`.\n\n"
+            f"{_AUTH_NOTE}\n\n"
+            "**Search:** `?search=` matches the invitee's name or email.\n\n"
+            "**Ordering:** `?ordering=` accepts `created_at`, `expires_at`, `name`, `email`; "
+            "prefix with `-` for descending. Default is `-created_at`.\n\n"
+            "**Pagination:** the response is paginated; follow the pagination links, do not "
+            "assume all invitations are in one page.\n\n"
+            f"{_STATUS_NOTE}\n\n"
+            "**Security:** the invitation token and its hash are never returned."
+        ),
         parameters=[
+            ORGANIZATION_ID_PARAM,
             OpenApiParameter(
                 "status",
                 enum=list(INVITATION_STATUS_FILTERS),
-                description="Filter by invitation status.",
+                description=(
+                    "Optional. Show only invitations in this status. An unknown value "
+                    "returns `400` with the list of accepted values."
+                ),
             ),
         ],
         responses={
             200: org_serializers.InvitationSerializer(many=True),
+            400: org_serializers.ValidationErrorSerializer,
+            401: _errors(Err.NOT_AUTHENTICATED),
+            403: _errors(Err.PERMISSION_DENIED),
             404: _errors(Err.NOT_ORGANIZATION_MEMBER),
         },
     ),
+    # ---------------------------------------------------------------- roles
     "roles": extend_schema(
         operation_id="organization_invitations_roles",
         tags=TEAM_TAGS,
         summary="Roles the caller can assign",
+        description=(
+            "Feeds the **Assign Role** dropdown of the invite form. Call it when the form "
+            "opens and send the chosen `id` as `role` in the create request.\n\n"
+            "**Permission:** `INVITE_TEAM_MEMBER`.\n\n"
+            f"{_AUTH_NOTE}\n\n"
+            "**What is returned depends on who is calling:**\n"
+            "- **Owner** of the organization: every role except Owner.\n"
+            "- **Anyone else with permission to invite:** every role except Owner and "
+            "Administrator.\n\n"
+            "**Important:** role ids are per organization. Each organization has its own "
+            "copy of Manager, Accountant, etc., so ids from one organization are rejected by "
+            "another. Fetch the roles from the same `organization_id` you invite into, and "
+            "refetch when the user switches organization.\n\n"
+            "Not paginated. `is_system` is `true` for the built-in roles (they cannot be "
+            "renamed or deleted); custom roles have `false`."
+        ),
+        parameters=[ORGANIZATION_ID_PARAM],
         responses={
             200: org_serializers.RoleOptionSerializer(many=True),
+            401: _errors(Err.NOT_AUTHENTICATED),
+            403: _errors(Err.PERMISSION_DENIED),
             404: _errors(Err.NOT_ORGANIZATION_MEMBER),
         },
     ),
+    # --------------------------------------------------------------- create
     "create": extend_schema(
         operation_id="organization_invitations_create",
         tags=TEAM_TAGS,
         summary="Invite a team member",
+        description=(
+            "Invites a person by email. The invitee does **not** need an account yet. "
+            "An email with a one-time link is sent after the invitation is saved.\n\n"
+            "**Permission:** `INVITE_TEAM_MEMBER`.\n\n"
+            f"{_AUTH_NOTE}\n\n"
+            "**Body**\n"
+            "- `name` (required, max 255): the invitee's display name. Surrounding spaces "
+            "are trimmed.\n"
+            "- `email` (required): trimmed and lower-cased, so `Ada@X.com` and `ada@x.com` "
+            "are the same person.\n"
+            "- `role` (required): the `id` of a role returned by "
+            "`GET .../invitations/roles/` for **this** organization.\n\n"
+            f"{_ROLE_RULES}\n\n"
+            "**Business rules (checked in this order)**\n"
+            "1. The role must be assignable by the caller (`400` if the id is unknown or "
+            "belongs to another organization, `403` if it is Owner, or Administrator for a "
+            "non-owner).\n"
+            "2. The email must not already belong to a member of this organization "
+            "(`409 ALREADY_MEMBER`, or `409 MEMBERSHIP_INACTIVE` if they were a member whose "
+            "membership is inactive: reactivate them instead of inviting).\n"
+            "3. An **expired** pending invitation for the same email is retired "
+            "automatically and a new one is issued.\n"
+            "4. A still-valid pending invitation for the same email blocks a new one "
+            "(`409 ALREADY_INVITED`): use **resend** instead.\n"
+            "5. The organization must have a free seat (`403 USER_LIMIT_REACHED`). "
+            "Pending invitations count toward the plan's limit as defined by the "
+            "billing rules.\n\n"
+            "**Result:** `201` with the invitation in `pending` status. The token is never "
+            "returned: the invitee only receives it by email.\n\n"
+            "**Frontend tips:** show field errors from `errors.<field>` under the matching "
+            "input; show `detail` for business-rule errors (`403`/`409`) as a banner or toast."
+        ),
+        parameters=[ORGANIZATION_ID_PARAM],
         request=org_serializers.InvitationCreateSerializer,
+        examples=[
+            OpenApiExample(
+                "Invite a manager",
+                value={
+                    "name": "Ada Obi",
+                    "email": "ada@example.com",
+                    "role": "5bd6924d-b40e-433b-baa4-58a954ac032b",
+                },
+                request_only=True,
+            ),
+            _VALIDATION_EXAMPLE,
+        ],
         responses={
             201: org_serializers.InvitationSerializer,
+            400: org_serializers.ValidationErrorSerializer,
+            401: _errors(Err.NOT_AUTHENTICATED),
             403: _errors(Err.PERMISSION_DENIED, Err.ROLE_NOT_ASSIGNABLE, Err.USER_LIMIT_REACHED),
             404: _errors(Err.NOT_ORGANIZATION_MEMBER),
             409: _errors(Err.ALREADY_MEMBER, Err.MEMBERSHIP_INACTIVE, Err.ALREADY_INVITED),
         },
     ),
+    # --------------------------------------------------------------- resend
     "resend": extend_schema(
         operation_id="organization_invitations_resend",
         tags=TEAM_TAGS,
         summary="Resend an invitation",
+        description=(
+            "Issues a **fresh link** for a pending invitation and extends its expiry. "
+            "The previous link stops working immediately. Use it when the invitee lost "
+            "the email or the invitation has expired.\n\n"
+            "**Permission:** `INVITE_TEAM_MEMBER`.\n\n"
+            f"{_AUTH_NOTE}\n\n"
+            "**Body:** none.\n\n"
+            "**Rules**\n"
+            "- Only invitations in `pending` status can be resent (`409` otherwise). "
+            "`accepted` and `revoked` invitations are final: create a new invitation instead.\n"
+            "- Resending is rate limited per invitation: resending too soon returns "
+            "`429 INVITATION_RESEND_TOO_SOON`. Disable the button and show `detail` rather "
+            "than retrying automatically.\n"
+            "- Administrator invitations can only be resent by the Owner "
+            "(`403 ROLE_NOT_ASSIGNABLE`).\n"
+            "- A seat must still be available (`403 USER_LIMIT_REACHED`).\n\n"
+            "**Result:** `200` with the updated invitation (new `last_sent_at` and "
+            "`expires_at`)."
+        ),
+        parameters=[ORGANIZATION_ID_PARAM],
         request=None,
         responses={
             200: org_serializers.InvitationSerializer,
+            401: _errors(Err.NOT_AUTHENTICATED),
             403: _errors(Err.PERMISSION_DENIED, Err.ROLE_NOT_ASSIGNABLE, Err.USER_LIMIT_REACHED),
             404: _errors(Err.NOT_ORGANIZATION_MEMBER, Err.INVITATION_NOT_FOUND),
             409: _errors(Err.INVITATION_NOT_PENDING),
             429: _errors(Err.INVITATION_RESEND_TOO_SOON),
         },
     ),
+    # --------------------------------------------------------------- revoke
     "revoke": extend_schema(
         operation_id="organization_invitations_revoke",
         tags=TEAM_TAGS,
         summary="Revoke an invitation",
+        description=(
+            "Cancels a pending invitation. The link in the email stops working at once. "
+            "The record is **kept** for history and shows as `revoked`: nothing is deleted.\n\n"
+            "**Permission:** `REVOKE_INVITATION` (separate from the permission to invite).\n\n"
+            f"{_AUTH_NOTE}\n\n"
+            "**Body (optional)**\n"
+            "- `reason` (max 500 characters, may be empty): stored in the audit log only; "
+            "it is not shown to the invitee.\n\n"
+            "**Rules**\n"
+            "- Only `pending` invitations can be revoked (`409` otherwise), including ones "
+            "that have already expired by date.\n"
+            "- Administrator invitations can only be revoked by the Owner "
+            "(`403 ROLE_NOT_ASSIGNABLE`).\n"
+            "- After revoking, the same email can be invited again.\n\n"
+            "**Result:** `200` with the invitation in `revoked` status."
+        ),
+        parameters=[ORGANIZATION_ID_PARAM],
         request=org_serializers.InvitationRevokeSerializer,
+        examples=[
+            OpenApiExample(
+                "With a reason",
+                value={"reason": "Invited with the wrong email address."},
+                request_only=True,
+            ),
+        ],
         responses={
             200: org_serializers.InvitationSerializer,
+            400: org_serializers.ValidationErrorSerializer,
+            401: _errors(Err.NOT_AUTHENTICATED),
             403: _errors(Err.PERMISSION_DENIED, Err.ROLE_NOT_ASSIGNABLE),
             404: _errors(Err.NOT_ORGANIZATION_MEMBER, Err.INVITATION_NOT_FOUND),
             409: _errors(Err.INVITATION_NOT_PENDING),
