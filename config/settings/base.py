@@ -364,6 +364,9 @@ REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "EXCEPTION_HANDLER": "core.helper.custom_exceptions.api_exception_handler",
 
+    "DEFAULT_PAGINATION_CLASS": "core.helper.pagination.CustomPagination",
+    "PAGE_SIZE": 10,
+
     "DEFAULT_THROTTLE_RATES": {"invitation_lookup": "30/min", "invitation_accept": "10/min"},
     "NUM_PROXIES": 1,
 
