@@ -277,3 +277,4 @@ core/media/
 .envs/*
 !.envs/.local/
 .agents/
+scratch*

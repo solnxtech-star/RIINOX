@@ -14,7 +14,7 @@ class PurchaseSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 class PurchaseReceiveItemSerializer(serializers.Serializer):
-    item_id = serializers.IntegerField()
+    item_id = serializers.UUIDField()
     quantity_received = serializers.IntegerField(min_value=1)
 
 class PurchaseReceiveSerializer(serializers.Serializer):

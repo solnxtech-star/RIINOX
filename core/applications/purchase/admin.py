@@ -31,6 +31,7 @@ class PurchaseItemInline(admin.TabularInline):
 @admin.register(Purchase)
 class PurchaseAdmin(admin.ModelAdmin):
     list_display = (
+        "id",
         "purchase_number",
         "vendor",
         "warehouse",

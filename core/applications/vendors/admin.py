@@ -8,6 +8,7 @@ from core.applications.vendors.models import Vendor
 @admin.register(Vendor)
 class VendorAdmin(admin.ModelAdmin):
     list_display = (
+        "id",
         "company_name",
         "contact_person",
         "phone",

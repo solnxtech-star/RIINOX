@@ -21,7 +21,23 @@ sale_viewset_schema = extend_schema_view(
     ),
     create=extend_schema(
         summary="Create Sale",
-        description="Create a new sale record along with its line items. Triggers inventory update, ledger entry, and invoicing.",
+        description="""Create a new sale record along with its line items. Triggers inventory update, ledger entry, and invoicing.
+
+What happens in one transaction:
+
+- the `Sale` and multiple `SaleItem` records are created;
+- inventory quantities are deducted automatically across batches using FIFO via the `update_inventory_for_sale` service;
+- an `InventoryLedgerEntry` is logged for every stock movement.
+
+Where the values come from:
+
+- `organization`: GET `/api/organizations/`
+- `customer`: GET `/api/users/customers/`
+- `location`: GET `/api/warehouse/warehouses/`
+- `product` (in items): GET `/api/products/products/`
+- `unit_name` (in items): Optional, must match one of the product's `unit_conversions` or base unit.
+
+`items` must be an array of sale items. `quantity` is multiplied by the unit's `multiplier` behind the scenes.""",
         tags=["Sales"],
         request=SaleCreateSerializer,
         responses={201: OpenApiResponse(response=SaleSerializer, description="Sale created successfully")},
@@ -102,7 +118,21 @@ sale_return_viewset_schema = extend_schema_view(
     ),
     create=extend_schema(
         summary="Create Sale Return",
-        description="Create a new sale return against an original sale, specifying the returned items. This will update inventory and log the return ledger.",
+        description="""Create a new sale return against an original sale, specifying the returned items.
+
+What happens in one transaction:
+
+- the `SaleReturn` and `SaleReturnItem` records are created;
+- returned stock is added back to the `Inventory` pool (if `restock_action="return_to_stock"`) via `update_inventory_for_return`;
+- an `InventoryLedgerEntry` is recorded.
+
+Where the values come from:
+
+- `original_sale`: GET `/api/sales/sales/`
+- `sale_item` (in items): Must be an ID from the original sale's items.
+- `restock_action` (in items): Must be `return_to_stock` or `damage`.
+
+`refund_amount` and `condition` are required fields for the return items.""",
         tags=["Sales"],
         request=SaleReturnCreateSerializer,
         responses={201: OpenApiResponse(response=SaleReturnSerializer, description="Sale return created successfully")},

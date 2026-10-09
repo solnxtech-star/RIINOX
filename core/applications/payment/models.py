@@ -218,3 +218,69 @@ class Refund(TimeBasedModel):
 
     def __str__(self):
         return f"Refund {self.amount} for {self.payment.reference}"
+
+
+class PurchasePayment(TimeBasedModel):
+    """
+    Records a payment made towards a purchase order (supplier payment).
+    """
+
+    receipt_number = models.CharField(
+        _("Receipt Number"),
+        max_length=20,
+        unique=True,
+        editable=False,
+        db_index=True,
+    )
+    purchase = auto_prefetch.ForeignKey(
+        "purchase.Purchase",
+        on_delete=models.CASCADE,
+        related_name="payments",
+    )
+    payment = auto_prefetch.ForeignKey(
+        "payment.Payment",
+        on_delete=models.CASCADE,
+        related_name="purchase_payments",
+    )
+    recorded_by = auto_prefetch.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="recorded_purchase_payments",
+    )
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    balance_after = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        help_text=_("Remaining balance on the purchase order immediately after this payment."),
+    )
+    supporting_document = models.FileField(
+        upload_to=MediaHelper.get_image_upload_path,
+        blank=True,
+        null=True,
+        help_text=_("Receipt or proof of payment from the supplier."),
+    )
+    is_voided = models.BooleanField(default=False)
+    voided_by = auto_prefetch.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="voided_purchase_payments",
+        limit_choices_to={"memberships__role__slug": "admin"},
+    )
+    voided_at = models.DateTimeField(null=True, blank=True)
+    received_on = models.DateTimeField(auto_now_add=True)
+
+    class Meta(auto_prefetch.Model.Meta):
+        verbose_name = _("Purchase Payment")
+        verbose_name_plural = _("Purchase Payments")
+
+    def __str__(self):
+        return f"Payment for Purchase {self.purchase.purchase_number} - {self.amount}"
+
+    def save(self, *args, **kwargs):
+        if not self.receipt_number:
+            self.receipt_number = ReceiptSequenceCounter.next_receipt_number()
+        super().save(*args, **kwargs)

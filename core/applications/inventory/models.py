@@ -61,7 +61,7 @@ class Inventory(TimeBasedModel):
         related_name="inventory_records",
         help_text=_("Specific shelf/rack this stock is placed at, if tracked."),
     )
-    quantity = models.PositiveIntegerField(
+    quantity = models.IntegerField(
         default=0,
         editable=False,
         help_text=_("Current on-hand quantity. System-maintained — see InventoryLedgerEntry."),
@@ -174,8 +174,23 @@ class StockAdjustmentRequest(TimeBasedModel):
     requested_quantity_change = models.IntegerField(
         help_text=_("Signed: positive to add stock, negative to remove."),
     )
-    reason = models.TextField(
-        help_text=_("Why this adjustment is being requested."),
+    requested_unit = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        help_text=_("The unit selected by the user in the UI (e.g. 'Bottle')."),
+    )
+    adjustment_reason = models.CharField(
+        max_length=20,
+        choices=VarianceReasonChoices.choices,
+        blank=True,
+        null=True,
+        help_text=_("Standardized reason for this adjustment."),
+    )
+    notes = models.TextField(
+        blank=True,
+        null=True,
+        help_text=_("Optional note for this adjustment."),
     )
     requested_by = auto_prefetch.ForeignKey(
         settings.AUTH_USER_MODEL,

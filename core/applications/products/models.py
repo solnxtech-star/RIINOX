@@ -174,6 +174,10 @@ class Product(TimeBasedModel):
         default=True,
         help_text=_("Whether to enforce inventory ledger tracking for this product."),
     )
+    track_batches = models.BooleanField(
+        default=False,
+        help_text=_("Whether to enforce batch tracking requirements for this product."),
+    )
     @property
     def primary_image_url(self):
         primary_image = self.images.filter(is_primary=True).first()
@@ -208,6 +212,13 @@ class Product(TimeBasedModel):
     minimum_stock_level = models.PositiveIntegerField(
         default=0,
         help_text=_("Triggers LOW_STOCK notifications when on-hand quantity reaches this."),
+    )
+    low_stock_alert_unit = models.CharField(
+        max_length=50,
+        choices=UnitOfMeasureChoices.choices,
+        blank=True,
+        null=True,
+        help_text=_("The unit for the low stock alert (e.g. 'carton'). If not set, defaults to base unit."),
     )
     opening_stock = models.PositiveIntegerField(
         default=0,
@@ -381,8 +392,9 @@ class ProductUnitConversion(TimeBasedModel):
         Product, on_delete=models.CASCADE, related_name="unit_conversions"
     )
     unit_name = models.CharField(
-        max_length=50,
-        help_text=_("Name of the alternative unit, e.g. 'Carton'.")
+        max_length=10,
+        choices=UnitOfMeasureChoices.choices,
+        help_text=_("Name of the alternative unit, e.g. 'carton'.")
     )
     multiplier = models.DecimalField(
         max_digits=10, decimal_places=3,

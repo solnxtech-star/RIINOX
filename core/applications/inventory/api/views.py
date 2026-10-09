@@ -1,6 +1,7 @@
 from rest_framework import viewsets, mixins, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiResponse
 from core.applications.inventory.models import StockAdjustmentRequest, Inventory, InventoryLedgerEntry
 from core.applications.products.models import Product, ProductVariant, ProductBatch
@@ -9,7 +10,7 @@ from core.applications.inventory.api.serializers import (
     StockAdjustmentRequestSerializer, StockTransferSerializer, 
     InventorySerializer, InventoryLedgerEntrySerializer
 )
-from core.applications.inventory.services import request_stock_adjustment, approve_stock_adjustment, transfer_stock
+from core.applications.inventory.services import request_stock_adjustment, approve_stock_adjustment, single_transfer_stock
 from core.applications.inventory.api.schemas import (
     stock_adjustment_create_example, stock_transfer_example,
     inventory_schema, ledger_entry_schema
@@ -26,6 +27,7 @@ from core.applications.inventory.api.schemas import (
 class StockAdjustmentViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     queryset = StockAdjustmentRequest.objects.all()
     serializer_class = StockAdjustmentRequestSerializer
+    permission_classes = [IsAuthenticated]
 
     def create(self, request, *args, **kwargs):
         # Instead of directly creating, use the service layer
@@ -38,7 +40,9 @@ class StockAdjustmentViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, mix
             batch=serializer.validated_data.get('batch'),
             warehouse=serializer.validated_data['warehouse'],
             quantity_change=serializer.validated_data['requested_quantity_change'],
-            reason=serializer.validated_data['reason'],
+            adjustment_reason=serializer.validated_data.get('adjustment_reason'),
+            notes=serializer.validated_data.get('notes'),
+            requested_unit=serializer.validated_data.get('requested_unit'),
             user=request.user
         )
         return Response(StockAdjustmentRequestSerializer(adj).data, status=status.HTTP_201_CREATED)
@@ -53,9 +57,10 @@ class StockAdjustmentViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, mix
             approve_stock_adjustment(pk, request.user)
             return Response({"status": "approved"}, status=status.HTTP_200_OK)
         except ValueError as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"code": "APPROVAL_ERROR", "detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 class StockTransferViewSet(viewsets.ViewSet):
+    permission_classes = [IsAuthenticated]
     @extend_schema(
         tags=['Inventory'],
         request=StockTransferSerializer,
@@ -75,9 +80,9 @@ class StockTransferViewSet(viewsets.ViewSet):
             source_wh = Warehouse.objects.get(id=data['source_warehouse_id'])
             dest_wh = Warehouse.objects.get(id=data['destination_warehouse_id'])
 
-            transfer_stock(
-                source_wh=source_wh,
-                dest_wh=dest_wh,
+            single_transfer_stock(
+                source_warehouse=source_wh,
+                destination_warehouse=dest_wh,
                 product=product,
                 variant=variant,
                 batch=batch,
@@ -86,14 +91,16 @@ class StockTransferViewSet(viewsets.ViewSet):
             )
             return Response({"status": "transfer completed"}, status=status.HTTP_200_OK)
         except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"code": "TRANSFER_ERROR", "detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 @inventory_schema
 class InventoryViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Inventory.objects.select_related('product', 'variant', 'batch', 'warehouse').all()
     serializer_class = InventorySerializer
+    permission_classes = [IsAuthenticated]
 
 @ledger_entry_schema
 class InventoryLedgerEntryViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = InventoryLedgerEntry.objects.select_related('transaction', 'product', 'variant', 'batch', 'warehouse').all()
     serializer_class = InventoryLedgerEntrySerializer
+    permission_classes = [IsAuthenticated]

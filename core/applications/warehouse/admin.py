@@ -13,7 +13,7 @@ class StockLocationInline(admin.TabularInline):
 
 @admin.register(Warehouse)
 class WarehouseAdmin(admin.ModelAdmin):
-    list_display = ("name", "code", "organization", "manager", "is_active", "location_count")
+    list_display = ("id", "name", "code", "organization", "manager", "is_active", "location_count")
     list_filter = ("organization", "is_active")
     search_fields = ("name", "code", "address")
     list_select_related = ("organization", "manager")
@@ -27,7 +27,7 @@ class WarehouseAdmin(admin.ModelAdmin):
 
 @admin.register(StockLocation)
 class StockLocationAdmin(admin.ModelAdmin):
-    list_display = ("name", "warehouse", "is_active", "stocked_product_count")
+    list_display = ("id", "name", "warehouse", "is_active", "stocked_product_count")
     list_filter = ("warehouse", "is_active")
     search_fields = ("name", "description", "warehouse__name", "warehouse__code")
     list_select_related = ("warehouse",)
