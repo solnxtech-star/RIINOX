@@ -25,6 +25,7 @@ class AuditAction:
     # Purchase Events
     PURCHASE_ORDER_CREATED = "purchase_order.created"
     PURCHASE_ORDER_APPROVED = "purchase_order.approved"
+    PURCHASE_ORDER_UPDATED = "purchase_order.updated"
     PURCHASE_ORDER_RECEIVED = "purchase_order.received"
     
     # Sales Events

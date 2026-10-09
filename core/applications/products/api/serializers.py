@@ -1,6 +1,5 @@
 from rest_framework import serializers
 from core.applications.products.models import Product, ProductBatch, ProductBulkDiscount, ProductUnitConversion
-from core.applications.inventory.services import create_opening_stock
 from core.applications.warehouse.models import Warehouse
 
 class ProductBatchSerializer(serializers.ModelSerializer):
@@ -63,35 +62,29 @@ class ProductCreateSerializer(serializers.ModelSerializer):
         read_only_fields = ['status']
 
     def create(self, validated_data):
+        from core.applications.products.services import create_product
+
         quantity_in_stock = validated_data.pop('quantity_in_stock', 0)
         warehouse = validated_data.pop('warehouse_id', None)
         batches_data = validated_data.pop('batches', [])
         discounts_data = validated_data.pop('bulk_discounts', [])
         units_data = validated_data.pop('unit_conversions', [])
 
-        product = super().create(validated_data)
+        organization = validated_data.pop('organization')
+        created_by = validated_data.pop('created_by', None)
+        if created_by is None and 'request' in self.context:
+            created_by = self.context['request'].user
 
-        # Nested creation
-        for batch in batches_data:
-            ProductBatch.objects.create(product=product, **batch)
-        for discount in discounts_data:
-            ProductBulkDiscount.objects.create(product=product, **discount)
-        for unit in units_data:
-            ProductUnitConversion.objects.create(product=product, **unit)
-
-        # Trigger Opening Stock Service
-        if quantity_in_stock > 0 and warehouse:
-            user = self.context['request'].user
-            create_opening_stock(
-                product=product,
-                variant=None,
-                batch=None,
-                warehouse=warehouse,
-                quantity=quantity_in_stock,
-                user=user
-            )
-
-        return product
+        return create_product(
+            organization=organization,
+            created_by=created_by,
+            quantity_in_stock=quantity_in_stock,
+            warehouse=warehouse,
+            batches=batches_data,
+            bulk_discounts=discounts_data,
+            unit_conversions=units_data,
+            **validated_data,
+        )
 
     def update(self, instance, validated_data):
         # Discard opening stock fields as they are only relevant on creation

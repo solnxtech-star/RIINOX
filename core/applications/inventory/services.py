@@ -12,13 +12,15 @@ from core.helper.enums import (
     RestockActionChoices,
     ApprovalStatusChoices,
     UsersRole,
-    PhysicalCountStatusChoices
+    PhysicalCountStatusChoices,
+    PurchaseStatusChoices,
 )
 
 from django.db.models import F
 
 from rest_framework.exceptions import ValidationError
 from core.applications.inventory.models import PhysicalStockCount
+from core.applications.subscriptions.services import ensure_subscription_active
 
 @transaction.atomic
 def process_sale_inventory_and_ledger(sale):
@@ -203,6 +205,7 @@ def request_stock_adjustment(product, variant, batch, warehouse, quantity_change
     """
     Creates a StockAdjustmentRequest. Auto-approves if the user is an Admin/Owner.
     """
+    ensure_subscription_active(product.organization)
     adjustment = StockAdjustmentRequest.objects.create(
         product=product,
         variant=variant,
@@ -389,11 +392,17 @@ def bulk_transfer_stock(source_warehouse, destination_warehouse, items, user, no
 @transaction.atomic
 def receive_purchase_order(purchase, items_received, user):
     """
-    Updates PurchaseItem.quantity_received and creates Ledger Entries.
-    `items_received` is a list of dicts: [{'item_id': 1, 'quantity_received': 50}]
+    Updates PurchaseItem.quantity_received, creates Ledger Entries, and updates inventory stock.
+    Transitions purchase status to partially_received or received.
+    `items_received` is a list of dicts: [{'item_id': UUID, 'quantity_received': int}]
     """
+    ensure_subscription_active(purchase.organization)
+
+    if purchase.status == PurchaseStatusChoices.CANCELLED:
+        raise ValidationError("Cannot receive goods against a cancelled purchase order.")
+
     transaction_record = create_transaction(TransactionData(
-        transaction_id=f"RECV-{purchase.id}-{user.id}"[:50],
+        transaction_id=f"RECV-{str(purchase.id)[:8]}-{uuid.uuid4().hex[:8].upper()}",
         organization=purchase.organization,
         transaction_type=TransactionTypeChoices.PURCHASE if hasattr(TransactionTypeChoices, 'PURCHASE') else 'PURCHASE',
         status=TransactionStatusChoices.COMPLETED,
@@ -407,34 +416,55 @@ def receive_purchase_order(purchase, items_received, user):
         item = purchase.items.get(id=received_item_data['item_id'])
         received_quantity = received_item_data['quantity_received']
 
+        if received_quantity <= 0:
+            raise ValidationError(f"Received quantity must be greater than zero for '{item.product.name}'.")
+
+        if item.quantity_received + received_quantity > item.quantity_ordered:
+            raise ValidationError(
+                f"Cannot receive {received_quantity} units of '{item.product.name}'. "
+                f"Already received {item.quantity_received} of {item.quantity_ordered} ordered."
+            )
+
         item.quantity_received += received_quantity
         item.save(update_fields=['quantity_received'])
 
         entries.append(InventoryLedgerEntry(
             transaction=transaction_record,
             product=item.product,
-            variant=None, # Update if PO supports variants
-            batch=None,   # Update if PO supports batches
+            variant=item.variant,
+            batch=None,
             warehouse=purchase.warehouse,
             quantity_moved=received_quantity,
             unit_cost=item.purchase_cost
         ))
         
         inventory, _ = Inventory.objects.get_or_create(
-            product=item.product, variant=None, batch=None, warehouse=purchase.warehouse
+            product=item.product, variant=item.variant, batch=None, warehouse=purchase.warehouse
         )
         inventory.quantity += received_quantity
         inventory.save(update_fields=['quantity'])
         
     InventoryLedgerEntry.objects.bulk_create(entries)
 
+    # Transition purchase status and update received_by
+    purchase.refresh_from_db()
+    all_items = list(purchase.items.all())
+    if all_items and all(it.quantity_received >= it.quantity_ordered for it in all_items):
+        purchase.status = PurchaseStatusChoices.RECEIVED
+    elif any(it.quantity_received > 0 for it in all_items):
+        purchase.status = PurchaseStatusChoices.PARTIALLY_RECEIVED
+
+    purchase.received_by = user
+    purchase.save(update_fields=['status', 'received_by'])
+
     audit_record(
         action=AuditAction.PURCHASE_ORDER_RECEIVED,
         organization=purchase.organization,
         actor=user,
         resource=purchase,
-        metadata={"items_received": len(items_received)}
+        metadata={"items_received": len(items_received), "status": purchase.status}
     )
+    return purchase
 
 @transaction.atomic
 def finalize_physical_stock_count(count_id, admin_user):

@@ -12,6 +12,16 @@ class OrganizationFactory(DjangoModelFactory):
     name = factory.Faker('company')
     email = factory.Faker('email')
 
+    @factory.post_generation
+    def subscription(self, create, extracted, **kwargs):
+        if not create:
+            return
+        from core.applications.subscriptions.models import Subscription
+        if not Subscription.objects.filter(organization=self).exists():
+            from core.applications.subscriptions.services import start_subscription
+            start_subscription(self)
+
+
 class WarehouseFactory(DjangoModelFactory):
     class Meta:
         model = Warehouse
