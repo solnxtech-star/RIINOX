@@ -187,6 +187,17 @@ def api_exception_handler(exc, context):
 
     response = drf_exception_handler(exc, context)
     if response is None:
+        from django.conf import settings
+        if settings.DEBUG:
+            import traceback
+            return Response(
+                {
+                    "code": "INTERNAL_SERVER_ERROR",
+                    "detail": str(exc),
+                    "traceback": traceback.format_exc()
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
         return None
 
     if isinstance(exc, ValidationError):

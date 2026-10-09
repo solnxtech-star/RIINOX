@@ -37,16 +37,16 @@ class ProductViewSet(viewsets.ModelViewSet):
         old_instance = self.get_object()
         old_data = {
             "name": old_instance.name,
-            "category_id": old_instance.category_id,
+            "category_id": str(old_instance.category_id) if old_instance.category_id else None,
             "status": old_instance.status,
-            "customer_sale_price": str(old_instance.customer_sale_price)
+            "customer_sale_price": str(old_instance.customer_sale_price) if old_instance.customer_sale_price is not None else None
         }
         product = serializer.save()
         new_data = {
             "name": product.name,
-            "category_id": product.category_id,
+            "category_id": str(product.category_id) if product.category_id else None,
             "status": product.status,
-            "customer_sale_price": str(product.customer_sale_price)
+            "customer_sale_price": str(product.customer_sale_price) if product.customer_sale_price is not None else None
         }
         audit_record(
             action=AuditAction.PRODUCT_UPDATED,
@@ -72,7 +72,7 @@ class ProductViewSet(viewsets.ModelViewSet):
             
             audit_record(
                 action=AuditAction.PRODUCT_ARCHIVED,
-                organization=request.user.organization,
+                organization=instance.organization,
                 actor=request.user,
                 resource=instance,
                 context=context,
