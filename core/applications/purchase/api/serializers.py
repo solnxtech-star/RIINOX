@@ -72,7 +72,7 @@ class PurchaseCreateSerializer(serializers.ModelSerializer):
         with transaction.atomic():
             instance = super().update(instance, validated_data)
             if items_data is not None:
-               update if instance.items.filter(quantity_received__gt=0).exists():
+                if instance.items.filter(quantity_received__gt=0).exists():
                     raise serializers.ValidationError(
                         "Cannot modify line items on a purchase order that has already received goods."
                     )
