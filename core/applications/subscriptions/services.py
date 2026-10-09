@@ -22,7 +22,9 @@ __all__ = [
     "DEFAULT_PLAN_NAME",
     "GOOD_STANDING",
     "PLAN_LIMIT_FIELDS",
+    "check_plan_limit",
     "effective_status",
+    "ensure_subscription_active",
     "get_default_plan",
     "get_plan_limit",
     "get_subscription",
@@ -162,3 +164,41 @@ def get_plan_limit(organization: Organization, limit_field: str) -> int | None:
         raise fail(Err.SUBSCRIPTION_REQUIRED)
 
     return getattr(subscription.plan, limit_field) or None
+
+
+def check_plan_limit(
+    organization: Organization,
+    limit_field: str,
+    current_count: int,
+    increment: int = 1,
+) -> None:
+    """
+    Assert that adding `increment` to `current_count` does not violate `limit_field`.
+    If limit is None (unlimited), passes.
+    Raises BusinessRuleError (PLAN_LIMIT_REACHED) if limit would be exceeded.
+    """
+    limit = get_plan_limit(organization, limit_field)
+    if limit is not None and (current_count + increment - 1) >= limit:
+        friendly = limit_field.replace("max_", "").replace("_", " ")
+        raise fail(
+            Err.PLAN_LIMIT_REACHED,
+            message=f"Your plan allows up to {limit} {friendly}. Upgrade your plan to add more.",
+            limit_field=limit_field,
+            limit=limit,
+            current=current_count,
+        )
+
+
+def ensure_subscription_active(organization: Organization) -> None:
+    """
+    Asserts that the organization has an active or trialing subscription.
+    """
+    subscription = get_subscription(organization)
+    if subscription is None:
+        raise fail(Err.SUBSCRIPTION_REQUIRED)
+    if not is_in_good_standing(subscription):
+        raise fail(
+            Err.SUBSCRIPTION_REQUIRED,
+            message="Your subscription is expired or inactive. Please renew or upgrade to continue.",
+        )
+
