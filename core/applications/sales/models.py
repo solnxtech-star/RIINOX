@@ -13,8 +13,16 @@ from core.helper.enums import (
     RestockActionChoices,
     UnitOfMeasureChoices,
 )
+from core.applications.sales.queryset import (
+    SaleQuerySet,
+    SaleItemQuerySet,
+    SaleReturnQuerySet,
+    SaleReturnItemQuerySet,
+)
 
 class Sale(TimeBasedModel):
+    objects = SaleQuerySet.as_manager()
+
     sale_id = models.CharField(max_length=50, unique=True, db_index=True)
     organization = auto_prefetch.ForeignKey(
         "users.Organization", on_delete=models.CASCADE, related_name="sales"
@@ -56,6 +64,8 @@ class Sale(TimeBasedModel):
         return f"Sale {self.sale_id}"
 
 class SaleItem(TimeBasedModel):
+    objects = SaleItemQuerySet.as_manager()
+
     sale = auto_prefetch.ForeignKey(Sale, on_delete=models.CASCADE, related_name="items")
     product = auto_prefetch.ForeignKey("products.Product", on_delete=models.PROTECT, related_name="sale_items")
     variant = auto_prefetch.ForeignKey("products.ProductVariant", on_delete=models.SET_NULL, null=True, blank=True)
@@ -91,6 +101,8 @@ class SaleItem(TimeBasedModel):
         return (self.quantity * self.unit_price) - self.discount + self.tax
 
 class SaleReturn(TimeBasedModel):
+    objects = SaleReturnQuerySet.as_manager()
+
     original_sale = auto_prefetch.ForeignKey(Sale, on_delete=models.CASCADE, related_name="returns")
     organization = auto_prefetch.ForeignKey("users.Organization", on_delete=models.CASCADE)
     return_reason = models.TextField()
@@ -108,6 +120,8 @@ class SaleReturn(TimeBasedModel):
 
 
 class SaleReturnItem(TimeBasedModel):
+    objects = SaleReturnItemQuerySet.as_manager()
+
     sale_return = auto_prefetch.ForeignKey(SaleReturn, on_delete=models.CASCADE, related_name="items")
     sale_item = auto_prefetch.ForeignKey(SaleItem, on_delete=models.PROTECT, related_name="return_items")
     quantity = models.PositiveIntegerField(default=1)

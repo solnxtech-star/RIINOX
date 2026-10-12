@@ -4,8 +4,8 @@ from rest_framework.routers import DefaultRouter, SimpleRouter
 from core.applications.sales.api.views import SaleViewSet, SaleReturnViewSet
 
 router = DefaultRouter() if settings.DEBUG else SimpleRouter()
-router.register(r"sales", SaleViewSet, basename="sales")
 router.register(r"sales/returns", SaleReturnViewSet, basename="sales-returns")
+router.register(r"sales", SaleViewSet, basename="sales")
 
 app_name = "sales"
 urlpatterns = router.urls
