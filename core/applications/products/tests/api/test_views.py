@@ -3,10 +3,12 @@ from decimal import Decimal
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
-from core.applications.products.models import Product, ProductBatch
+from django.core.exceptions import ValidationError
+from core.applications.products.models import Brand, Category, Product, ProductBatch
 from core.applications.users.models import Membership
 from core.applications.users.services import seed_default_roles
 from core.applications.inventory.tests.factories import OrganizationFactory, UserFactory
+from core.applications.warehouse.models import Warehouse
 
 EXPECTED_PRODUCT_FIELDS = [
     'id', 'visible', 'created_at', 'updated_at', 'name', 'sku', 'barcode',
@@ -327,3 +329,123 @@ class ProductAPITest(APITestCase):
         self.assertIn("name", errors)
         self.assertIn("sku", errors)
         self.assertIn("organization", errors)
+
+    # -------------------------------------------------------------------------
+    # Cross-Tenant Category, Brand & Warehouse Validation Tests
+    # -------------------------------------------------------------------------
+    def test_cannot_create_product_with_other_org_category(self):
+        """Cannot assign a Category belonging to another organization -> 400 Bad Request."""
+        other_cat = Category.objects.create(organization=self.other_org, name="Foreign Category")
+        response = self.client.post("/api/products/", {
+            "organization": str(self.org.id),
+            "name": "Invalid Category Product",
+            "sku": f"SKU-{uuid.uuid4().hex[:6]}",
+            "customer_sale_price": "20.00",
+            "category": str(other_cat.id),
+        }, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        errors = response.data.get("errors", response.data)
+        self.assertIn("category", errors)
+        self.assertIn("different organization", str(errors["category"]))
+
+    def test_cannot_create_product_with_other_org_brand(self):
+        """Cannot assign a Brand belonging to another organization -> 400 Bad Request."""
+        other_brand = Brand.objects.create(organization=self.other_org, name="Foreign Brand")
+        response = self.client.post("/api/products/", {
+            "organization": str(self.org.id),
+            "name": "Invalid Brand Product",
+            "sku": f"SKU-{uuid.uuid4().hex[:6]}",
+            "customer_sale_price": "20.00",
+            "brand": str(other_brand.id),
+        }, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        errors = response.data.get("errors", response.data)
+        self.assertIn("brand", errors)
+        self.assertIn("different organization", str(errors["brand"]))
+
+    def test_cannot_create_product_with_other_org_warehouse(self):
+        """Cannot specify opening stock in another organization's Warehouse -> 400 Bad Request."""
+        other_warehouse = Warehouse.objects.create(
+            organization=self.other_org,
+            name="Foreign Warehouse",
+            code=f"WH-{uuid.uuid4().hex[:4]}",
+        )
+        response = self.client.post("/api/products/", {
+            "organization": str(self.org.id),
+            "name": "Invalid Warehouse Product",
+            "sku": f"SKU-{uuid.uuid4().hex[:6]}",
+            "customer_sale_price": "20.00",
+            "warehouse_id": str(other_warehouse.id),
+            "quantity_in_stock": 5,
+        }, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        errors = response.data.get("errors", response.data)
+        self.assertIn("warehouse_id", errors)
+        self.assertIn("different organization", str(errors["warehouse_id"]))
+
+    def test_can_create_product_with_own_org_category_and_brand(self):
+        """Can assign Category and Brand belonging to the same organization -> 201 Created."""
+        cat = Category.objects.create(organization=self.org, name="My Org Category")
+        brand = Brand.objects.create(organization=self.org, name="My Org Brand")
+        sku = f"SKU-{uuid.uuid4().hex[:6]}"
+        response = self.client.post("/api/products/", {
+            "organization": str(self.org.id),
+            "name": "Valid Scoped Product",
+            "sku": sku,
+            "customer_sale_price": "25.00",
+            "category": str(cat.id),
+            "brand": str(brand.id),
+        }, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        product = Product.objects.get(sku=sku)
+        self.assertEqual(product.category_id, uuid.UUID(str(cat.id)))
+        self.assertEqual(product.brand_id, uuid.UUID(str(brand.id)))
+
+    def test_cannot_update_product_with_other_org_category_or_brand(self):
+        """Cannot patch an existing product with another organization's Category or Brand -> 400 Bad Request."""
+        other_cat = Category.objects.create(organization=self.other_org, name="Foreign Cat 2")
+        patch_resp = self.client.patch(
+            f"/api/products/{self.product.id}/",
+            {"category": str(other_cat.id)},
+            format="json",
+        )
+        self.assertEqual(patch_resp.status_code, status.HTTP_400_BAD_REQUEST)
+        errors = patch_resp.data.get("errors", patch_resp.data)
+        self.assertIn("category", errors)
+
+        other_brand = Brand.objects.create(organization=self.other_org, name="Foreign Brand 2")
+        patch_resp = self.client.patch(
+            f"/api/products/{self.product.id}/",
+            {"brand": str(other_brand.id)},
+            format="json",
+        )
+        self.assertEqual(patch_resp.status_code, status.HTTP_400_BAD_REQUEST)
+        errors = patch_resp.data.get("errors", patch_resp.data)
+        self.assertIn("brand", errors)
+
+
+    def test_model_clean_enforces_category_and_brand_tenant_scope(self):
+        """Model-level clean() directly raises ValidationError for foreign Category or Brand."""
+        other_cat = Category.objects.create(organization=self.other_org, name="Foreign Clean Cat")
+        other_brand = Brand.objects.create(organization=self.other_org, name="Foreign Clean Brand")
+
+        prod_invalid_cat = Product(
+            organization=self.org,
+            name="Model Clean Cat Test",
+            sku=f"SKU-{uuid.uuid4().hex[:6]}",
+            category=other_cat,
+        )
+        with self.assertRaises(ValidationError) as cm:
+            prod_invalid_cat.clean()
+        self.assertIn("category", cm.exception.message_dict)
+
+        prod_invalid_brand = Product(
+            organization=self.org,
+            name="Model Clean Brand Test",
+            sku=f"SKU-{uuid.uuid4().hex[:6]}",
+            brand=other_brand,
+        )
+        with self.assertRaises(ValidationError) as cm:
+            prod_invalid_brand.clean()
+        self.assertIn("brand", cm.exception.message_dict)
+

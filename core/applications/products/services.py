@@ -14,6 +14,7 @@ from core.applications.subscriptions.services import (
     check_plan_limit,
     ensure_subscription_active,
 )
+
 from core.helper.enums import ProductStatusChoices
 
 if TYPE_CHECKING:
@@ -69,11 +70,27 @@ def create_product(
         if not has_org_permission(created_by, organization, PermissionCode.EDIT_PRODUCT_COSTS):
             raise PermissionDenied("You do not have permission to set product costs.")
 
-    product = Product.objects.create(
+    category = product_fields.get("category")
+    if category and getattr(category, "organization_id", None) != organization.id:
+        from django.core.exceptions import ValidationError
+        raise ValidationError({"category": "Selected category belongs to a different organization."})
+
+    brand = product_fields.get("brand")
+    if brand and getattr(brand, "organization_id", None) != organization.id:
+        from django.core.exceptions import ValidationError
+        raise ValidationError({"brand": "Selected brand belongs to a different organization."})
+
+    if warehouse and getattr(warehouse, "organization_id", None) != organization.id:
+        from django.core.exceptions import ValidationError
+        raise ValidationError({"warehouse": "Selected warehouse belongs to a different organization."})
+
+    product = Product(
         organization=organization,
         created_by=created_by,
         **product_fields,
     )
+    product.clean()
+    product.save()
 
     if batches:
         for batch_data in batches:
