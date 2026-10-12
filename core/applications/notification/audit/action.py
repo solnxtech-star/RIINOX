@@ -11,7 +11,10 @@ class AuditAction:
     MEMBERSHIP_DEACTIVATED = "membership.deactivated"
     MEMBERSHIP_REACTIVATED = "membership.reactivated"
     ROLE_PERMISSIONS_CHANGED = "role.permissions_changed"
-    
+    INVOICE_VOIDED = "invoice.voided"
+    INVOICE_CONFIRMED = "invoice.confirmed"
+    INVOICE_CREATED = "invoice.created"
+
     # Product Events
     PRODUCT_CREATED = "product.created"
     PRODUCT_UPDATED = "product.updated"
@@ -27,7 +30,7 @@ class AuditAction:
     PURCHASE_ORDER_APPROVED = "purchase_order.approved"
     PURCHASE_ORDER_UPDATED = "purchase_order.updated"
     PURCHASE_ORDER_RECEIVED = "purchase_order.received"
-    
+
     # Sales Events
     SALES_ORDER_CREATED = "sales_order.created"
     SALES_ORDER_FULFILLED = "sales_order.fulfilled"

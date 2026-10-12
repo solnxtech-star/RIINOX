@@ -10,7 +10,9 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db import transaction
 from django.utils import timezone
 
-from core.applications.invoice.services.invoices import provision_organization_documents
+from core.applications.invoice.services.documents import (
+    provision_organization_documents,
+)
 from core.applications.notification.audit import services as audit
 from core.applications.notification.audit.action import AuditAction
 from core.applications.notification.audit.context import AuditContext

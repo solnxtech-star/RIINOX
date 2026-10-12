@@ -26,7 +26,7 @@ InvitationSentSerializer = inline_serializer(
     name="InvitationSent",
     fields={
         "detail": serializers.CharField(),
-        "id": serializers.ModelField(model_field=Membership._meta.pk, read_only=True),
+        "id": serializers.ReadOnlyField(source="pk"),
     },
 )
 

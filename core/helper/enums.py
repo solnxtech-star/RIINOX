@@ -19,6 +19,8 @@ class InvoiceStatusChoices(TextChoices):
     CANCELLED = "cancelled", _("Cancelled")
     SENT = "sent", _("Sent")
     DRAFT = "draft", _("Draft")
+    CONFIRMED = "confirmed", _("Confirmed")
+    PARTIALLY_PAID = "partially_paid", _("Partially Paid")
 
 
 class NotificationTypeChoices(TextChoices):
