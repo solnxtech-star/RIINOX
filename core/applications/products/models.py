@@ -5,6 +5,12 @@ from django.db import models
 from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
 
+from core.applications.products.queryset import (
+    BrandManager,
+    CategoryManager,
+    ProductManager,
+    ProductVariantManager,
+)
 from core.helper.enums import ProductStatusChoices
 from core.helper.enums import ProductTypeChoices
 from core.helper.enums import TaxConfigChoices
@@ -37,6 +43,7 @@ class Category(TimeBasedModel):
         default=True,
         help_text=_("Inactive categories are hidden from product-creation pickers."),
     )
+    objects = CategoryManager()
 
     class Meta(auto_prefetch.Model.Meta):
         verbose_name = _("Category")
@@ -66,6 +73,7 @@ class Brand(TimeBasedModel):
         default=True,
         help_text=_("Inactive brands are hidden from product-creation pickers."),
     )
+    objects = BrandManager()
 
     class Meta(auto_prefetch.Model.Meta):
         verbose_name = _("Brand")
@@ -252,6 +260,7 @@ class Product(TimeBasedModel):
             ]
         ),
     )
+    objects = ProductManager()
 
     class Meta(auto_prefetch.Model.Meta):
         verbose_name = _("Product")
@@ -348,6 +357,7 @@ class ProductVariant(TimeBasedModel):
         default=True,
         help_text=_("Whether this variant is active and available."),
     )
+    objects = ProductVariantManager()
 
     class Meta(auto_prefetch.Model.Meta):
         verbose_name = _("Product Variant")

@@ -25,9 +25,16 @@ from core.applications.inventory.api.schemas import (
     retrieve=extend_schema(tags=['Inventory'])
 )
 class StockAdjustmentViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
-    queryset = StockAdjustmentRequest.objects.all()
     serializer_class = StockAdjustmentRequestSerializer
     permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = StockAdjustmentRequest.objects.for_user(user).with_details()
+        org_id = self.request.query_params.get("organization")
+        if org_id:
+            qs = qs.for_organization(org_id)
+        return qs
 
     def create(self, request, *args, **kwargs):
         # Instead of directly creating, use the service layer
@@ -95,12 +102,26 @@ class StockTransferViewSet(viewsets.ViewSet):
 
 @inventory_schema
 class InventoryViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = Inventory.objects.select_related('product', 'variant', 'batch', 'warehouse').all()
     serializer_class = InventorySerializer
     permission_classes = [IsAuthenticated]
 
+    def get_queryset(self):
+        user = self.request.user
+        qs = Inventory.objects.for_user(user).with_details()
+        org_id = self.request.query_params.get("organization")
+        if org_id:
+            qs = qs.for_organization(org_id)
+        return qs
+
 @ledger_entry_schema
 class InventoryLedgerEntryViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = InventoryLedgerEntry.objects.select_related('transaction', 'product', 'variant', 'batch', 'warehouse').all()
     serializer_class = InventoryLedgerEntrySerializer
     permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = InventoryLedgerEntry.objects.for_user(user).with_details()
+        org_id = self.request.query_params.get("organization")
+        if org_id:
+            qs = qs.for_organization(org_id)
+        return qs

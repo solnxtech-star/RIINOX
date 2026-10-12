@@ -58,6 +58,17 @@ def create_product(
     ensure_subscription_active(organization)
     ensure_product_limit(organization)
 
+    from rest_framework.exceptions import PermissionDenied
+    from core.applications.users.services import has_org_permission
+    from core.helper.enums import PermissionCode
+
+    if not has_org_permission(created_by, organization, PermissionCode.CREATE_PRODUCT):
+        raise PermissionDenied("You do not have permission to create products in this organization.")
+
+    if any(product_fields.get(f) for f in ("purchase_cost", "vendor_sale_cost")):
+        if not has_org_permission(created_by, organization, PermissionCode.EDIT_PRODUCT_COSTS):
+            raise PermissionDenied("You do not have permission to set product costs.")
+
     product = Product.objects.create(
         organization=organization,
         created_by=created_by,

@@ -1,10 +1,19 @@
-"""
-With these settings, tests run faster.
-"""
+import os
+
+os.environ.setdefault("DATABASE_URL", "sqlite:///test_db.sqlite3")
+os.environ.setdefault("FRONTEND_URL", "http://localhost:3000")
 
 from .base import *  # noqa: F403
 from .base import TEMPLATES
 from .base import env
+
+CLOUDINARY_STORAGE = {
+    "CLOUD_NAME": "test_cloud",
+    "API_KEY": "test_key",
+    "API_SECRET": "test_secret",
+}
+
+SEEDING_SKIP = ("document_templates",)
 
 # GENERAL
 # ------------------------------------------------------------------------------

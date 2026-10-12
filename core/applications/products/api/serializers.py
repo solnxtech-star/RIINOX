@@ -7,6 +7,20 @@ class ProductBatchSerializer(serializers.ModelSerializer):
         model = ProductBatch
         fields = ['id', 'batch_number', 'expiry_date', 'cost_price', 'selling_price']
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        org = None
+        if hasattr(instance, 'product') and instance.product:
+            org = instance.product.organization
+        if org and user and user.is_authenticated:
+            from core.applications.users.services import has_org_permission
+            from core.helper.enums import PermissionCode
+            if not has_org_permission(user, org, PermissionCode.VIEW_PRODUCT_COSTS):
+                data.pop('cost_price', None)
+        return data
+
 class ProductBulkDiscountSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProductBulkDiscount
@@ -35,6 +49,18 @@ class ProductSerializer(serializers.ModelSerializer):
             'current_stock', 'batches', 'bulk_discounts', 'unit_conversions'
         ]
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if instance.organization and user and user.is_authenticated:
+            from core.applications.users.services import has_org_permission
+            from core.helper.enums import PermissionCode
+            if not has_org_permission(user, instance.organization, PermissionCode.VIEW_PRODUCT_COSTS):
+                data.pop('purchase_cost', None)
+                data.pop('vendor_sale_cost', None)
+        return data
+
 class ProductCreateSerializer(serializers.ModelSerializer):
     quantity_in_stock = serializers.IntegerField(write_only=True, required=False, default=0, help_text="Initial opening stock quantity")
     warehouse_id = serializers.PrimaryKeyRelatedField(
@@ -60,6 +86,31 @@ class ProductCreateSerializer(serializers.ModelSerializer):
             'quantity_in_stock', 'warehouse_id', 'batches', 'bulk_discounts', 'unit_conversions'
         ]
         read_only_fields = ['status']
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        org = attrs.get('organization') or (self.instance.organization if self.instance else None)
+
+        if org and user and user.is_authenticated:
+            from core.applications.users.services import has_org_permission
+            from core.helper.enums import PermissionCode
+
+            cost_fields = {'purchase_cost', 'vendor_sale_cost'}
+            if any(field in attrs for field in cost_fields):
+                if not has_org_permission(user, org, PermissionCode.EDIT_PRODUCT_COSTS):
+                    raise serializers.ValidationError(
+                        {'purchase_cost': 'You do not have permission to edit product costs in this organization.'}
+                    )
+
+            if 'customer_sale_price' in attrs and self.instance:
+                if self.instance.customer_sale_price != attrs['customer_sale_price']:
+                    if not has_org_permission(user, org, PermissionCode.EDIT_SELLING_PRICE):
+                        raise serializers.ValidationError(
+                            {'customer_sale_price': 'You do not have permission to edit selling prices in this organization.'}
+                        )
+        return attrs
 
     def create(self, validated_data):
         from core.applications.products.services import create_product

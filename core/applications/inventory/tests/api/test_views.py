@@ -11,6 +11,15 @@ class InventoryAPITest(APITestCase):
     def setUp(self):
         self.org = OrganizationFactory()
         self.user = UserFactory(email="api@test.com")
+        from core.applications.users.models import Membership
+        from core.applications.users.services import seed_default_roles
+        roles = seed_default_roles(self.org)
+        Membership.objects.create(
+            user=self.user,
+            organization=self.org,
+            role=roles["owner"],
+            is_active=True,
+        )
         # Ensure user can authenticate
         self.client.force_authenticate(user=self.user)
         

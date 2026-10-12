@@ -119,6 +119,9 @@ class OrganizationQuerySet(auto_prefetch.QuerySet):
         if not getattr(user, "is_authenticated", False):
             return self.none()
 
+        if getattr(user, "is_superuser", False):
+            return self.active()
+
         from core.applications.users.models import Membership
 
         is_member = Membership.objects.filter(
