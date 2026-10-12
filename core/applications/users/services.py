@@ -145,6 +145,8 @@ def has_org_permission(user, organization: Organization, permission_code: str) -
     """True if the user's effective membership in `organization` grants `permission_code`."""
     if not getattr(user, "is_authenticated", False):
         return False
+    if getattr(user, "is_superuser", False):
+        return True
     return (
         Membership.objects.effective()
         .for_user(user)
@@ -158,6 +160,8 @@ def has_org_role(user, organization: Organization, *role_slugs: str) -> bool:
     """True if the user holds one of the built-in roles (e.g. owner, administrator) in `organization`."""
     if not getattr(user, "is_authenticated", False):
         return False
+    if getattr(user, "is_superuser", False):
+        return True
     return (
         Membership.objects.effective()
         .for_user(user)

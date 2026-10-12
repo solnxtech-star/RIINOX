@@ -6,6 +6,12 @@ from django.db import models
 from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
 
+from core.applications.inventory.queryset import (
+    InventoryLedgerEntryManager,
+    InventoryManager,
+    PhysicalStockCountManager,
+    StockAdjustmentRequestManager,
+)
 from core.helper.enums import ApprovalStatusChoices
 from core.helper.enums import PhysicalCountStatusChoices
 from core.helper.enums import UsersRole
@@ -66,6 +72,7 @@ class Inventory(TimeBasedModel):
         editable=False,
         help_text=_("Current on-hand quantity. System-maintained — see InventoryLedgerEntry."),
     )
+    objects = InventoryManager()
 
     class Meta(auto_prefetch.Model.Meta):
         verbose_name = _("Inventory")
@@ -124,6 +131,7 @@ class InventoryLedgerEntry(TimeBasedModel):
         blank=True,
         help_text=_("Cost basis per unit at the time of movement, useful for COGS calculation."),
     )
+    objects = InventoryLedgerEntryManager()
 
     class Meta(auto_prefetch.Model.Meta):
         verbose_name = _("Inventory Ledger Entry")
@@ -224,6 +232,7 @@ class StockAdjustmentRequest(TimeBasedModel):
         null=True,
         help_text=_("Required explanation when the request is rejected."),
     )
+    objects = StockAdjustmentRequestManager()
 
     class Meta(auto_prefetch.Model.Meta):
         verbose_name = _("Stock Adjustment Request")
@@ -264,6 +273,7 @@ class PhysicalStockCount(TimeBasedModel):
         null=True,
         help_text=_("Any general notes about this count session."),
     )
+    objects = PhysicalStockCountManager()
 
     class Meta(auto_prefetch.Model.Meta):
         verbose_name = _("Physical Stock Count")

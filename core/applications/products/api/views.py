@@ -6,6 +6,7 @@ from django.db.models import ProtectedError
 from core.applications.products.models import Product
 from core.applications.products.api.serializers import ProductSerializer, ProductCreateSerializer
 from core.applications.products.api.schemas import product_schema
+from core.applications.products.api.permissions import ProductPermission
 from core.helper.enums import ProductStatusChoices
 
 from core.applications.notification.audit.services import record as audit_record
@@ -14,8 +15,15 @@ from core.applications.notification.audit.action import AuditAction
 
 @product_schema
 class ProductViewSet(viewsets.ModelViewSet):
-    queryset = Product.objects.all().prefetch_related('batches', 'bulk_discounts', 'unit_conversions')
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, ProductPermission]
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = Product.objects.for_user(user).with_details()
+        org_id = self.request.query_params.get("organization")
+        if org_id:
+            qs = qs.for_organization(org_id)
+        return qs
     
     def get_serializer_class(self):
         if self.action in ['create', 'update', 'partial_update']:
