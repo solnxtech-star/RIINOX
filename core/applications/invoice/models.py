@@ -6,7 +6,11 @@ from django.db import models
 from django.utils.timezone import now
 from django.utils.translation import gettext_lazy as _
 
+from core.applications.invoice.queryset import ClientManager
+from core.applications.invoice.queryset import DocumentSequenceManager
 from core.applications.invoice.queryset import DocumentTemplateManager
+from core.applications.invoice.queryset import InvoiceItemManager
+from core.applications.invoice.queryset import InvoiceManager
 from core.helper.enums import TEMPLATE_TYPES
 from core.helper.enums import CustomerStatusChoices
 from core.helper.enums import CustomerTypeChoices
@@ -55,6 +59,8 @@ class Client(TimeBasedModel):
         default=CustomerStatusChoices.ACTIVE,
     )
     is_active = models.BooleanField(default=True)
+
+    objects = ClientManager()
 
     class Meta(auto_prefetch.Model.Meta):
         verbose_name = _("Client")
@@ -151,6 +157,7 @@ class Invoice(TimeBasedModel):
     created_at = models.DateTimeField(auto_now_add=True)
     extra_data = models.JSONField(default=dict, blank=True, null=True)
 
+    objects = InvoiceManager()
     class Meta(auto_prefetch.Model.Meta):
         verbose_name = _("Invoice")
         verbose_name_plural = _("Invoices")
@@ -192,6 +199,7 @@ class InvoiceItem(TimeBasedModel):
     )
     extra_data = models.JSONField(default=dict, blank=True, null=True)
 
+    objects = InvoiceItemManager()
     class Meta(auto_prefetch.Model.Meta):
         verbose_name = _("Invoice Item")
         verbose_name_plural = _("Invoice Items")
@@ -282,6 +290,7 @@ class DocumentSequence(TimeBasedModel):
     prefix = models.CharField(max_length=20, blank=True)
     padding = models.PositiveIntegerField(default=6)
     next_number = models.PositiveIntegerField(default=1)
+    objects = DocumentSequenceManager()
 
     class Meta(auto_prefetch.Model.Meta):
         verbose_name = _("Document Sequence")
