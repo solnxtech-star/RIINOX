@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING
 from typing import Any
 from typing import Final
 
-from core.applications.notification.audit.actions import AuditAction
 from django.apps import apps
 from django.db import transaction
 from django.db.models import Q
@@ -35,6 +34,7 @@ from core.applications.invoice.services.ports import PERM_INVOICE_VOID
 from core.applications.invoice.services.ports import PricedLine
 from core.applications.invoice.services.ports import StockLine
 from core.applications.invoice.services.ports import get_invoice_ports
+from core.applications.notification.audit.action import AuditAction
 from core.applications.notification.audit.services import record
 from core.applications.notification.models import AuditLog
 from core.helper.enums import TEMPLATE_TYPES
@@ -303,7 +303,7 @@ def _lock_invoice(organization: Organization, invoice_id: Any) -> Invoice:
             .select_for_update(of=("self",))
             .get(pk=invoice_id)
         )
-    except Invoice.DoesNotExist as exc:
+    except Invoice.DoesNotExist as exc:  # pylint: disable=no-member
         raise InvoiceNotFoundError(detail={"invoice_id": str(invoice_id)}) from exc
 
 

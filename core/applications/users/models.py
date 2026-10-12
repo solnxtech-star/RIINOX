@@ -66,7 +66,7 @@ class Permission(TimeBasedModel):
         ordering = ["module", "name"]
 
     def __str__(self):
-        return self.code
+        return str(self.code)
 
 
 class Role(TimeBasedModel):
@@ -130,7 +130,7 @@ class RolePermission(TimeBasedModel):
         ]
 
     def __str__(self):
-        return f"{self.permission.code} on {self.role.name}"
+        return f"{self.permission.name!s} on {self.role.name}"
 
 
 class BusinessType(TimeBasedModel):
@@ -167,7 +167,7 @@ class BusinessType(TimeBasedModel):
         ordering = ["sort_order", "name"]
 
     def __str__(self):
-        return self.name
+        return str(self.name)
 
 
 class OrganizationBusinessType(TimeBasedModel):
@@ -318,7 +318,7 @@ class Organization(TimeBasedModel):
         ordering = ["name"]
 
     def __str__(self):
-        return self.name
+        return str(self.name)
 
     @property
     def current_plan(self):
@@ -330,10 +330,12 @@ class Organization(TimeBasedModel):
         """
         Return the primary business type for this organization, or None if not set.
         """
-        for link in self.organization_business_types.all():
-            if link.is_primary:
-                return link.business_type
-        return None
+        link = (
+            OrganizationBusinessType.objects.filter(organization=self, is_primary=True)
+            .select_related("business_type")
+            .first()
+        )
+        return link.business_type if link else None
 
 class User(AbstractUser):
     """
@@ -448,7 +450,7 @@ class Invitation(RoleOrganizationMatchMixin, TimeBasedModel):
         ]
 
     def __str__(self):
-        return f"{self.email} → {self.organization_id} ({self.status})"
+        return f"{self.email} → ({self.status})"
 
     def save(self, *args, **kwargs):
         self.email = self.email.strip().lower()
@@ -523,7 +525,7 @@ class Membership(RoleOrganizationMatchMixin, TimeBasedModel):
         ]
 
     def __str__(self):
-        return f"{self.user.email} in {self.organization.name} as {self.role.name}"
+        return f"{self.user} in {self.organization.name} as {self.role.name}"
 
 class OwnerMembershipDetail(TimeBasedModel):
     membership = OneToOneField("users.Membership", on_delete=CASCADE, related_name="owner_detail")
