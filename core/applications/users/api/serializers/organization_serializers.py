@@ -6,7 +6,7 @@ from django.utils.translation import gettext_lazy as _
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from core.applications.invoice import services as document_services
+from core.applications.invoice.services import invoices as document_services
 from core.applications.subscriptions.models import Plan
 from core.applications.users import reference_data
 from core.applications.users import services
