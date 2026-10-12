@@ -49,6 +49,23 @@ class ProductSerializer(serializers.ModelSerializer):
             'current_stock', 'batches', 'bulk_discounts', 'unit_conversions'
         ]
 
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        org = attrs.get('organization') or (self.instance.organization if self.instance else None)
+        if org:
+            category = attrs.get('category')
+            if category and getattr(category, 'organization_id', None) != org.id:
+                raise serializers.ValidationError(
+                    {'category': 'Selected category belongs to a different organization.'}
+                )
+
+            brand = attrs.get('brand')
+            if brand and getattr(brand, 'organization_id', None) != org.id:
+                raise serializers.ValidationError(
+                    {'brand': 'Selected brand belongs to a different organization.'}
+                )
+        return attrs
+
     def to_representation(self, instance):
         data = super().to_representation(instance)
         request = self.context.get('request')
@@ -92,6 +109,25 @@ class ProductCreateSerializer(serializers.ModelSerializer):
         request = self.context.get('request')
         user = getattr(request, 'user', None)
         org = attrs.get('organization') or (self.instance.organization if self.instance else None)
+
+        if org:
+            category = attrs.get('category')
+            if category and getattr(category, 'organization_id', None) != org.id:
+                raise serializers.ValidationError(
+                    {'category': 'Selected category belongs to a different organization.'}
+                )
+
+            brand = attrs.get('brand')
+            if brand and getattr(brand, 'organization_id', None) != org.id:
+                raise serializers.ValidationError(
+                    {'brand': 'Selected brand belongs to a different organization.'}
+                )
+
+            warehouse = attrs.get('warehouse_id')
+            if warehouse and getattr(warehouse, 'organization_id', None) != org.id:
+                raise serializers.ValidationError(
+                    {'warehouse_id': 'Selected warehouse belongs to a different organization.'}
+                )
 
         if org and user and user.is_authenticated:
             from core.applications.users.services import has_org_permission

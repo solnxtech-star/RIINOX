@@ -1,4 +1,6 @@
+from django import forms
 from django.contrib import admin
+from django.utils.translation import gettext_lazy as _
 from unfold.admin import ModelAdmin
 from unfold.decorators import display
 
@@ -54,8 +56,29 @@ class ProductBulkDiscountInline(admin.TabularInline):
     extra = 1
     fields = ("min_quantity", "discount_amount")
 
+
+class ProductAdminForm(forms.ModelForm):
+    class Meta:
+        model = Product
+        fields = "__all__"
+
+    def clean(self):
+        cleaned_data = super().clean()
+        org = cleaned_data.get("organization")
+        category = cleaned_data.get("category")
+        brand = cleaned_data.get("brand")
+
+        if org:
+            if category and getattr(category, "organization_id", None) != org.id:
+                self.add_error("category", _("Selected category belongs to a different organization."))
+            if brand and getattr(brand, "organization_id", None) != org.id:
+                self.add_error("brand", _("Selected brand belongs to a different organization."))
+        return cleaned_data
+
+
 @admin.register(Product)
 class ProductAdmin(ModelAdmin):
+    form = ProductAdminForm
     list_filter = ("status", "category", "brand", "organization", "unit_of_measurement")
     search_fields = ("name", "sku", "barcode")
     list_select_related = ("category", "brand", "organization", "created_by")
