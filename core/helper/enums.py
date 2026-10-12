@@ -435,3 +435,9 @@ class PermissionCode(TextChoices):
     MANAGE_DOCUMENT_TEMPLATES = "MANAGE_DOCUMENT_TEMPLATES"
     MANAGE_BILLING = "MANAGE_BILLING"
     MANAGE_LOCATIONS = "MANAGE_LOCATIONS"
+
+class PaymentTransactionStatus(TextChoices):
+    PENDING = "pending", _("Pending")
+    SUCCESS = "success", _("Success")
+    FAILED = "failed", _("Failed")
+    ABANDONED = "abandoned", _("Abandoned")
