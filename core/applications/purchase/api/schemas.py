@@ -45,13 +45,36 @@ UNAUTHENTICATED_RESPONSE = OpenApiResponse(
 
 FORBIDDEN_RESPONSE = OpenApiResponse(
     response=DetailErrorSerializer,
-    description="The caller lacks permission to perform this action (e.g. non-Admin placing an order or accessing restricted financial data).",
+    description="The caller lacks permission to perform this action (e.g. lacking VIEW_PURCHASES, CREATE_PURCHASE, or RECEIVE_GOODS).",
     examples=[
         OpenApiExample(
             "Forbidden",
             value={"detail": "You do not have permission to perform this action."},
             response_only=True,
         )
+    ],
+)
+
+PLAN_LIMIT_EXCEEDED_RESPONSE = OpenApiResponse(
+    response=CodeDetailErrorSerializer,
+    description="The organization's subscription is inactive or has exceeded plan limits (e.g. max_transactions_per_month).",
+    examples=[
+        OpenApiExample(
+            "Monthly Transaction Limit Reached",
+            value={
+                "code": "PLAN_LIMIT_EXCEEDED",
+                "detail": "Plan limit reached for 'max_transactions_per_month'. Upgrade your subscription to continue processing goods receipts.",
+            },
+            response_only=True,
+        ),
+        OpenApiExample(
+            "Subscription Inactive",
+            value={
+                "code": "SUBSCRIPTION_INACTIVE",
+                "detail": "Organization subscription is expired or inactive.",
+            },
+            response_only=True,
+        ),
     ],
 )
 
@@ -243,6 +266,13 @@ purchase_schema = extend_schema_view(
             "### Overview\n"
             "Retrieves a paginated list of purchase orders for organizations the authenticated user belongs to. "
             "Implements strict multi-tenant boundary isolation (PRD §6).\n\n"
+            "### Required Permissions & Access Control (PRD §28, §55)\n"
+            "- Requires **`VIEW_PURCHASES`** permission in the target tenant organization.\n"
+            "- Unauthenticated requests return HTTP 401.\n"
+            "- Authenticated callers without active membership or `VIEW_PURCHASES` capability receive HTTP 403 Forbidden.\n\n"
+            "### Plan Limits & Subscription Invariants (PRD §10, §52)\n"
+            "- Read operations require active tenant organization standing.\n"
+            "- Querying purchase orders is read-only and does NOT consume transaction quota allocations (`max_transactions_per_month`).\n\n"
             "### Business Context (PRD §18)\n"
             "A Purchase Order tracks goods ordered from an external vendor. The header summarizes procurement metadata "
             "such as vendor, target warehouse, order dates, delivery methods, additional fees (shipping/handling), "
@@ -279,6 +309,9 @@ purchase_schema = extend_schema_view(
             "### Overview\n"
             "Fetches detailed information for a single purchase order by UUID, including all nested line items, "
             "fulfillment progress, and financial value metrics.\n\n"
+            "### Required Permissions & Access Control (PRD §28, §55)\n"
+            "- Requires **`VIEW_PURCHASES`** permission in the target tenant organization.\n"
+            "- Cross-tenant lookups return HTTP 404 to prevent entity enumeration across organizational boundaries.\n\n"
             "### Line Item Details (PRD §18)\n"
             "Each line item details the ordered `quantity_ordered`, the fulfilled `quantity_received`, the unit of "
             "measurement (`unit`), and the cost per unit (`purchase_cost`).\n\n"
@@ -303,6 +336,13 @@ purchase_schema = extend_schema_view(
         description=(
             "### Overview\n"
             "Creates a new purchase order and its associated line items in an atomic database transaction.\n\n"
+            "### Required Permissions & Access Control (PRD §28, §55)\n"
+            "- Requires **`CREATE_PURCHASE`** permission in the target organization.\n"
+            "- Roles without this permission (e.g. Sales Representative, Inventory Staff) receive HTTP 403 Forbidden.\n\n"
+            "### Plan Limits & Subscription Invariants (PRD §10, §52)\n"
+            "- **Subscription Standing**: Evaluates `ensure_subscription_active(organization)`. If the subscription is inactive, delinquent, or suspended, creation is rejected with HTTP 402/403 (`SUBSCRIPTION_INACTIVE`).\n"
+            "- **Location Quota**: The destination `warehouse` must belong to the tenant and be an active location within the organization's `max_locations` plan limit.\n"
+            "- **Monthly Transactions Quota**: Placing an order in `draft` status does NOT increment monthly transaction counts (`max_transactions_per_month`) because physical inventory has not moved yet. Quotas are enforced when goods arrive via `/receive/`.\n\n"
             "### Critical Inventory Rule (PRD §16 & §18)\n"
             "**Creating a purchase order does NOT alter inventory stock.**\n"
             "- The order is initially placed in `draft` status.\n"
@@ -360,14 +400,10 @@ purchase_schema = extend_schema_view(
                         value={"vendor": ["This field is required."], "items": ["This field is required."]},
                         response_only=True,
                     ),
-                    OpenApiExample(
-                        "Inactive Subscription",
-                        value={"code": "SUBSCRIPTION_INACTIVE", "detail": "Organization subscription is expired or inactive."},
-                        response_only=True,
-                    ),
                 ],
             ),
             401: UNAUTHENTICATED_RESPONSE,
+            402: PLAN_LIMIT_EXCEEDED_RESPONSE,
             403: FORBIDDEN_RESPONSE,
         },
     ),
@@ -377,6 +413,10 @@ purchase_schema = extend_schema_view(
         description=(
             "### Overview\n"
             "Replaces all editable fields of an existing purchase order and refreshes its line items.\n\n"
+            "### Required Permissions & Access Control (PRD §28, §55)\n"
+            "- Requires **`CREATE_PURCHASE`** permission in the organization.\n\n"
+            "### Plan Limits & Subscription Invariants (PRD §10, §52)\n"
+            "- Evaluates `ensure_subscription_active(organization)` to ensure account is in good standing.\n\n"
             "### PRD Data Integrity Constraint (PRD §18 & §44)\n"
             "**Line items cannot be modified once goods have been received.**\n"
             "- If any line item has `quantity_received > 0`, attempting to rewrite line items will be rejected with "
@@ -411,6 +451,7 @@ purchase_schema = extend_schema_view(
                 ],
             ),
             401: UNAUTHENTICATED_RESPONSE,
+            402: PLAN_LIMIT_EXCEEDED_RESPONSE,
             403: FORBIDDEN_RESPONSE,
             404: NOT_FOUND_RESPONSE,
         },
@@ -421,6 +462,10 @@ purchase_schema = extend_schema_view(
         description=(
             "### Overview\n"
             "Updates specific attributes of a purchase order without supplying the entire payload.\n\n"
+            "### Required Permissions & Access Control (PRD §28, §55)\n"
+            "- Requires **`CREATE_PURCHASE`** permission in the organization.\n\n"
+            "### Plan Limits & Subscription Invariants (PRD §10, §52)\n"
+            "- Evaluates `ensure_subscription_active(organization)`.\n\n"
             "### Common Use Cases\n"
             "- **Revising Products / Line Items**: Send an `items` array with updated `product` UUIDs, quantities, and costs (only when `quantity_received == 0`).\n"
             "- **Attaching Vendor Invoices**: Send `vendor_invoice_number` after invoice receipt.\n"
@@ -457,6 +502,7 @@ purchase_schema = extend_schema_view(
                 description="Invalid field values or illegal modification of received lines.",
             ),
             401: UNAUTHENTICATED_RESPONSE,
+            402: PLAN_LIMIT_EXCEEDED_RESPONSE,
             403: FORBIDDEN_RESPONSE,
             404: NOT_FOUND_RESPONSE,
         },
@@ -467,6 +513,8 @@ purchase_schema = extend_schema_view(
         description=(
             "### Overview\n"
             "Permanently deletes an unfulfilled purchase order record.\n\n"
+            "### Required Permissions & Access Control (PRD §28, §55)\n"
+            "- Requires **`CREATE_PURCHASE`** permission in the organization.\n\n"
             "### Strict Data Integrity & Audit Rule (PRD §18 & §44)\n"
             "**Orders that have received goods cannot be deleted.**\n"
             "- If any line item has `quantity_received > 0`, the deletion request is blocked and returns "
@@ -503,13 +551,19 @@ purchase_schema = extend_schema_view(
         description=(
             "### Overview\n"
             "Records the physical arrival and check-in of ordered goods at the target warehouse (PRD §16, §18, §42).\n\n"
-            "### Atomic Operations in This Transaction\n"
+            "### Required Permissions & Access Control (PRD §28, §55)\n"
+            "- Requires **`RECEIVE_GOODS`** permission in the target tenant organization.\n"
+            "- Non-receiving roles (e.g. Sales Representative or roles with only `VIEW_PURCHASES`) are rejected with HTTP 403 Forbidden.\n\n"
+            "### Plan Limits & Subscription Invariants (PRD §10, §52)\n"
+            "- **Active Subscription**: Calls `ensure_subscription_active(purchase.organization)`. Inactive or delinquent subscriptions immediately reject goods receipt with HTTP 402/403.\n"
+            "- **Monthly Transactions Limit**: Receiving goods generates a centralized system `Transaction` (type `PURCHASE`, status `COMPLETED`), enforcing `check_plan_limit(organization, 'max_transactions_per_month', cycle_count)`. If the monthly limit is exceeded, receipt is blocked with HTTP 402/403 (`PLAN_LIMIT_EXCEEDED`).\n\n"
+            "### Atomic Operations & Ledger Integration (PRD §16, §18, §31, §42)\n"
             "When this endpoint is called, the following steps execute inside a single `@transaction.atomic` block:\n"
-            "1. **Subscription Validation**: Ensures the organization subscription is currently active (`ensure_subscription_active`).\n"
+            "1. **Subscription & Quota Validation**: Verifies active subscription standing (`ensure_subscription_active`) and monthly transaction quotas.\n"
             "2. **Line Item Validation**: Verifies that each `item_id` belongs to this order and that `quantity_received` is valid.\n"
             "3. **Transaction Creation**: Creates a centralized `Transaction` record (type `PURCHASE`, status `COMPLETED`).\n"
-            "4. **Inventory Stock Increment**: Increases `Inventory.quantity` for the product/variant in the destination warehouse.\n"
-            "5. **Ledger Recording**: Creates an immutable `InventoryLedgerEntry` documenting `quantity_moved`, `unit_cost`, "
+            "4. **Inventory Stock Increment**: Increases physical stock in `Inventory.quantity` for the product/variant in the destination warehouse.\n"
+            "5. **Ledger Recording**: Creates an immutable `InventoryLedgerEntry` documenting positive `quantity_moved`, snapshotted `unit_cost`, "
             "`warehouse`, and reference transaction.\n"
             "6. **PO Status Transition**:\n"
             "   - If all items have reached their ordered quantity -> Status becomes `received`.\n"
@@ -562,6 +616,7 @@ purchase_schema = extend_schema_view(
                 ],
             ),
             401: UNAUTHENTICATED_RESPONSE,
+            402: PLAN_LIMIT_EXCEEDED_RESPONSE,
             403: FORBIDDEN_RESPONSE,
             404: NOT_FOUND_RESPONSE,
         },

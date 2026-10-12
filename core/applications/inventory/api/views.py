@@ -13,17 +13,11 @@ from core.applications.inventory.api.serializers import (
 from core.applications.inventory.services import request_stock_adjustment, approve_stock_adjustment, single_transfer_stock
 from core.applications.inventory.api.schemas import (
     stock_adjustment_create_example, stock_transfer_example,
-    inventory_schema, ledger_entry_schema
+    stock_adjustment_schema, stock_adjustment_approve_schema,
+    stock_transfer_schema, inventory_schema, ledger_entry_schema
 )
 
-@extend_schema_view(
-    create=extend_schema(
-        tags=['Inventory'],
-        examples=[stock_adjustment_create_example]
-    ),
-    list=extend_schema(tags=['Inventory']),
-    retrieve=extend_schema(tags=['Inventory'])
-)
+@stock_adjustment_schema
 class StockAdjustmentViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     serializer_class = StockAdjustmentRequestSerializer
     permission_classes = [IsAuthenticated]
@@ -54,10 +48,7 @@ class StockAdjustmentViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, mix
         )
         return Response(StockAdjustmentRequestSerializer(adj).data, status=status.HTTP_201_CREATED)
 
-    @extend_schema(
-        tags=['Inventory'],
-        responses={200: OpenApiResponse(description="Adjustment Approved")}
-    )
+    @stock_adjustment_approve_schema
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
         try:
@@ -68,12 +59,8 @@ class StockAdjustmentViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, mix
 
 class StockTransferViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
-    @extend_schema(
-        tags=['Inventory'],
-        request=StockTransferSerializer,
-        examples=[stock_transfer_example],
-        responses={200: OpenApiResponse(description="Transfer Successful")}
-    )
+
+    @stock_transfer_schema
     @action(detail=False, methods=['post'])
     def execute(self, request):
         serializer = StockTransferSerializer(data=request.data)

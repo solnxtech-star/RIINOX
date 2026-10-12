@@ -98,10 +98,16 @@ product_schema = extend_schema_view(
    - Dispatches an audit event `INVENTORY_OPENING_STOCK_SET`.
 4. Dispatches an audit event `PRODUCT_CREATED`.
 
-### Permissions & Restrictions:
+### Permissions & Restrictions (PRD §28, §55):
 - Requires `CREATE_PRODUCT`.
 - Setting `purchase_cost` or `vendor_sale_cost` requires `EDIT_PRODUCT_COSTS`. Attempting to set costs without this permission returns HTTP 400 Bad Request.
-- `category`, `brand`, and `warehouse_id` must belong to the specified `organization`. Cross-tenant relations return HTTP 400 Bad Request.""",
+- `category`, `brand`, and `warehouse_id` must belong to the specified `organization`. Cross-tenant relations return HTTP 400 Bad Request.
+
+### Plan Limits & Subscription Invariants (PRD §10, §52):
+- **Active Subscription**: Validates `ensure_subscription_active(organization)`. Inactive/expired subscriptions reject creation with `SUBSCRIPTION_REQUIRED` (HTTP 402).
+- **Product Quota**: Evaluates `check_plan_limit(organization, 'max_products', active_count)`. Exceeding plan limit returns HTTP 402/403. Archived products are excluded.
+- **Monthly Transactions**: If opening stock is provisioned, the initial transaction counts toward `max_transactions_per_month`.
+- **Warehouse Quota**: The `warehouse_id` for opening stock must be active within `max_locations`.""",
         examples=[
             OpenApiExample(
                 name="Complete Product Payload with Opening Stock",
