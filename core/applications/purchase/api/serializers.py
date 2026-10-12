@@ -24,6 +24,26 @@ class PurchaseItemCreateSerializer(serializers.ModelSerializer):
             'product', 'variant', 'unit',
             'quantity_ordered', 'purchase_cost', 'discount'
         ]
+        extra_kwargs = {
+            'product': {
+                'help_text': 'UUID of the catalog Product to order (from GET /api/products/products/).',
+            },
+            'variant': {
+                'help_text': 'UUID of the specific ProductVariant, if applicable (optional).',
+            },
+            'unit': {
+                'help_text': 'UUID of the ProductUnitConversion packaging unit, if applicable (optional).',
+            },
+            'quantity_ordered': {
+                'help_text': 'Number of units ordered from the vendor (must be >= 1).',
+            },
+            'purchase_cost': {
+                'help_text': 'Snapshotted agreed unit cost for this product line.',
+            },
+            'discount': {
+                'help_text': 'Line-item discount applied to this product line.',
+            },
+        }
 
 
 class PurchaseSerializer(serializers.ModelSerializer):
