@@ -370,9 +370,20 @@ class User(AbstractUser):
         return reverse("users:detail", kwargs={"pk": self.pk})
 
     @property
+    def organization(self):
+        """Return the user's primary/current active organization."""
+        membership = (
+            self.memberships.filter(is_active=True)
+            .select_related("organization")
+            .order_by("created_at")
+            .first()
+        )
+        return membership.organization if membership else None
+
+    @property
     def organizations(self):
-        """Return all organizations the user is an accepted member of."""
-        return Organization.objects.filter(memberships__user=self, memberships__accepted=True)
+        """Return all organizations the user is an active member of."""
+        return Organization.objects.filter(memberships__user=self, memberships__is_active=True)
 
 class RoleOrganizationMatchMixin:
     """

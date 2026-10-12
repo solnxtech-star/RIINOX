@@ -449,3 +449,35 @@ class ProductAPITest(APITestCase):
             prod_invalid_brand.clean()
         self.assertIn("brand", cm.exception.message_dict)
 
+    def test_list_products_scopes_to_current_user_organization_by_default(self):
+        """
+        When a user belongs to multiple organizations, GET /api/products/
+        without ?organization scopes by default to their current (primary) organization.
+        Supplying ?organization=<org_id> explicitly switches scope to that tenant.
+        """
+        # Add owner as an active member of other_org as well
+        Membership.objects.create(
+            user=self.owner,
+            organization=self.other_org,
+            role=self.other_roles["owner"],
+            is_active=True,
+        )
+
+        url = "/api/products/"
+        # 1. Without organization parameter -> scopes to self.owner.organization (self.org)
+        resp_default = self.client.get(url)
+        self.assertEqual(resp_default.status_code, status.HTTP_200_OK)
+        results_default = resp_default.data.get("results", resp_default.data)
+        ids_default = [r["id"].replace("-", "") for r in results_default]
+        self.assertIn(str(self.product.id).replace("-", ""), ids_default)
+        self.assertNotIn(str(self.other_product.id).replace("-", ""), ids_default)
+
+        # 2. With explicit query param ?organization=<other_org.id> -> scopes to other_org
+        resp_other = self.client.get(f"{url}?organization={self.other_org.id}")
+        self.assertEqual(resp_other.status_code, status.HTTP_200_OK)
+        results_other = resp_other.data.get("results", resp_other.data)
+        ids_other = [r["id"].replace("-", "") for r in results_other]
+        self.assertNotIn(str(self.product.id).replace("-", ""), ids_other)
+        self.assertIn(str(self.other_product.id).replace("-", ""), ids_other)
+
+

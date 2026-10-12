@@ -149,6 +149,10 @@ def resolve_request_organization(
         except (ValueError, TypeError):
             return None
 
+    user = getattr(request, "user", None)
+    if user and getattr(user, "is_authenticated", False):
+        return getattr(user, "organization", None)
+
     return None
 
 
