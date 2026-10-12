@@ -1,17 +1,62 @@
 import uuid
+from decimal import Decimal
 from rest_framework.test import APITestCase
 from rest_framework import status
 from core.applications.purchase.models import Purchase, PurchaseItem
 from core.applications.vendors.models import Vendor
-from core.applications.inventory.tests.factories import OrganizationFactory, UserFactory, WarehouseFactory, ProductFactory
+from core.applications.users.models import Membership
+from core.applications.users.services import seed_default_roles
+from core.applications.inventory.tests.factories import (
+    OrganizationFactory, UserFactory, WarehouseFactory, ProductFactory
+)
 from core.helper.enums import PurchaseStatusChoices
 
 
 class PurchaseAPITest(APITestCase):
     def setUp(self):
+        # 1. Organization & Roles
         self.org = OrganizationFactory()
-        self.user = UserFactory()
-        self.client.force_authenticate(user=self.user)
+        self.roles = seed_default_roles(self.org)
+
+        # 2. Owner user (all permissions)
+        self.owner = UserFactory()
+        self.owner_membership = Membership.objects.create(
+            user=self.owner,
+            organization=self.org,
+            role=self.roles["owner"],
+            is_active=True,
+        )
+
+        # 3. Inventory Staff (has VIEW_PURCHASES and RECEIVE_GOODS, but lacks CREATE_PURCHASE)
+        self.inventory_staff = UserFactory()
+        self.staff_membership = Membership.objects.create(
+            user=self.inventory_staff,
+            organization=self.org,
+            role=self.roles["inventory-staff"],
+            is_active=True,
+        )
+
+        # 4. Sales Representative (lacks VIEW_PURCHASES, CREATE_PURCHASE, RECEIVE_GOODS)
+        self.sales_rep = UserFactory()
+        self.sales_rep_membership = Membership.objects.create(
+            user=self.sales_rep,
+            organization=self.org,
+            role=self.roles["sales-representative"],
+            is_active=True,
+        )
+
+        # 5. Other Org & Other User for Tenant Boundary Isolation
+        self.other_org = OrganizationFactory()
+        self.other_roles = seed_default_roles(self.other_org)
+        self.other_user = UserFactory()
+        self.other_membership = Membership.objects.create(
+            user=self.other_user,
+            organization=self.other_org,
+            role=self.other_roles["owner"],
+            is_active=True,
+        )
+
+        # 6. Base Resources
         self.warehouse = WarehouseFactory(organization=self.org)
         self.product = ProductFactory(organization=self.org)
         self.vendor = Vendor.objects.create(organization=self.org, company_name="Test Vendor")
@@ -20,7 +65,7 @@ class PurchaseAPITest(APITestCase):
             organization=self.org,
             vendor=self.vendor,
             warehouse=self.warehouse,
-            ordered_by=self.user,
+            ordered_by=self.owner,
             other_costs=5000,
             discount=1000,
         )
@@ -31,8 +76,11 @@ class PurchaseAPITest(APITestCase):
             purchase_cost=10.0,
         )
 
+        # Default client authenticated as Owner
+        self.client.force_authenticate(user=self.owner)
+
     def test_list_purchases(self):
-        """Simulate real user fetching their purchase order list."""
+        """Owner can list purchases scoped to their organization."""
         url = "/api/purchases/"
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -42,7 +90,7 @@ class PurchaseAPITest(APITestCase):
 
     def test_create_purchase_with_items_round_trip(self):
         """
-        Verify creating a Purchase Order WITH nested items (per our serializer standard).
+        Verify creating a Purchase Order WITH nested items (per serializer standard).
         Performs Round-Trip check: POST -> verify DB -> GET detail endpoint.
         """
         url = "/api/purchases/"
@@ -110,7 +158,7 @@ class PurchaseAPITest(APITestCase):
 
         self.purchase.refresh_from_db()
         self.assertEqual(self.purchase.status, PurchaseStatusChoices.PARTIALLY_RECEIVED)
-        self.assertEqual(self.purchase.received_by, self.user)
+        self.assertEqual(self.purchase.received_by, self.owner)
 
         # Receive remaining 50 units
         response2 = self.client.post(url, data, format='json')
@@ -160,3 +208,84 @@ class PurchaseAPITest(APITestCase):
         }
         response = self.client.post(url, data, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    # -------------------------------------------------------------------------
+    # Granular Role-Based Permission Tests
+    # -------------------------------------------------------------------------
+    def test_sales_rep_cannot_view_or_create_purchases(self):
+        """Sales Rep lacks VIEW_PURCHASES and CREATE_PURCHASE -> 403 Forbidden."""
+        self.client.force_authenticate(user=self.sales_rep)
+
+        # Cannot list
+        list_resp = self.client.get("/api/purchases/")
+        self.assertEqual(list_resp.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Cannot create
+        create_resp = self.client.post("/api/purchases/", {
+            "organization": str(self.org.id),
+            "vendor": str(self.vendor.id),
+            "warehouse": str(self.warehouse.id),
+            "items": []
+        }, format="json")
+        self.assertEqual(create_resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_inventory_staff_can_view_and_receive_but_cannot_create(self):
+        """Inventory Staff has VIEW_PURCHASES and RECEIVE_GOODS, but lacks CREATE_PURCHASE."""
+        self.client.force_authenticate(user=self.inventory_staff)
+
+        # Can list
+        list_resp = self.client.get("/api/purchases/")
+        self.assertEqual(list_resp.status_code, status.HTTP_200_OK)
+
+        # Cannot create -> 403
+        create_resp = self.client.post("/api/purchases/", {
+            "organization": str(self.org.id),
+            "vendor": str(self.vendor.id),
+            "warehouse": str(self.warehouse.id),
+            "items": []
+        }, format="json")
+        self.assertEqual(create_resp.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Can receive goods -> 200
+        receive_resp = self.client.post(f"/api/purchases/{self.purchase.id}/receive/", {
+            "items_received": [
+                {
+                    "item_id": str(self.purchase_item.id),
+                    "quantity_received": 10
+                }
+            ]
+        }, format="json")
+        self.assertEqual(receive_resp.status_code, status.HTTP_200_OK)
+
+    # -------------------------------------------------------------------------
+    # Multi-Tenant Boundary Isolation Tests
+    # -------------------------------------------------------------------------
+    def test_tenant_isolation_cross_tenant_access_denied(self):
+        """User from Org B cannot retrieve, update, delete, or receive goods on Org A purchase."""
+        self.client.force_authenticate(user=self.other_user)
+
+        # Org A purchase is invisible in list
+        list_resp = self.client.get("/api/purchases/")
+        self.assertEqual(list_resp.status_code, status.HTTP_200_OK)
+        results = list_resp.data.get('results', []) if isinstance(list_resp.data, dict) else list_resp.data
+        purchase_ids = [str(r['id']).replace('-', '') for r in results]
+        self.assertNotIn(str(self.purchase.id).replace('-', ''), purchase_ids)
+
+        # Detail retrieve -> 404
+        get_resp = self.client.get(f"/api/purchases/{self.purchase.id}/")
+        self.assertEqual(get_resp.status_code, status.HTTP_404_NOT_FOUND)
+
+        # Receive on Org A purchase -> 404
+        receive_resp = self.client.post(f"/api/purchases/{self.purchase.id}/receive/", {
+            "items_received": [{"item_id": str(self.purchase_item.id), "quantity_received": 10}]
+        }, format="json")
+        self.assertEqual(receive_resp.status_code, status.HTTP_404_NOT_FOUND)
+
+        # Attempt to create purchase in Org A -> 403
+        create_resp = self.client.post("/api/purchases/", {
+            "organization": str(self.org.id),
+            "vendor": str(self.vendor.id),
+            "warehouse": str(self.warehouse.id),
+            "items": []
+        }, format="json")
+        self.assertEqual(create_resp.status_code, status.HTTP_403_FORBIDDEN)

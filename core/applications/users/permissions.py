@@ -1,11 +1,16 @@
+from __future__ import annotations
+
+from typing import Any
+
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import BasePermission
+from rest_framework.request import Request
 
 from core.applications.users import services
 from core.applications.users.defaults import ADMINISTRATOR_ROLE_SLUG
 from core.applications.users.defaults import MANAGER_ROLE_SLUGS
 from core.applications.users.defaults import OWNER_ROLE_SLUG
-from core.applications.users.models import Membership
+from core.applications.users.models import Membership, Organization
 
 
 class _HasSystemRole(BasePermission):
@@ -101,3 +106,119 @@ class OrganizationScopedMixin:
     @property
     def organization(self):
         return self.membership.organization
+
+
+def resolve_request_organization(
+    request: Request,
+    view: Any = None,
+    obj: Any = None,
+) -> Organization | None:
+    """
+    Resolve the organization target for a given request, object, or view context.
+    Evaluates in order:
+      1. Explicit `obj.organization` (or `obj` if it is an Organization)
+      2. Request body `organization` (e.g. on POST/PUT)
+      3. Query parameter `organization` (e.g. on GET ?organization=<id>)
+      4. Header `X-Organization-ID`
+      5. View kwargs `organization_id` or `organization_pk` (nested routes)
+    """
+    if obj is not None:
+        if hasattr(obj, "organization"):
+            return obj.organization
+        if isinstance(obj, Organization):
+            return obj
+
+    org_id = None
+    if hasattr(request, "data") and hasattr(request.data, "get"):
+        org_id = request.data.get("organization")
+
+    if not org_id and hasattr(request, "query_params"):
+        org_id = request.query_params.get("organization")
+
+    if not org_id and hasattr(request, "headers"):
+        org_id = request.headers.get("X-Organization-ID")
+
+    if not org_id and view is not None and hasattr(view, "kwargs") and isinstance(view.kwargs, dict):
+        org_id = view.kwargs.get("organization_id") or view.kwargs.get("organization_pk")
+
+    if org_id:
+        if isinstance(org_id, Organization):
+            return org_id
+        try:
+            return Organization.objects.filter(pk=org_id, is_active=True).first()
+        except (ValueError, TypeError):
+            return None
+
+    return None
+
+
+class BaseTenantPermission(BasePermission):
+    """
+    Base action-level and object-level permission enforcement for tenant-scoped resources.
+    Subclasses define:
+      - action_permissions: dict mapping action names ('list', 'create', etc.) to PermissionCode
+      - default_permission: fallback PermissionCode for actions not explicitly mapped
+    """
+
+    action_permissions: dict[str, str] = {}
+    default_permission: str | None = None
+
+    def get_required_permission(self, view: Any) -> str | None:
+        action = getattr(view, "action", None)
+        if action and action in self.action_permissions:
+            return self.action_permissions[action]
+        return self.default_permission
+
+    def _resolve_organization(self, request: Request, view: Any = None, obj: Any = None) -> Organization | None:
+        return resolve_request_organization(request, view=view, obj=obj)
+
+    def has_permission(self, request: Request, view: Any) -> bool:
+        if not (request.user and request.user.is_authenticated):
+            return False
+
+        if getattr(request.user, "is_superuser", False):
+            return True
+
+        required_code = self.get_required_permission(view)
+        if not required_code:
+            return True
+
+        action = getattr(view, "action", None)
+
+        if action == "create":
+            org = self._resolve_organization(request, view=view)
+            if not org:
+                # If organization ID is missing or invalid, let serializer validation handle standard 400
+                return True
+            return services.has_org_permission(request.user, org, required_code)
+
+        if action == "list":
+            org = self._resolve_organization(request, view=view)
+            if org:
+                return services.has_org_permission(request.user, org, required_code)
+            # Default list: user must hold the permission in at least one active membership
+            return (
+                Membership.objects.effective()
+                .for_user(request.user)
+                .granting(required_code)
+                .exists()
+            )
+
+        return True
+
+    def has_object_permission(self, request: Request, view: Any, obj: Any) -> bool:
+        if not (request.user and request.user.is_authenticated):
+            return False
+
+        if getattr(request.user, "is_superuser", False):
+            return True
+
+        required_code = self.get_required_permission(view)
+        if not required_code:
+            return True
+
+        org = getattr(obj, "organization", obj if isinstance(obj, Organization) else None)
+        if org is None:
+            return True
+
+        return services.has_org_permission(request.user, org, required_code)

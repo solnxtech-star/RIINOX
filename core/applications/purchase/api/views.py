@@ -18,21 +18,20 @@ from core.applications.notification.audit.action import AuditAction
 from core.helper.enums import PurchaseStatusChoices
 
 
+from core.applications.purchase.api.permissions import PurchasePermission
+
+
 @purchase_schema
 class PurchaseViewSet(viewsets.ModelViewSet):
-    queryset = Purchase.objects.all().prefetch_related('items__product')
-    permission_classes = [IsAuthenticated]
+    queryset = Purchase.objects.none()
+    permission_classes = [IsAuthenticated, PurchasePermission]
 
     def get_queryset(self):
         user = self.request.user
-        qs = Purchase.objects.all().prefetch_related('items__product')
-        org_id = self.request.query_params.get('organization')
+        qs = Purchase.objects.for_user(user).with_details()
+        org_id = self.request.query_params.get('organization') or self.request.headers.get('X-Organization-ID')
         if org_id:
-            return qs.filter(organization_id=org_id)
-        if hasattr(user, 'memberships'):
-            org_ids = user.memberships.values_list('organization_id', flat=True)
-            if org_ids:
-                return qs.filter(organization_id__in=org_ids)
+            qs = qs.for_organization(org_id)
         return qs
 
     def get_serializer_class(self):
