@@ -49,8 +49,6 @@ stock_adjustment_create_example = OpenApiExample(
 - **Locations Limit**: The target warehouse must be an active facility within the tenant's `max_locations` plan quota.""",
     value={
         "product": "d290f1ee-6c54-4b01-90e6-d701748f0851",
-        "variant": None,
-        "batch": None,
         "warehouse": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
         "requested_quantity_change": -5,
         "adjustment_reason": "damaged",
@@ -79,8 +77,6 @@ stock_transfer_example = OpenApiExample(
 - **Locations Quota**: Both source and destination warehouses are governed by the tenant's `max_locations` plan limit.""",
     value={
         "product_id": "d290f1ee-6c54-4b01-90e6-d701748f0851",
-        "variant_id": None,
-        "batch_id": None,
         "source_warehouse_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
         "destination_warehouse_id": "184d0b2b-6c58-47bc-9b63-1d01f11a8c88",
         "quantity": 50
@@ -91,6 +87,30 @@ stock_transfer_example = OpenApiExample(
 # ---------------------------------------------------------------------------
 # Schema Views
 # ---------------------------------------------------------------------------
+stock_adjustment_approve_schema = extend_schema(
+    tags=['Inventory'],
+    summary="Approve Stock Adjustment Request",
+    description="""Approves a pending stock adjustment request, modifying inventory balances and recording immutable ledger movements.
+
+### Workflow & Invariant Architecture (PRD §15, §16):
+- Transitions request status from `PENDING` to `APPROVED`. Sets `reviewed_by` and `reviewed_at`.
+- Updates `Inventory.quantity` by `requested_quantity_change`.
+- Creates an immutable `InventoryLedgerEntry` recording the stock delta.
+- Emits an `INVENTORY_ADJUSTED` audit log entry.
+
+### Permission Requirements (PRD §28):
+- Requires `APPROVE_STOCK_ADJUSTMENT` or `APPROVE_REQUESTS` (Admin or Owner role). Unauthorized users receive HTTP 403 Forbidden.
+
+### Plan Limits (PRD §10):
+- Records a system `Transaction` (`transaction_type = 'ADJUSTMENT'`) bounded by the `max_transactions_per_month` plan quota.""",
+    responses={
+        200: OpenApiResponse(description="Adjustment Approved and Ledger Written"),
+        400: OpenApiResponse(description="Approval Error (e.g. Request is not in PENDING status)"),
+        403: OpenApiResponse(description="Forbidden (Insufficient approval privileges)"),
+        404: OpenApiResponse(description="Adjustment request not found"),
+    }
+)
+
 stock_adjustment_schema = extend_schema_view(
     create=extend_schema(
         tags=['Inventory'],
@@ -131,36 +151,14 @@ stock_adjustment_schema = extend_schema_view(
 - Requires `VIEW_INVENTORY`.
 - Cross-tenant requests return HTTP 404 Not Found.""",
     ),
+    approve=stock_adjustment_approve_schema,
 )
 
-stock_adjustment_approve_schema = extend_schema(
-    tags=['Inventory'],
-    summary="Approve Stock Adjustment Request",
-    description="""Approves a pending stock adjustment request, modifying inventory balances and recording immutable ledger movements.
-
-### Workflow & Invariant Architecture (PRD §15, §16):
-- Transitions request status from `PENDING` to `APPROVED`. Sets `reviewed_by` and `reviewed_at`.
-- Updates `Inventory.quantity` by `requested_quantity_change`.
-- Creates an immutable `InventoryLedgerEntry` recording the stock delta.
-- Emits an `INVENTORY_ADJUSTED` audit log entry.
-
-### Permission Requirements (PRD §28):
-- Requires `APPROVE_STOCK_ADJUSTMENT` or `APPROVE_REQUESTS` (Admin or Owner role). Unauthorized users receive HTTP 403 Forbidden.
-
-### Plan Limits (PRD §10):
-- Records a system `Transaction` (`transaction_type = 'ADJUSTMENT'`) bounded by the `max_transactions_per_month` plan quota.""",
-    responses={
-        200: OpenApiResponse(description="Adjustment Approved and Ledger Written"),
-        400: OpenApiResponse(description="Approval Error (e.g. Request is not in PENDING status)"),
-        403: OpenApiResponse(description="Forbidden (Insufficient approval privileges)"),
-        404: OpenApiResponse(description="Adjustment request not found"),
-    }
-)
-
-stock_transfer_schema = extend_schema(
-    tags=['Inventory'],
-    summary="Transfer Stock Between Warehouses",
-    description="""Atomically moves stock from a source warehouse to a destination warehouse.
+stock_transfer_schema = extend_schema_view(
+    execute=extend_schema(
+        tags=['Inventory'],
+        summary="Transfer Stock Between Warehouses",
+        description="""Atomically moves stock from a source warehouse to a destination warehouse.
 
 ### Workflow & Invariants (PRD §15, §16):
 - Deducts stock from source warehouse `Inventory` and increments destination warehouse `Inventory`.
@@ -175,13 +173,14 @@ stock_transfer_schema = extend_schema(
 - Enforces active subscription standing (`ensure_subscription_active`).
 - Counts as a system transaction against `max_transactions_per_month`.
 - Both facilities are subject to the `max_locations` plan quota.""",
-    request=StockTransferSerializer,
-    examples=[stock_transfer_example],
-    responses={
-        200: OpenApiResponse(description="Stock transfer successfully executed and recorded in ledger"),
-        400: OpenApiResponse(description="Transfer Error (Insufficient stock or invalid warehouse IDs)"),
-        403: OpenApiResponse(description="Forbidden (Insufficient transfer privileges)"),
-    }
+        request=StockTransferSerializer,
+        examples=[stock_transfer_example],
+        responses={
+            200: OpenApiResponse(description="Stock transfer successfully executed and recorded in ledger"),
+            400: OpenApiResponse(description="Transfer Error (Insufficient stock or invalid warehouse IDs)"),
+            403: OpenApiResponse(description="Forbidden (Insufficient transfer privileges)"),
+        }
+    )
 )
 
 inventory_schema = extend_schema_view(

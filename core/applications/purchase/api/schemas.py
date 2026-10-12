@@ -123,11 +123,8 @@ _purchase_create_example = OpenApiExample(
             },
             {
                 "product": "c4d5e6f7-a8b9-4789-b1c2-d3e4f5a6b7c8",
-                "variant": None,
-                "unit": None,
                 "quantity_ordered": 50,
                 "purchase_cost": "1200.00",
-                "discount": "0.00",
             },
         ],
     },
@@ -230,8 +227,6 @@ _purchase_update_items_example = OpenApiExample(
             },
             {
                 "product": "c4d5e6f7-a8b9-4789-b1c2-d3e4f5a6b7c8",
-                "variant": None,
-                "unit": None,
                 "quantity_ordered": 75,
                 "purchase_cost": "1150.00",
                 "discount": "50.00",

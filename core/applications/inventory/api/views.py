@@ -2,7 +2,6 @@ from rest_framework import viewsets, mixins, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiResponse
 from core.applications.inventory.models import StockAdjustmentRequest, Inventory, InventoryLedgerEntry
 from core.applications.products.models import Product, ProductVariant, ProductBatch
 from core.applications.warehouse.models import Warehouse
@@ -12,9 +11,10 @@ from core.applications.inventory.api.serializers import (
 )
 from core.applications.inventory.services import request_stock_adjustment, approve_stock_adjustment, single_transfer_stock
 from core.applications.inventory.api.schemas import (
-    stock_adjustment_create_example, stock_transfer_example,
-    stock_adjustment_schema, stock_adjustment_approve_schema,
-    stock_transfer_schema, inventory_schema, ledger_entry_schema
+    stock_adjustment_schema,
+    stock_transfer_schema,
+    inventory_schema,
+    ledger_entry_schema,
 )
 
 @stock_adjustment_schema
@@ -48,7 +48,6 @@ class StockAdjustmentViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, mix
         )
         return Response(StockAdjustmentRequestSerializer(adj).data, status=status.HTTP_201_CREATED)
 
-    @stock_adjustment_approve_schema
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
         try:
@@ -57,10 +56,10 @@ class StockAdjustmentViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, mix
         except ValueError as e:
             return Response({"code": "APPROVAL_ERROR", "detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
+@stock_transfer_schema
 class StockTransferViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
 
-    @stock_transfer_schema
     @action(detail=False, methods=['post'])
     def execute(self, request):
         serializer = StockTransferSerializer(data=request.data)

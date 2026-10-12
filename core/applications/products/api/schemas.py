@@ -7,7 +7,7 @@ from drf_spectacular.utils import (
 )
 
 PRODUCT_CREATE_EXAMPLE = {
-    "name": "Amoxicillin 500mg Capsules",
+    "name": "NEW TEST PRODUCT 1",
     "sku": "MED-AMX-500",
     "barcode": "8901234567890",
     "organization": "a1b2c3d4-e5f6-4789-b1c2-d3e4f5a6b7c8",
@@ -16,10 +16,6 @@ PRODUCT_CREATE_EXAMPLE = {
     "description": "Broad-spectrum antibacterial medication.",
     "quality_grade": "Grade A",
     "unit_of_measurement": "box",
-    "product_type": "standard",
-    "tax_config": "none",
-    "tax_rate": "0.00",
-    "track_inventory": True,
     "track_batches": True,
     "purchase_cost": "1200.00",
     "vendor_sale_cost": "1400.00",
@@ -32,22 +28,22 @@ PRODUCT_CREATE_EXAMPLE = {
             "batch_number": "AMX-2026-B1",
             "expiry_date": "2027-12-31",
             "cost_price": "1200.00",
-            "selling_price": "2000.00"
+            "selling_price": "2000.00",
         }
     ],
     "bulk_discounts": [
         {
             "min_quantity": 10,
-            "discount_amount": "100.00"
+            "discount_amount": "100.00",
         }
     ],
     "unit_conversions": [
         {
             "unit_name": "carton",
             "multiplier": "24.000",
-            "price_override": "45000.00"
+            "price_override": "45000.00",
         }
-    ]
+    ],
 }
 
 PRODUCT_ORGANIZATION_PARAM = OpenApiParameter(
