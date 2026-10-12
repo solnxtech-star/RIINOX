@@ -19,10 +19,19 @@ class ProductViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
+        if not user.is_authenticated:
+            return Product.objects.none()
+
         qs = Product.objects.for_user(user).with_details()
-        org_id = self.request.query_params.get("organization")
+        org_id = self.request.query_params.get("organization") or self.request.headers.get("X-Organization-ID")
         if org_id:
-            qs = qs.for_organization(org_id)
+            return qs.for_organization(org_id)
+
+        # By default scope to current user's organization
+        current_org = getattr(user, "organization", None)
+        if current_org:
+            return qs.for_organization(current_org)
+
         return qs
     
     def get_serializer_class(self):
