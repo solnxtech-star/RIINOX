@@ -24,6 +24,26 @@ class PurchaseItemCreateSerializer(serializers.ModelSerializer):
             'product', 'variant', 'unit',
             'quantity_ordered', 'purchase_cost', 'discount'
         ]
+        extra_kwargs = {
+            'product': {
+                'help_text': 'UUID of the catalog Product to order (from GET /api/products/products/).',
+            },
+            'variant': {
+                'help_text': 'UUID of the specific ProductVariant, if applicable (optional).',
+            },
+            'unit': {
+                'help_text': 'UUID of the ProductUnitConversion packaging unit, if applicable (optional).',
+            },
+            'quantity_ordered': {
+                'help_text': 'Number of units ordered from the vendor (must be >= 1).',
+            },
+            'purchase_cost': {
+                'help_text': 'Snapshotted agreed unit cost for this product line.',
+            },
+            'discount': {
+                'help_text': 'Line-item discount applied to this product line.',
+            },
+        }
 
 
 class PurchaseSerializer(serializers.ModelSerializer):
@@ -55,6 +75,36 @@ class PurchaseCreateSerializer(serializers.ModelSerializer):
             'other_costs', 'discount', 'status', 'notes', 'items', 'created_at'
         ]
         read_only_fields = ['id', 'purchase_number', 'created_at']
+        extra_kwargs = {
+            'organization': {'required': False},
+            'ordered_by': {'required': False},
+        }
+
+    def to_internal_value(self, data):
+        data = data.copy() if hasattr(data, "copy") else dict(data)
+        if "organization" not in data or not data["organization"]:
+            view = self.context.get("view")
+            url_org = getattr(view, "organization", None) if view else None
+            if url_org:
+                data["organization"] = str(url_org.id)
+        return super().to_internal_value(data)
+
+    def validate(self, attrs):
+        view = self.context.get("view")
+        url_org = getattr(view, "organization", None) if view else None
+        if url_org:
+            body_org = attrs.get("organization")
+            if body_org and body_org != url_org:
+                raise serializers.ValidationError({"organization": "Organization does not match URL path tenant."})
+            attrs["organization"] = url_org
+
+            vendor = attrs.get("vendor")
+            if vendor and vendor.organization_id != url_org.id:
+                raise serializers.ValidationError({"vendor": "Vendor does not belong to this organization."})
+            warehouse = attrs.get("warehouse")
+            if warehouse and warehouse.organization_id != url_org.id:
+                raise serializers.ValidationError({"warehouse": "Warehouse does not belong to this organization."})
+        return super().validate(attrs)
 
     def create(self, validated_data):
         items_data = validated_data.pop('items', [])

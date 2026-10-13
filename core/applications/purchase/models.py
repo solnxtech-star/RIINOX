@@ -11,9 +11,12 @@ from core.helper.enums import PurchaseStatusChoices
 from core.helper.enums import UsersRole
 from core.helper.media import MediaHelper
 from core.helper.models import TimeBasedModel
+from core.applications.purchase.queryset import PurchaseQuerySet, PurchaseItemQuerySet
 
 
 class Purchase(TimeBasedModel):
+    objects = PurchaseQuerySet.as_manager()
+
     """
     A purchase order / goods-received record from a vendor (PRD §10).
 
@@ -152,6 +155,9 @@ class PurchaseItem(TimeBasedModel):
     Line item on a Purchase. `purchase_cost` is snapshotted at order time
     so later changes to `Product.purchase_cost` don't rewrite history.
     """
+
+    objects = PurchaseItemQuerySet.as_manager()
+
 
     purchase = auto_prefetch.ForeignKey(
         "purchase.Purchase",

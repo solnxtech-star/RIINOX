@@ -1,10 +1,17 @@
 import uuid
 import auto_prefetch
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
 
+from core.applications.products.queryset import (
+    BrandManager,
+    CategoryManager,
+    ProductManager,
+    ProductVariantManager,
+)
 from core.helper.enums import ProductStatusChoices
 from core.helper.enums import ProductTypeChoices
 from core.helper.enums import TaxConfigChoices
@@ -37,6 +44,7 @@ class Category(TimeBasedModel):
         default=True,
         help_text=_("Inactive categories are hidden from product-creation pickers."),
     )
+    objects = CategoryManager()
 
     class Meta(auto_prefetch.Model.Meta):
         verbose_name = _("Category")
@@ -45,6 +53,8 @@ class Category(TimeBasedModel):
         ordering = ["name"]
 
     def __str__(self):
+        if hasattr(self, "organization") and self.organization:
+            return f"{self.name} ({self.organization.name})"
         return self.name
 
 
@@ -66,6 +76,7 @@ class Brand(TimeBasedModel):
         default=True,
         help_text=_("Inactive brands are hidden from product-creation pickers."),
     )
+    objects = BrandManager()
 
     class Meta(auto_prefetch.Model.Meta):
         verbose_name = _("Brand")
@@ -74,6 +85,8 @@ class Brand(TimeBasedModel):
         ordering = ["name"]
 
     def __str__(self):
+        if hasattr(self, "organization") and self.organization:
+            return f"{self.name} ({self.organization.name})"
         return self.name
 
 
@@ -252,12 +265,33 @@ class Product(TimeBasedModel):
             ]
         ),
     )
+    objects = ProductManager()
 
     class Meta(auto_prefetch.Model.Meta):
         verbose_name = _("Product")
         verbose_name_plural = _("Products")
         unique_together = ("organization", "sku")
         ordering = ["name"]
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if (
+            self.category_id
+            and self.organization_id
+            and getattr(self.category, "organization_id", None) != self.organization_id
+        ):
+            errors["category"] = _("Selected category belongs to a different organization.")
+
+        if (
+            self.brand_id
+            and self.organization_id
+            and getattr(self.brand, "organization_id", None) != self.organization_id
+        ):
+            errors["brand"] = _("Selected brand belongs to a different organization.")
+
+        if errors:
+            raise ValidationError(errors)
 
     def __str__(self):
         return f"{self.name} ({self.sku})"
@@ -348,6 +382,7 @@ class ProductVariant(TimeBasedModel):
         default=True,
         help_text=_("Whether this variant is active and available."),
     )
+    objects = ProductVariantManager()
 
     class Meta(auto_prefetch.Model.Meta):
         verbose_name = _("Product Variant")

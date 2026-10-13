@@ -7,6 +7,20 @@ class ProductBatchSerializer(serializers.ModelSerializer):
         model = ProductBatch
         fields = ['id', 'batch_number', 'expiry_date', 'cost_price', 'selling_price']
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        org = None
+        if hasattr(instance, 'product') and instance.product:
+            org = instance.product.organization
+        if org and user and user.is_authenticated:
+            from core.applications.users.services import has_org_permission
+            from core.helper.enums import PermissionCode
+            if not has_org_permission(user, org, PermissionCode.VIEW_PRODUCT_COSTS):
+                data.pop('cost_price', None)
+        return data
+
 class ProductBulkDiscountSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProductBulkDiscount
@@ -35,6 +49,35 @@ class ProductSerializer(serializers.ModelSerializer):
             'current_stock', 'batches', 'bulk_discounts', 'unit_conversions'
         ]
 
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        org = attrs.get('organization') or (self.instance.organization if self.instance else None)
+        if org:
+            category = attrs.get('category')
+            if category and getattr(category, 'organization_id', None) != org.id:
+                raise serializers.ValidationError(
+                    {'category': 'Selected category belongs to a different organization.'}
+                )
+
+            brand = attrs.get('brand')
+            if brand and getattr(brand, 'organization_id', None) != org.id:
+                raise serializers.ValidationError(
+                    {'brand': 'Selected brand belongs to a different organization.'}
+                )
+        return attrs
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if instance.organization and user and user.is_authenticated:
+            from core.applications.users.services import has_org_permission
+            from core.helper.enums import PermissionCode
+            if not has_org_permission(user, instance.organization, PermissionCode.VIEW_PRODUCT_COSTS):
+                data.pop('purchase_cost', None)
+                data.pop('vendor_sale_cost', None)
+        return data
+
 class ProductCreateSerializer(serializers.ModelSerializer):
     quantity_in_stock = serializers.IntegerField(write_only=True, required=False, default=0, help_text="Initial opening stock quantity")
     warehouse_id = serializers.PrimaryKeyRelatedField(
@@ -60,6 +103,74 @@ class ProductCreateSerializer(serializers.ModelSerializer):
             'quantity_in_stock', 'warehouse_id', 'batches', 'bulk_discounts', 'unit_conversions'
         ]
         read_only_fields = ['status']
+        extra_kwargs = {
+            'organization': {'required': False},
+        }
+
+    def to_internal_value(self, data):
+        data = data.copy() if hasattr(data, 'copy') else dict(data)
+        if 'organization' not in data:
+            request = self.context.get('request')
+            view = self.context.get('view')
+            url_org = getattr(view, 'organization', None) if view else None
+            if not url_org and request and hasattr(request, 'parser_context'):
+                v = request.parser_context.get('view')
+                url_org = getattr(v, 'organization', None) if v else None
+            if url_org:
+                data['organization'] = str(url_org.id)
+        return super().to_internal_value(data)
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        request = self.context.get('request')
+        view = self.context.get('view')
+        user = getattr(request, 'user', None)
+        url_org = getattr(view, 'organization', None) if view else None
+
+        if url_org and attrs.get('organization') and attrs['organization'].id != url_org.id:
+            raise serializers.ValidationError({'organization': 'Organization does not match URL path.'})
+
+        org = attrs.get('organization') or url_org or (self.instance.organization if self.instance else None)
+        if org and not attrs.get('organization'):
+            attrs['organization'] = org
+
+        if org:
+            category = attrs.get('category')
+            if category and getattr(category, 'organization_id', None) != org.id:
+                raise serializers.ValidationError(
+                    {'category': 'Selected category belongs to a different organization.'}
+                )
+
+            brand = attrs.get('brand')
+            if brand and getattr(brand, 'organization_id', None) != org.id:
+                raise serializers.ValidationError(
+                    {'brand': 'Selected brand belongs to a different organization.'}
+                )
+
+            warehouse = attrs.get('warehouse_id')
+            if warehouse and getattr(warehouse, 'organization_id', None) != org.id:
+                raise serializers.ValidationError(
+                    {'warehouse_id': 'Selected warehouse belongs to a different organization.'}
+                )
+
+        if org and user and user.is_authenticated:
+            from core.applications.users.services import has_org_permission
+            from core.helper.enums import PermissionCode
+
+            cost_fields = {'purchase_cost', 'vendor_sale_cost'}
+            if any(field in attrs for field in cost_fields):
+                if not has_org_permission(user, org, PermissionCode.EDIT_PRODUCT_COSTS):
+                    raise serializers.ValidationError(
+                        {'purchase_cost': 'You do not have permission to edit product costs in this organization.'}
+                    )
+
+            if 'customer_sale_price' in attrs and self.instance:
+                if self.instance.customer_sale_price != attrs['customer_sale_price']:
+                    if not has_org_permission(user, org, PermissionCode.EDIT_SELLING_PRICE):
+                        raise serializers.ValidationError(
+                            {'customer_sale_price': 'You do not have permission to edit selling prices in this organization.'}
+                        )
+        return attrs
 
     def create(self, validated_data):
         from core.applications.products.services import create_product

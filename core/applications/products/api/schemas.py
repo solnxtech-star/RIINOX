@@ -1,79 +1,103 @@
-from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiExample
+from drf_spectacular.utils import (
+    extend_schema,
+    extend_schema_view,
+    OpenApiExample,
+    OpenApiParameter,
+    OpenApiTypes,
+)
 
 PRODUCT_CREATE_EXAMPLE = {
-    "name": "Premium Wireless Headphones",
-    "sku": "WH-1000XM5",
-    "barcode": "4905524933923",
-    "organization": 1,
-    "category": 1,
-    "brand": 1,
-    "description": "Noise-cancelling over-ear headphones.",
+    "name": "NEW TEST PRODUCT 1",
+    "sku": "MED-AMX-500",
+    "barcode": "8901234567890",
+    "organization": "a1b2c3d4-e5f6-4789-b1c2-d3e4f5a6b7c8",
+    "category": "b2c3d4e5-f6a7-4890-c1d2-e3f4a5b6c7d8",
+    "brand": "c3d4e5f6-a7b8-4901-d2e3-f4a5b6c7d8e9",
+    "description": "Broad-spectrum antibacterial medication.",
     "quality_grade": "Grade A",
-    "unit_of_measurement": "pcs",
-    "product_type": "physical",
-    "tax_config": "taxable",
-    "tax_rate": "15.00",
-    "track_inventory": True,
-    "purchase_cost": "250.00",
-    "vendor_sale_cost": "270.00",
-    "customer_sale_price": "350.00",
-    "minimum_stock_level": 10,
+    "unit_of_measurement": "box",
+    "track_batches": True,
+    "purchase_cost": "1200.00",
+    "vendor_sale_cost": "1400.00",
+    "customer_sale_price": "2000.00",
+    "minimum_stock_level": 20,
     "quantity_in_stock": 50,
-    "warehouse_id": 1,
+    "warehouse_id": "d4e5f6a7-b8c9-4012-e3f4-a5b6c7d8e9f0",
     "batches": [
         {
-            "expiry_date": "2028-12-31",
-            "cost_price": "245.00",
-            "selling_price": "350.00"
+            "batch_number": "AMX-2026-B1",
+            "expiry_date": "2027-12-31",
+            "cost_price": "1200.00",
+            "selling_price": "2000.00",
         }
     ],
     "bulk_discounts": [
         {
             "min_quantity": 10,
-            "discount_amount": "20.00"
+            "discount_amount": "100.00",
         }
     ],
     "unit_conversions": [
         {
             "unit_name": "carton",
-            "multiplier": "12.000",
-            "price_override": "4000.00"
+            "multiplier": "24.000",
+            "price_override": "45000.00",
         }
-    ]
+    ],
 }
+
+PRODUCT_ORGANIZATION_PARAM = OpenApiParameter(
+    "organization_id",
+    OpenApiTypes.UUID,
+    OpenApiParameter.PATH,
+    description="UUID of the tenant organization.",
+)
 
 product_schema = extend_schema_view(
     list=extend_schema(
         tags=['Products'],
         summary="List all Products",
-        description="Retrieves a list of all products along with their nested batches, discounts, and unit conversions."
+        description="""Retrieves a paginated list of products for the active tenant, including nested batches, discounts, and packaging unit conversions.
+
+### Multi-Tenancy & Tenant-Enforced URL Structure:
+- **Tenant Path Isolation**: Endpoints are strictly scoped under `/api/organizations/{organization_id}/products/`.
+- **Cross-Tenant Isolation**: Requesting products from an unauthorized tenant returns 404 Not Found.
+
+### Field-Level Security & Cost Redaction (PRD §55):
+- Users holding `VIEW_PRODUCT_COSTS` (Owner, Admin, Accountant) receive full monetary visibility (`purchase_cost`, `vendor_sale_cost`, and batch `cost_price`).
+- Users without this permission (Sales Rep, Manager, Cashier) have cost fields dynamically stripped from the JSON response.""",
+        parameters=[
+            PRODUCT_ORGANIZATION_PARAM,
+        ],
     ),
     create=extend_schema(
         tags=['Products'],
         summary="Create a New Product",
-        description="""Creates a product, optionally including opening stock, nested batches, bulk discounts, and unit conversions.
+        description="""Creates a product within the tenant organization, optionally provisioning starting inventory, nested batches, bulk discounts, and unit conversions.
 
-What happens in one transaction:
+### Atomic Creation & Inventory Provisioning:
+1. Creates the base `Product` catalog record.
+2. Creates nested child records (`ProductBatch`, `ProductBulkDiscount`, `ProductUnitConversion`).
+3. If `quantity_in_stock > 0` and `warehouse_id` are provided, atomically calls `create_opening_stock`:
+   - Creates a system `Transaction` (`transaction_type = 'opening_stock'`).
+   - Inserts an immutable `InventoryLedgerEntry` (+`quantity_in_stock`).
+   - Updates/creates the `Inventory` stock balance record.
+   - Dispatches an audit event `INVENTORY_OPENING_STOCK_SET`.
+4. Dispatches an audit event `PRODUCT_CREATED`.
 
-- the `Product` is created;
-- nested records (`ProductBatch`, `ProductBulkDiscount`, `ProductUnitConversion`) are created;
-- if `quantity_in_stock` > 0 and `warehouse_id` is passed, `create_opening_stock` is called to create the initial `Inventory` and `InventoryLedgerEntry`.
+### Permissions & Restrictions (PRD §28, §55):
+- Requires `CREATE_PRODUCT`.
+- Setting `purchase_cost` or `vendor_sale_cost` requires `EDIT_PRODUCT_COSTS`. Attempting to set costs without this permission returns HTTP 400 Bad Request.
+- `category`, `brand`, and `warehouse_id` must belong to the specified `organization`. Cross-tenant relations return HTTP 400 Bad Request.
 
-**Understanding Opening Stock (`quantity_in_stock`):**
-Opening stock (or beginning inventory) is the amount of physical stock you already have on hand at the exact moment you register this product in the system (e.g., migrating from an old software or spreadsheet).
-- **Optional**: It is completely optional because you might be creating a product before physically having it in your warehouse (expecting to order it soon) or because it's a non-physical service.
-- **Strict Ledger Rules**: If `track_inventory` is `True`, the system strictly enforces the inventory ledger. This means `current_stock` is read-only and is calculated entirely from ledger transactions (shipments, returns, sales). Setting `quantity_in_stock` here is your *only* chance to declare a starting balance for the ledger without executing an explicit receipt/adjustment transaction.
-
-Where the values come from:
-
-- `category`: GET `/api/products/categories/`
-- `brand`: GET `/api/products/brands/`
-- `warehouse_id`: GET `/api/warehouse/warehouses/` (optional, needed if `quantity_in_stock` > 0).
-
-`track_inventory` is a boolean. If `True`, inventory ledger is strictly enforced. `quantity_in_stock` is optional. `current_stock` cannot be modified here.""",
+### Plan Limits & Subscription Invariants (PRD §10, §52):
+- **Active Subscription**: Validates `ensure_subscription_active(organization)`. Inactive/expired subscriptions reject creation with `SUBSCRIPTION_REQUIRED` (HTTP 402).
+- **Product Quota**: Evaluates `check_plan_limit(organization, 'max_products', active_count)`. Exceeding plan limit returns HTTP 402/403. Archived products are excluded.
+- **Monthly Transactions**: If opening stock is provisioned, the initial transaction counts toward `max_transactions_per_month`.
+- **Warehouse Quota**: The `warehouse_id` for opening stock must be active within `max_locations`.""",
         examples=[
             OpenApiExample(
-                name="Complete Product Payload",
+                name="Complete Product Payload with Opening Stock",
                 value=PRODUCT_CREATE_EXAMPLE,
                 request_only=True
             )
@@ -82,12 +106,26 @@ Where the values come from:
     retrieve=extend_schema(
         tags=['Products'],
         summary="Retrieve a Product",
-        description="Fetch a specific product by its ID."
+        description="""Fetch a single product by its UUID.
+
+### Field-Level Security (PRD §55):
+- `purchase_cost`, `vendor_sale_cost`, and nested `batches[].cost_price` are dynamically omitted if the caller lacks `VIEW_PRODUCT_COSTS`.
+
+### Cross-Tenant Isolation:
+- Requesting a product belonging to another tenant returns HTTP 404 Not Found (never 403, preventing resource enumeration).""",
     ),
     update=extend_schema(
         tags=['Products'],
         summary="Update a Product",
-        description="Fully update a product. Can also update nested relations.",
+        description="""Fully update a product and synchronize child relations.
+
+### Business Rules:
+- Requires `EDIT_PRODUCT`.
+- Modifying `customer_sale_price` requires `EDIT_SELLING_PRICE`.
+- Modifying `purchase_cost` or `vendor_sale_cost` requires `EDIT_PRODUCT_COSTS`.
+- Nested `bulk_discounts` and `unit_conversions` are fully replaced.
+- Existing `batches` are updated by `batch_number` or newly created.
+- Opening stock fields (`quantity_in_stock`, `warehouse_id`) are ignored on update.""",
         examples=[
             OpenApiExample(
                 name="Update Product Payload",
@@ -99,11 +137,19 @@ Where the values come from:
     partial_update=extend_schema(
         tags=['Products'],
         summary="Partially Update a Product",
-        description="Partially update a product's fields."
+        description="""Partially update selected fields on a product (e.g. updating only `customer_sale_price` or `status`).
+
+### Permissions:
+- Changing price requires `EDIT_SELLING_PRICE`.
+- Changing costs requires `EDIT_PRODUCT_COSTS`.""",
     ),
     destroy=extend_schema(
         tags=['Products'],
-        summary="Delete a Product",
-        description="Removes a product from the database."
+        summary="Delete or Archive a Product",
+        description="""Deletes or archives a product based on inventory history invariants (PRD §44 & §60).
+
+### Invariant Handling:
+- **Clean Delete**: If the product has zero inventory ledger entries or sales transactions, it is hard-deleted from the database (HTTP 204 No Content).
+- **Protected Archival**: If the product has existing stock movements or sales history, `ProtectedError` is trapped, the product is automatically soft-archived (`status = 'archived'`), an audit log `PRODUCT_ARCHIVED` is emitted, and HTTP 200 OK is returned with an explanatory message.""",
     ),
 )
