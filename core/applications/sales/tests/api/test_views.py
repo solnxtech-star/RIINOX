@@ -266,3 +266,294 @@ class SalesAPITest(APITestCase):
             "items": []
         }, format="json")
         self.assertEqual(create_resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    # -------------------------------------------------------------------------
+    # Authentication & Inactive Membership Tests
+    # -------------------------------------------------------------------------
+    def test_unauthenticated_cannot_access_sales_endpoints(self):
+        """Unauthenticated requests are rejected with 401 Unauthorized."""
+        self.client.logout()
+
+        # 1. Sales list
+        resp_list = self.client.get("/api/sales/")
+        self.assertEqual(resp_list.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        # 2. Sales detail
+        resp_detail = self.client.get(f"/api/sales/{self.sale.id}/")
+        self.assertEqual(resp_detail.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        # 3. Sales create
+        resp_create = self.client.post("/api/sales/", {}, format="json")
+        self.assertEqual(resp_create.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        # 4. Returns list
+        resp_ret_list = self.client.get("/api/sales/returns/")
+        self.assertEqual(resp_ret_list.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        # 5. Returns create
+        resp_ret_create = self.client.post("/api/sales/returns/", {}, format="json")
+        self.assertEqual(resp_ret_create.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_inactive_membership_blocks_sales_access(self):
+        """User with inactive membership (is_active=False) cannot access sales."""
+        inactive_user = UserFactory()
+        Membership.objects.create(
+            user=inactive_user,
+            organization=self.org,
+            role=self.roles["sales-representative"],
+            is_active=False,
+        )
+        self.client.force_authenticate(user=inactive_user)
+
+        # Cannot list sales -> 403
+        resp_list = self.client.get("/api/sales/")
+        self.assertEqual(resp_list.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Cannot retrieve sale -> 404 Not Found (tenant-isolated queryset hides non-member resources)
+        resp_detail = self.client.get(f"/api/sales/{self.sale.id}/")
+        self.assertEqual(resp_detail.status_code, status.HTTP_404_NOT_FOUND)
+
+        # Cannot create sale -> 403
+        resp_create = self.client.post("/api/sales/", {
+            "organization": str(self.org.id),
+            "customer": str(self.customer.id),
+            "location": str(self.location.id),
+            "items": []
+        }, format="json")
+        self.assertEqual(resp_create.status_code, status.HTTP_403_FORBIDDEN)
+
+    # -------------------------------------------------------------------------
+    # Granular Role Permission Tests
+    # -------------------------------------------------------------------------
+    def test_user_lacking_view_sales_cannot_list_or_retrieve(self):
+        """Teacher/Staff lacks VIEW_SALES: cannot list or retrieve sales."""
+        teacher_user = UserFactory()
+        Membership.objects.create(
+            user=teacher_user,
+            organization=self.org,
+            role=self.roles["teacher-staff"],
+            is_active=True,
+        )
+        self.client.force_authenticate(user=teacher_user)
+
+        # List -> 403
+        resp_list = self.client.get("/api/sales/")
+        self.assertEqual(resp_list.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Detail -> 403
+        resp_detail = self.client.get(f"/api/sales/{self.sale.id}/")
+        self.assertEqual(resp_detail.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_accountant_can_view_sales_but_cannot_create_sales(self):
+        """Accountant holds VIEW_SALES but lacks CREATE_SALE."""
+        accountant = UserFactory()
+        Membership.objects.create(
+            user=accountant,
+            organization=self.org,
+            role=self.roles["accountant"],
+            is_active=True,
+        )
+        self.client.force_authenticate(user=accountant)
+
+        # Can list -> 200
+        resp_list = self.client.get("/api/sales/")
+        self.assertEqual(resp_list.status_code, status.HTTP_200_OK)
+
+        # Can retrieve -> 200
+        resp_detail = self.client.get(f"/api/sales/{self.sale.id}/")
+        self.assertEqual(resp_detail.status_code, status.HTTP_200_OK)
+
+        # Cannot create sale -> 403
+        resp_create = self.client.post("/api/sales/", {
+            "organization": str(self.org.id),
+            "customer": str(self.customer.id),
+            "location": str(self.location.id),
+            "items": [
+                {
+                    "product": str(self.product.id),
+                    "product_name": self.product.name,
+                    "quantity": 1,
+                    "unit_price": "10.00",
+                }
+            ]
+        }, format="json")
+        self.assertEqual(resp_create.status_code, status.HTTP_403_FORBIDDEN)
+
+    # -------------------------------------------------------------------------
+    # Cross-Tenant Resource Validation Tests
+    # -------------------------------------------------------------------------
+    def test_cross_tenant_customer_rejected_on_sale_create(self):
+        """Cannot create sale in Org A with customer belonging to Org B."""
+        other_customer = Customer.objects.create(organization=self.other_org, name="Foreign Customer")
+        data = {
+            "organization": str(self.org.id),
+            "customer": str(other_customer.id),
+            "location": str(self.location.id),
+            "items": [
+                {
+                    "product": str(self.product.id),
+                    "product_name": self.product.name,
+                    "quantity": 1,
+                    "unit_price": "10.00",
+                }
+            ]
+        }
+        resp = self.client.post("/api/sales/", data, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        errors = resp.data.get("errors", resp.data)
+        self.assertIn("customer", errors)
+
+    def test_cross_tenant_location_rejected_on_sale_create(self):
+        """Cannot create sale in Org A with stock location belonging to Org B."""
+        other_location = StockLocationFactory(warehouse__organization=self.other_org)
+        data = {
+            "organization": str(self.org.id),
+            "customer": str(self.customer.id),
+            "location": str(other_location.id),
+            "items": [
+                {
+                    "product": str(self.product.id),
+                    "product_name": self.product.name,
+                    "quantity": 1,
+                    "unit_price": "10.00",
+                }
+            ]
+        }
+        resp = self.client.post("/api/sales/", data, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        errors = resp.data.get("errors", resp.data)
+        self.assertIn("location", errors)
+
+    def test_cross_tenant_product_rejected_on_sale_create(self):
+        """Cannot create sale in Org A selling product belonging to Org B."""
+        other_product = ProductFactory(organization=self.other_org)
+        data = {
+            "organization": str(self.org.id),
+            "customer": str(self.customer.id),
+            "location": str(self.location.id),
+            "items": [
+                {
+                    "product": str(other_product.id),
+                    "product_name": other_product.name,
+                    "quantity": 1,
+                    "unit_price": "10.00",
+                }
+            ]
+        }
+        resp = self.client.post("/api/sales/", data, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        errors = resp.data.get("errors", resp.data)
+        self.assertIn("items", errors)
+
+    def test_cross_tenant_sale_return_rejected(self):
+        """Cannot create sale return in Org A referencing a sale from Org B."""
+        other_location = StockLocationFactory(warehouse__organization=self.other_org)
+        other_customer = Customer.objects.create(organization=self.other_org, name="Foreign Customer")
+        other_sale = Sale.objects.create(
+            sale_id=f"SALE-{uuid.uuid4().hex[:6]}",
+            organization=self.other_org,
+            customer=other_customer,
+            location=other_location,
+            sales_rep=self.other_user,
+            subtotal=Decimal("50.00"),
+            total=Decimal("50.00"),
+        )
+        data = {
+            "organization": str(self.org.id),
+            "original_sale": str(other_sale.id),
+            "return_reason": "Attempt cross-tenant return",
+            "refund_amount": "10.00",
+            "items": []
+        }
+        resp = self.client.post("/api/sales/returns/", data, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        errors = resp.data.get("errors", resp.data)
+        self.assertIn("original_sale", errors)
+
+    def test_sale_return_item_must_belong_to_original_sale(self):
+        """Sale return items must belong to the referenced original sale."""
+        # Create second sale in self.org with its own item
+        second_sale = Sale.objects.create(
+            sale_id=f"SALE-{uuid.uuid4().hex[:6]}",
+            organization=self.org,
+            customer=self.customer,
+            location=self.location,
+            sales_rep=self.owner,
+            subtotal=Decimal("20.00"),
+            total=Decimal("20.00"),
+        )
+        unrelated_item = SaleItem.objects.create(
+            sale=second_sale,
+            product=self.product,
+            product_name=self.product.name,
+            quantity=1,
+            unit_price=Decimal("20.00"),
+        )
+
+        data = {
+            "organization": str(self.org.id),
+            "original_sale": str(self.sale.id),
+            "return_reason": "Returning unrelated item",
+            "refund_amount": "20.00",
+            "items": [
+                {
+                    "sale_item": str(unrelated_item.id),
+                    "quantity": 1,
+                    "refund_amount": "20.00",
+                }
+            ]
+        }
+        resp = self.client.post("/api/sales/returns/", data, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        errors = resp.data.get("errors", resp.data)
+        self.assertIn("items", errors)
+
+    def test_multi_org_user_scopes_sales_by_query_param(self):
+        """
+        User belonging to Org A and Org B:
+        - Defaults to primary org (Org A)
+        - ?organization=<org_b> switches scope to Org B
+        - ?organization=<foreign_org> is rejected with 403 Forbidden
+        """
+        # Add owner to other_org
+        Membership.objects.create(
+            user=self.owner,
+            organization=self.other_org,
+            role=self.other_roles["owner"],
+            is_active=True,
+        )
+
+        # Create sale in other_org
+        other_location = StockLocationFactory(warehouse__organization=self.other_org)
+        other_customer = Customer.objects.create(organization=self.other_org, name="Foreign Customer")
+        other_sale = Sale.objects.create(
+            sale_id=f"SALE-{uuid.uuid4().hex[:6]}",
+            organization=self.other_org,
+            customer=other_customer,
+            location=other_location,
+            sales_rep=self.other_user,
+            subtotal=Decimal("45.00"),
+            total=Decimal("45.00"),
+        )
+
+        # 1. Default request -> scopes to primary (self.org)
+        resp_default = self.client.get("/api/sales/")
+        self.assertEqual(resp_default.status_code, status.HTTP_200_OK)
+        results = resp_default.data.get('results', []) if isinstance(resp_default.data, dict) else resp_default.data
+        ids = [str(r['id']).replace('-', '') for r in results]
+        self.assertIn(str(self.sale.id).replace('-', ''), ids)
+        self.assertNotIn(str(other_sale.id).replace('-', ''), ids)
+
+        # 2. Query param ?organization=<other_org.id> -> scopes to other_org
+        resp_other = self.client.get(f"/api/sales/?organization={self.other_org.id}")
+        self.assertEqual(resp_other.status_code, status.HTTP_200_OK)
+        other_results = resp_other.data.get('results', []) if isinstance(resp_other.data, dict) else resp_other.data
+        other_ids = [str(r['id']).replace('-', '') for r in other_results]
+        self.assertNotIn(str(self.sale.id).replace('-', ''), other_ids)
+        self.assertIn(str(other_sale.id).replace('-', ''), other_ids)
+
+        # 3. Foreign organization where user has no membership -> 403 Forbidden
+        foreign_org = OrganizationFactory()
+        resp_foreign = self.client.get(f"/api/sales/?organization={foreign_org.id}")
+        self.assertEqual(resp_foreign.status_code, status.HTTP_403_FORBIDDEN)
+

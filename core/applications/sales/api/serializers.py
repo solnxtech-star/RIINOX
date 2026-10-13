@@ -52,6 +52,21 @@ class SaleCreateSerializer(serializers.ModelSerializer):
         user = getattr(request, "user", None)
         org = attrs.get("organization") or (self.instance.organization if self.instance else None)
 
+        if org:
+            customer = attrs.get("customer")
+            if customer and customer.organization_id != org.id:
+                raise serializers.ValidationError({"customer": "Customer does not belong to this organization."})
+
+            location = attrs.get("location")
+            if location and hasattr(location, "warehouse") and location.warehouse.organization_id != org.id:
+                raise serializers.ValidationError({"location": "Location does not belong to this organization."})
+
+            items = attrs.get("items", [])
+            for item in items:
+                prod = item.get("product")
+                if prod and prod.organization_id != org.id:
+                    raise serializers.ValidationError({"items": f"Product '{prod.name}' does not belong to this organization."})
+
         if org and user and user.is_authenticated:
             from core.applications.users.services import has_org_permission
             from core.helper.enums import PermissionCode
@@ -99,3 +114,22 @@ class SaleReturnCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = SaleReturn
         fields = ['original_sale', 'organization', 'return_reason', 'refund_amount', 'refund_method', 'items']
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        org = attrs.get("organization") or (self.instance.organization if self.instance else None)
+        original_sale = attrs.get("original_sale")
+
+        if org and original_sale:
+            if original_sale.organization_id != org.id:
+                raise serializers.ValidationError({"original_sale": "Original sale does not belong to this organization."})
+
+        items = attrs.get("items", [])
+        if original_sale:
+            valid_sale_item_ids = set(original_sale.items.values_list("id", flat=True))
+            for item in items:
+                sale_item = item.get("sale_item")
+                if sale_item and sale_item.id not in valid_sale_item_ids:
+                    raise serializers.ValidationError({"items": "Sale item does not belong to the original sale."})
+
+        return attrs

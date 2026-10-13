@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-update adminfrom core.applications.transactions.models import Customer, FinancialLedgerEntry, Transaction
+from core.applications.transactions.models import Customer, FinancialLedgerEntry, Transaction
 
 
 class FinancialLedgerEntryInline(admin.TabularInline):

@@ -21,11 +21,19 @@ class SaleViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
+        if not user.is_authenticated:
+            return Sale.objects.none()
+
         qs = Sale.objects.for_user(user).with_details()
         org_id = self.request.query_params.get('organization') or self.request.headers.get('X-Organization-ID')
         if org_id:
-            qs = qs.for_organization(org_id)
-        return qs
+            return qs.for_organization(org_id)
+
+        current_org = getattr(user, "organization", None)
+        if current_org:
+            return qs.for_organization(current_org)
+
+        return Sale.objects.none()
 
     def get_serializer_class(self):
         if self.action in ['create', 'update', 'partial_update']:
@@ -47,11 +55,19 @@ class SaleReturnViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
+        if not user.is_authenticated:
+            return SaleReturn.objects.none()
+
         qs = SaleReturn.objects.for_user(user).with_details()
         org_id = self.request.query_params.get('organization') or self.request.headers.get('X-Organization-ID')
         if org_id:
-            qs = qs.for_organization(org_id)
-        return qs
+            return qs.for_organization(org_id)
+
+        current_org = getattr(user, "organization", None)
+        if current_org:
+            return qs.for_organization(current_org)
+
+        return SaleReturn.objects.none()
 
     def get_serializer_class(self):
         if self.action in ['create', 'update', 'partial_update']:
