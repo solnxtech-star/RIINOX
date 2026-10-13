@@ -89,12 +89,16 @@ class ProductAPITest(APITestCase):
         # Authenticate default client as owner
         self.client.force_authenticate(user=self.owner)
 
+    @property
+    def products_url(self):
+        return f"/api/organizations/{self.org.id}/products/"
+
     # -------------------------------------------------------------------------
     # Owner / Admin Full Lifecycle Tests
     # -------------------------------------------------------------------------
     def test_owner_list_products_scoped_and_shape(self):
         """Owner can list products; response includes full schema and is scoped to their tenant."""
-        url = "/api/products/"
+        url = self.products_url
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -112,10 +116,9 @@ class ProductAPITest(APITestCase):
 
     def test_owner_create_product_round_trip(self):
         """Owner creates product with nested batches; verify response shape, DB state, and GET round-trip."""
-        url = "/api/products/"
+        url = self.products_url
         sku = f"SKU-{uuid.uuid4().hex[:6]}"
         data = {
-            "organization": str(self.org.id),
             "name": "Owner Created Product",
             "sku": sku,
             "customer_sale_price": "50.00",
@@ -140,7 +143,7 @@ class ProductAPITest(APITestCase):
         self.assertEqual(created_db_prod.batches.first().batch_number, "BATCH-OWNER-01")
 
         # Round-Trip Test (POST -> GET)
-        get_url = f"/api/products/{created_id}/"
+        get_url = f"{self.products_url}{created_id}/"
         get_resp = self.client.get(get_url)
         self.assertEqual(get_resp.status_code, status.HTTP_200_OK)
         self.assertCountEqual(get_resp.data.keys(), EXPECTED_PRODUCT_FIELDS)
@@ -150,7 +153,7 @@ class ProductAPITest(APITestCase):
 
     def test_owner_retrieve_product(self):
         """Owner retrieves product; all cost fields are returned."""
-        url = f"/api/products/{self.product.id}/"
+        url = f"{self.products_url}{self.product.id}/"
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertCountEqual(response.data.keys(), EXPECTED_PRODUCT_FIELDS)
@@ -159,7 +162,7 @@ class ProductAPITest(APITestCase):
 
     def test_owner_update_product(self):
         """Owner can update product attributes and price."""
-        url = f"/api/products/{self.product.id}/"
+        url = f"{self.products_url}{self.product.id}/"
         data = {
             "name": "Updated Org1 Product",
             "customer_sale_price": "35.00"
@@ -173,7 +176,7 @@ class ProductAPITest(APITestCase):
 
     def test_owner_delete_product(self):
         """Owner can archive/delete a product."""
-        url = f"/api/products/{self.product.id}/"
+        url = f"{self.products_url}{self.product.id}/"
         response = self.client.delete(url)
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(Product.objects.filter(id=self.product.id).exists())
@@ -186,7 +189,7 @@ class ProductAPITest(APITestCase):
         self.client.force_authenticate(user=self.sales_rep)
 
         # List
-        list_resp = self.client.get("/api/products/")
+        list_resp = self.client.get(self.products_url)
         self.assertEqual(list_resp.status_code, status.HTTP_200_OK)
         results = list_resp.data.get("results", list_resp.data)
         self.assertGreaterEqual(len(results), 1)
@@ -196,7 +199,7 @@ class ProductAPITest(APITestCase):
         self.assertNotIn("vendor_sale_cost", first_item)
 
         # Retrieve
-        get_resp = self.client.get(f"/api/products/{self.product.id}/")
+        get_resp = self.client.get(f"{self.products_url}{self.product.id}/")
         self.assertEqual(get_resp.status_code, status.HTTP_200_OK)
         self.assertCountEqual(get_resp.data.keys(), EXPECTED_PRODUCT_FIELDS_NO_COSTS)
         self.assertNotIn("purchase_cost", get_resp.data)
@@ -207,8 +210,7 @@ class ProductAPITest(APITestCase):
         self.client.force_authenticate(user=self.sales_rep)
 
         # Attempt Create
-        post_resp = self.client.post("/api/products/", {
-            "organization": str(self.org.id),
+        post_resp = self.client.post(self.products_url, {
             "name": "Unauthorized Product",
             "sku": "SKU-UNAUTH-01",
             "customer_sale_price": "20.00"
@@ -216,15 +218,17 @@ class ProductAPITest(APITestCase):
         self.assertEqual(post_resp.status_code, status.HTTP_403_FORBIDDEN)
 
         # Attempt Update
-        patch_resp = self.client.patch(f"/api/products/{self.product.id}/", {
+        patch_resp = self.client.patch(f"{self.products_url}{self.product.id}/", {
             "name": "Tampered Name"
         }, format="json")
         self.assertEqual(patch_resp.status_code, status.HTTP_403_FORBIDDEN)
 
         # Attempt Delete
-        delete_resp = self.client.delete(f"/api/products/{self.product.id}/")
+        delete_resp = self.client.delete(f"{self.products_url}{self.product.id}/")
         self.assertEqual(delete_resp.status_code, status.HTTP_403_FORBIDDEN)
 
+    # -------------------------------------------------------------------------
+    # Manager Permissions & Cost Protection Tests
     # -------------------------------------------------------------------------
     # Manager Permissions & Cost Protection Tests
     # -------------------------------------------------------------------------
@@ -233,8 +237,7 @@ class ProductAPITest(APITestCase):
         self.client.force_authenticate(user=self.manager)
 
         # Attempt Create with purchase_cost
-        post_resp = self.client.post("/api/products/", {
-            "organization": str(self.org.id),
+        post_resp = self.client.post(self.products_url, {
             "name": "Manager Product With Cost",
             "sku": f"SKU-{uuid.uuid4().hex[:6]}",
             "customer_sale_price": "45.00",
@@ -245,7 +248,7 @@ class ProductAPITest(APITestCase):
         self.assertIn("purchase_cost", errors)
 
         # Attempt Patch with purchase_cost
-        patch_resp = self.client.patch(f"/api/products/{self.product.id}/", {
+        patch_resp = self.client.patch(f"{self.products_url}{self.product.id}/", {
             "purchase_cost": "20.00"
         }, format="json")
         self.assertEqual(patch_resp.status_code, status.HTTP_400_BAD_REQUEST)
@@ -257,8 +260,7 @@ class ProductAPITest(APITestCase):
         self.client.force_authenticate(user=self.manager)
 
         sku = f"SKU-{uuid.uuid4().hex[:6]}"
-        post_resp = self.client.post("/api/products/", {
-            "organization": str(self.org.id),
+        post_resp = self.client.post(self.products_url, {
             "name": "Manager Legal Product",
             "sku": sku,
             "customer_sale_price": "45.00"
@@ -267,12 +269,12 @@ class ProductAPITest(APITestCase):
         created_id = post_resp.data["id"]
 
         # Follow-up GET: costs are hidden from manager
-        get_resp = self.client.get(f"/api/products/{created_id}/")
+        get_resp = self.client.get(f"{self.products_url}{created_id}/")
         self.assertEqual(get_resp.status_code, status.HTTP_200_OK)
         self.assertNotIn("purchase_cost", get_resp.data)
 
         # Manager can update selling price
-        patch_resp = self.client.patch(f"/api/products/{self.product.id}/", {
+        patch_resp = self.client.patch(f"{self.products_url}{self.product.id}/", {
             "customer_sale_price": "29.99"
         }, format="json")
         self.assertEqual(patch_resp.status_code, status.HTTP_200_OK)
@@ -286,49 +288,51 @@ class ProductAPITest(APITestCase):
         """User from Org 2 cannot retrieve, update, delete, or list Org 1 products."""
         self.client.force_authenticate(user=self.other_user)
 
-        # List must not include Org 1 product
-        list_resp = self.client.get("/api/products/")
-        self.assertEqual(list_resp.status_code, status.HTTP_200_OK)
-        results = list_resp.data.get("results", list_resp.data)
+        # Accessing Org 1 endpoint directly -> 404 Not Found
+        list_resp = self.client.get(f"/api/organizations/{self.org.id}/products/")
+        self.assertEqual(list_resp.status_code, status.HTTP_404_NOT_FOUND)
+
+        # Listing Org 2 products succeeds and only contains Org 2 products
+        own_list = self.client.get(f"/api/organizations/{self.other_org.id}/products/")
+        self.assertEqual(own_list.status_code, status.HTTP_200_OK)
+        results = own_list.data.get("results", own_list.data)
         product_ids = [r["id"].replace("-", "") for r in results]
         self.assertNotIn(str(self.product.id).replace("-", ""), product_ids)
         self.assertIn(str(self.other_product.id).replace("-", ""), product_ids)
 
         # Retrieve Org 1 product -> 404 Not Found
-        get_resp = self.client.get(f"/api/products/{self.product.id}/")
+        get_resp = self.client.get(f"/api/organizations/{self.org.id}/products/{self.product.id}/")
         self.assertEqual(get_resp.status_code, status.HTTP_404_NOT_FOUND)
 
         # Update Org 1 product -> 404 Not Found
-        patch_resp = self.client.patch(f"/api/products/{self.product.id}/", {"name": "Hacked"}, format="json")
+        patch_resp = self.client.patch(f"/api/organizations/{self.org.id}/products/{self.product.id}/", {"name": "Hacked"}, format="json")
         self.assertEqual(patch_resp.status_code, status.HTTP_404_NOT_FOUND)
 
         # Delete Org 1 product -> 404 Not Found
-        del_resp = self.client.delete(f"/api/products/{self.product.id}/")
+        del_resp = self.client.delete(f"/api/organizations/{self.org.id}/products/{self.product.id}/")
         self.assertEqual(del_resp.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_tenant_isolation_cannot_create_product_in_unauthorized_org(self):
-        """User from Org 2 cannot create a product specifying Org 1 ID -> 403 Forbidden."""
+        """User from Org 2 cannot create a product in Org 1 URL path -> 404 Not Found."""
         self.client.force_authenticate(user=self.other_user)
 
-        post_resp = self.client.post("/api/products/", {
-            "organization": str(self.org.id),
+        post_resp = self.client.post(f"/api/organizations/{self.org.id}/products/", {
             "name": "Cross Tenant Intrusion",
             "sku": "SKU-CROSS-01",
             "customer_sale_price": "10.00"
         }, format="json")
-        self.assertEqual(post_resp.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(post_resp.status_code, status.HTTP_404_NOT_FOUND)
 
     # -------------------------------------------------------------------------
     # Negative Validation Tests
     # -------------------------------------------------------------------------
     def test_negative_validation_missing_required_fields(self):
-        """Missing required fields (name, sku, organization) returns 400 Bad Request."""
-        response = self.client.post("/api/products/", {}, format="json")
+        """Missing required fields (name, sku) returns 400 Bad Request."""
+        response = self.client.post(self.products_url, {}, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         errors = response.data.get("errors", response.data)
         self.assertIn("name", errors)
         self.assertIn("sku", errors)
-        self.assertIn("organization", errors)
 
     # -------------------------------------------------------------------------
     # Cross-Tenant Category, Brand & Warehouse Validation Tests
@@ -336,8 +340,7 @@ class ProductAPITest(APITestCase):
     def test_cannot_create_product_with_other_org_category(self):
         """Cannot assign a Category belonging to another organization -> 400 Bad Request."""
         other_cat = Category.objects.create(organization=self.other_org, name="Foreign Category")
-        response = self.client.post("/api/products/", {
-            "organization": str(self.org.id),
+        response = self.client.post(self.products_url, {
             "name": "Invalid Category Product",
             "sku": f"SKU-{uuid.uuid4().hex[:6]}",
             "customer_sale_price": "20.00",
@@ -351,8 +354,7 @@ class ProductAPITest(APITestCase):
     def test_cannot_create_product_with_other_org_brand(self):
         """Cannot assign a Brand belonging to another organization -> 400 Bad Request."""
         other_brand = Brand.objects.create(organization=self.other_org, name="Foreign Brand")
-        response = self.client.post("/api/products/", {
-            "organization": str(self.org.id),
+        response = self.client.post(self.products_url, {
             "name": "Invalid Brand Product",
             "sku": f"SKU-{uuid.uuid4().hex[:6]}",
             "customer_sale_price": "20.00",
@@ -370,8 +372,7 @@ class ProductAPITest(APITestCase):
             name="Foreign Warehouse",
             code=f"WH-{uuid.uuid4().hex[:4]}",
         )
-        response = self.client.post("/api/products/", {
-            "organization": str(self.org.id),
+        response = self.client.post(self.products_url, {
             "name": "Invalid Warehouse Product",
             "sku": f"SKU-{uuid.uuid4().hex[:6]}",
             "customer_sale_price": "20.00",
@@ -388,8 +389,7 @@ class ProductAPITest(APITestCase):
         cat = Category.objects.create(organization=self.org, name="My Org Category")
         brand = Brand.objects.create(organization=self.org, name="My Org Brand")
         sku = f"SKU-{uuid.uuid4().hex[:6]}"
-        response = self.client.post("/api/products/", {
-            "organization": str(self.org.id),
+        response = self.client.post(self.products_url, {
             "name": "Valid Scoped Product",
             "sku": sku,
             "customer_sale_price": "25.00",
@@ -405,7 +405,7 @@ class ProductAPITest(APITestCase):
         """Cannot patch an existing product with another organization's Category or Brand -> 400 Bad Request."""
         other_cat = Category.objects.create(organization=self.other_org, name="Foreign Cat 2")
         patch_resp = self.client.patch(
-            f"/api/products/{self.product.id}/",
+            f"{self.products_url}{self.product.id}/",
             {"category": str(other_cat.id)},
             format="json",
         )
@@ -415,14 +415,13 @@ class ProductAPITest(APITestCase):
 
         other_brand = Brand.objects.create(organization=self.other_org, name="Foreign Brand 2")
         patch_resp = self.client.patch(
-            f"/api/products/{self.product.id}/",
+            f"{self.products_url}{self.product.id}/",
             {"brand": str(other_brand.id)},
             format="json",
         )
         self.assertEqual(patch_resp.status_code, status.HTTP_400_BAD_REQUEST)
         errors = patch_resp.data.get("errors", patch_resp.data)
         self.assertIn("brand", errors)
-
 
     def test_model_clean_enforces_category_and_brand_tenant_scope(self):
         """Model-level clean() directly raises ValidationError for foreign Category or Brand."""
@@ -449,11 +448,9 @@ class ProductAPITest(APITestCase):
             prod_invalid_brand.clean()
         self.assertIn("brand", cm.exception.message_dict)
 
-    def test_list_products_scopes_to_current_user_organization_by_default(self):
+    def test_multi_org_user_scopes_products_by_url_path(self):
         """
-        When a user belongs to multiple organizations, GET /api/products/
-        without ?organization scopes by default to their current (primary) organization.
-        Supplying ?organization=<org_id> explicitly switches scope to that tenant.
+        When a user belongs to multiple organizations, URL path determines tenant scope deterministically.
         """
         # Add owner as an active member of other_org as well
         Membership.objects.create(
@@ -463,21 +460,25 @@ class ProductAPITest(APITestCase):
             is_active=True,
         )
 
-        url = "/api/products/"
-        # 1. Without organization parameter -> scopes to self.owner.organization (self.org)
-        resp_default = self.client.get(url)
+        # 1. Primary organization path -> scopes to self.org
+        resp_default = self.client.get(self.products_url)
         self.assertEqual(resp_default.status_code, status.HTTP_200_OK)
         results_default = resp_default.data.get("results", resp_default.data)
         ids_default = [r["id"].replace("-", "") for r in results_default]
         self.assertIn(str(self.product.id).replace("-", ""), ids_default)
         self.assertNotIn(str(self.other_product.id).replace("-", ""), ids_default)
 
-        # 2. With explicit query param ?organization=<other_org.id> -> scopes to other_org
-        resp_other = self.client.get(f"{url}?organization={self.other_org.id}")
+        # 2. Secondary organization path -> scopes to other_org
+        resp_other = self.client.get(f"/api/organizations/{self.other_org.id}/products/")
         self.assertEqual(resp_other.status_code, status.HTTP_200_OK)
         results_other = resp_other.data.get("results", resp_other.data)
         ids_other = [r["id"].replace("-", "") for r in results_other]
         self.assertNotIn(str(self.product.id).replace("-", ""), ids_other)
         self.assertIn(str(self.other_product.id).replace("-", ""), ids_other)
+
+        # 3. Foreign organization where user has no membership -> 404 Not Found
+        foreign_org = OrganizationFactory()
+        resp_foreign = self.client.get(f"/api/organizations/{foreign_org.id}/products/")
+        self.assertEqual(resp_foreign.status_code, status.HTTP_404_NOT_FOUND)
 
 

@@ -29,8 +29,12 @@ class InventoryAPITest(APITestCase):
         
         create_opening_stock(self.product, None, None, self.warehouse, 100, self.user)
 
+    @property
+    def base_url(self):
+        return f"/api/organizations/{self.org.id}/inventory"
+
     def test_list_inventory(self):
-        url = "/api/balances/"
+        url = f"{self.base_url}/balances/"
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         # Check if the opened stock is returned
@@ -38,14 +42,14 @@ class InventoryAPITest(APITestCase):
         self.assertGreaterEqual(len(results), 1)
 
     def test_list_inventory_ledger_entries(self):
-        url = "/api/ledger/"
+        url = f"{self.base_url}/ledger/"
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         results = response.data.get('results', []) if isinstance(response.data, dict) else response.data
         self.assertGreaterEqual(len(results), 1)
 
     def test_create_stock_adjustment(self):
-        url = "/api/adjustments/"
+        url = f"{self.base_url}/adjustments/"
         data = {
             "product": self.product.id,
             "warehouse": self.warehouse.id,
@@ -53,13 +57,11 @@ class InventoryAPITest(APITestCase):
             "adjustment_reason": "wrong_entry"
         }
         response = self.client.post(url, data, format='json')
-        # DRF generic view validation requires proper fields
-        self.assertIn(response.status_code, [status.HTTP_201_CREATED, status.HTTP_400_BAD_REQUEST])
-        if response.status_code == status.HTTP_201_CREATED:
-            self.assertTrue(StockAdjustmentRequest.objects.filter(product=self.product).exists())
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(StockAdjustmentRequest.objects.filter(product=self.product).exists())
 
     def test_stock_transfer(self):
-        url = "/api/transfers/execute/"
+        url = f"{self.base_url}/transfers/execute/"
         data = {
             "source_warehouse_id": self.warehouse.id,
             "destination_warehouse_id": self.warehouse2.id,
@@ -74,3 +76,15 @@ class InventoryAPITest(APITestCase):
         
         self.assertEqual(inv_src.quantity, 80)
         self.assertEqual(inv_dst.quantity, 20)
+
+    def test_tenant_isolation_inventory(self):
+        """User cannot access other organization's inventory endpoints -> 404 Not Found."""
+        other_org = OrganizationFactory()
+        resp = self.client.get(f"/api/organizations/{other_org.id}/inventory/balances/")
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_unauthenticated_inventory(self):
+        """Unauthenticated user is rejected with 401."""
+        self.client.logout()
+        resp = self.client.get(f"{self.base_url}/balances/")
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)

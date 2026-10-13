@@ -105,7 +105,15 @@ class OrganizationScopedMixin:
 
     @property
     def organization(self):
-        return self.membership.organization
+        mem = self.membership
+        if mem:
+            return mem.organization
+        user = getattr(getattr(self, "request", None), "user", None)
+        if user and getattr(user, "is_superuser", False):
+            org_id = self.kwargs.get("organization_id") or self.kwargs.get("organization_pk")
+            if org_id:
+                return Organization.objects.filter(pk=org_id, is_active=True).first()
+        return None
 
 
 def resolve_request_organization(
@@ -187,6 +195,17 @@ class BaseTenantPermission(BasePermission):
         if not required_code:
             return True
 
+        # When organization is in the URL path, enforce membership and permission strictly
+        org_in_url = None
+        if view is not None and hasattr(view, "kwargs") and isinstance(view.kwargs, dict):
+            org_in_url = view.kwargs.get("organization_id") or view.kwargs.get("organization_pk")
+
+        if org_in_url:
+            membership = resolve_active_membership(request, view)
+            if membership is None:
+                raise NotFound("Organization not found.")
+            return services.has_org_permission(request.user, membership.organization, required_code)
+
         action = getattr(view, "action", None)
 
         if action == "create":
@@ -222,6 +241,8 @@ class BaseTenantPermission(BasePermission):
             return True
 
         org = getattr(obj, "organization", obj if isinstance(obj, Organization) else None)
+        if org is None and hasattr(obj, "warehouse"):
+            org = getattr(obj.warehouse, "organization", None)
         if org is None:
             return True
 

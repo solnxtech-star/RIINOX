@@ -19,20 +19,20 @@ from core.helper.enums import PurchaseStatusChoices
 
 
 from core.applications.purchase.api.permissions import PurchasePermission
+from core.applications.users.permissions import OrganizationScopedMixin
 
 
 @purchase_schema
-class PurchaseViewSet(viewsets.ModelViewSet):
+class PurchaseViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
     queryset = Purchase.objects.none()
     permission_classes = [IsAuthenticated, PurchasePermission]
 
     def get_queryset(self):
         user = self.request.user
-        qs = Purchase.objects.for_user(user).with_details()
-        org_id = self.request.query_params.get('organization') or self.request.headers.get('X-Organization-ID')
-        if org_id:
-            qs = qs.for_organization(org_id)
-        return qs
+        org = self.organization
+        if not org:
+            return Purchase.objects.none()
+        return Purchase.objects.for_organization(org).for_user(user).with_details()
 
     def get_serializer_class(self):
         if self.action in ['create', 'update', 'partial_update']:
@@ -40,7 +40,7 @@ class PurchaseViewSet(viewsets.ModelViewSet):
         return PurchaseSerializer
 
     def perform_create(self, serializer):
-        purchase = serializer.save()
+        purchase = serializer.save(organization=self.organization, ordered_by=self.request.user)
         audit_record(
             action=AuditAction.PURCHASE_ORDER_CREATED,
             organization=purchase.organization,
@@ -97,7 +97,7 @@ class PurchaseViewSet(viewsets.ModelViewSet):
         return super().destroy(request, *args, **kwargs)
 
     @action(detail=True, methods=['post'])
-    def receive(self, request, pk=None):
+    def receive(self, request, *args, **kwargs):
         purchase = self.get_object()
         serializer = PurchaseReceiveSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

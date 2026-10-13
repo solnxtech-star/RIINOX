@@ -11,6 +11,11 @@ from core.helper.enums import CustomerType
 from core.helper.enums import TransactionStatusChoices
 from core.helper.enums import TransactionTypeChoices
 from core.helper.models import TimeBasedModel
+from core.applications.transactions.queryset import (
+    TransactionQuerySet,
+    FinancialLedgerEntryQuerySet,
+    CustomerQuerySet,
+)
 
 
 class Transaction(TimeBasedModel):
@@ -19,6 +24,7 @@ class Transaction(TimeBasedModel):
     operation (like a Sale, a Purchase, or a Stock Adjustment).
     It acts as the parent object for both Financial and Inventory effects.
     """
+    objects = TransactionQuerySet.as_manager()
     transaction_id = models.CharField(
         _("Transaction ID"),
         max_length=50,
@@ -71,6 +77,7 @@ class FinancialLedgerEntry(TimeBasedModel):
     The financial effect of a Transaction, adhering to Double-Entry accounting.
     Every Transaction must have a set of Ledger Entries where total Debits = total Credits.
     """
+    objects = FinancialLedgerEntryQuerySet.as_manager()
     transaction = auto_prefetch.ForeignKey(
         Transaction,
         on_delete=models.CASCADE,
@@ -104,6 +111,7 @@ class FinancialLedgerEntry(TimeBasedModel):
 
 
 class Customer(TimeBasedModel):
+    objects = CustomerQuerySet.as_manager()
     organization = auto_prefetch.ForeignKey(
         "users.Organization",
         on_delete=models.CASCADE,

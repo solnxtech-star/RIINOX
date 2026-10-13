@@ -4,6 +4,7 @@ from rest_framework.permissions import IsAuthenticated
 
 from core.applications.sales.models import Sale, SaleReturn
 from core.applications.sales.api.permissions import SalePermission, SaleReturnPermission
+from core.applications.users.permissions import OrganizationScopedMixin
 from core.applications.sales.api.serializers import (
     SaleSerializer,
     SaleCreateSerializer,
@@ -15,7 +16,7 @@ from core.applications.sales.service import create_sale, create_sale_return
 
 
 @sale_viewset_schema
-class SaleViewSet(viewsets.ModelViewSet):
+class SaleViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
     queryset = Sale.objects.none()
     permission_classes = [IsAuthenticated, SalePermission]
 
@@ -24,16 +25,10 @@ class SaleViewSet(viewsets.ModelViewSet):
         if not user.is_authenticated:
             return Sale.objects.none()
 
-        qs = Sale.objects.for_user(user).with_details()
-        org_id = self.request.query_params.get('organization') or self.request.headers.get('X-Organization-ID')
-        if org_id:
-            return qs.for_organization(org_id)
+        if not self.organization:
+            return Sale.objects.none()
 
-        current_org = getattr(user, "organization", None)
-        if current_org:
-            return qs.for_organization(current_org)
-
-        return Sale.objects.none()
+        return Sale.objects.for_organization(self.organization).with_details()
 
     def get_serializer_class(self):
         if self.action in ['create', 'update', 'partial_update']:
@@ -41,15 +36,15 @@ class SaleViewSet(viewsets.ModelViewSet):
         return SaleSerializer
 
     def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer_class()(data=request.data, context={'request': request})
+        serializer = self.get_serializer_class()(data=request.data, context={'request': request, 'view': self})
         serializer.is_valid(raise_exception=True)
         sale = create_sale(serializer.validated_data)
-        response_serializer = SaleSerializer(sale, context={'request': request})
+        response_serializer = SaleSerializer(sale, context={'request': request, 'view': self})
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
 
 @sale_return_viewset_schema
-class SaleReturnViewSet(viewsets.ModelViewSet):
+class SaleReturnViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
     queryset = SaleReturn.objects.none()
     permission_classes = [IsAuthenticated, SaleReturnPermission]
 
@@ -58,16 +53,10 @@ class SaleReturnViewSet(viewsets.ModelViewSet):
         if not user.is_authenticated:
             return SaleReturn.objects.none()
 
-        qs = SaleReturn.objects.for_user(user).with_details()
-        org_id = self.request.query_params.get('organization') or self.request.headers.get('X-Organization-ID')
-        if org_id:
-            return qs.for_organization(org_id)
+        if not self.organization:
+            return SaleReturn.objects.none()
 
-        current_org = getattr(user, "organization", None)
-        if current_org:
-            return qs.for_organization(current_org)
-
-        return SaleReturn.objects.none()
+        return SaleReturn.objects.for_organization(self.organization).with_details()
 
     def get_serializer_class(self):
         if self.action in ['create', 'update', 'partial_update']:
@@ -75,8 +64,8 @@ class SaleReturnViewSet(viewsets.ModelViewSet):
         return SaleReturnSerializer
 
     def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer_class()(data=request.data, context={'request': request})
+        serializer = self.get_serializer_class()(data=request.data, context={'request': request, 'view': self})
         serializer.is_valid(raise_exception=True)
         sale_return = create_sale_return(serializer.validated_data)
-        response_serializer = SaleReturnSerializer(sale_return, context={'request': request})
+        response_serializer = SaleReturnSerializer(sale_return, context={'request': request, 'view': self})
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)

@@ -84,12 +84,20 @@ class SalesAPITest(APITestCase):
         # Default authenticated as owner
         self.client.force_authenticate(user=self.owner)
 
+    @property
+    def sales_url(self):
+        return f"/api/organizations/{self.org.id}/sales/"
+
+    @property
+    def returns_url(self):
+        return f"/api/organizations/{self.org.id}/sales/returns/"
+
     # -------------------------------------------------------------------------
     # Owner Lifecycle & Round-Trip Tests
     # -------------------------------------------------------------------------
     def test_list_sales(self):
         """Owner can list sales scoped to their organization."""
-        url = "/api/sales/"
+        url = self.sales_url
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         results = response.data.get('results', []) if isinstance(response.data, dict) else response.data
@@ -101,9 +109,8 @@ class SalesAPITest(APITestCase):
         """
         Owner creates sale; verify DB record and follow-up GET detail endpoint round-trip.
         """
-        url = "/api/sales/"
+        url = self.sales_url
         data = {
-            "organization": str(self.org.id),
             "customer": str(self.customer.id),
             "location": str(self.location.id),
             "items": [
@@ -125,15 +132,14 @@ class SalesAPITest(APITestCase):
         self.assertEqual(str(created_sale.customer_id).replace('-', ''), str(self.customer.id).replace('-', ''))
 
         # 2. Round-Trip GET verification
-        get_resp = self.client.get(f"/api/sales/{created_id}/")
+        get_resp = self.client.get(f"{self.sales_url}{created_id}/")
         self.assertEqual(get_resp.status_code, status.HTTP_200_OK)
         self.assertEqual(len(get_resp.data['items']), 1)
 
     def test_owner_can_apply_discount(self):
         """Owner holds APPLY_DISCOUNT: sale creation with discount succeeds."""
-        url = "/api/sales/"
+        url = self.sales_url
         data = {
-            "organization": str(self.org.id),
             "customer": str(self.customer.id),
             "location": str(self.location.id),
             "discount_amount": "5.00",
@@ -156,9 +162,8 @@ class SalesAPITest(APITestCase):
     def test_sales_rep_can_create_sale_without_discount(self):
         """Sales Rep has CREATE_SALE: creating normal sales without discounts succeeds."""
         self.client.force_authenticate(user=self.sales_rep)
-        url = "/api/sales/"
+        url = self.sales_url
         data = {
-            "organization": str(self.org.id),
             "customer": str(self.customer.id),
             "location": str(self.location.id),
             "items": [
@@ -176,9 +181,8 @@ class SalesAPITest(APITestCase):
     def test_sales_rep_cannot_apply_discount(self):
         """Sales Rep lacks APPLY_DISCOUNT: submitting discount returns 400 Bad Request."""
         self.client.force_authenticate(user=self.sales_rep)
-        url = "/api/sales/"
+        url = self.sales_url
         data = {
-            "organization": str(self.org.id),
             "customer": str(self.customer.id),
             "location": str(self.location.id),
             "discount_amount": "10.00",
@@ -199,10 +203,9 @@ class SalesAPITest(APITestCase):
     def test_sales_rep_cannot_create_sale_return(self):
         """Sales Rep lacks CREATE_SALE_RETURN -> 403 Forbidden."""
         self.client.force_authenticate(user=self.sales_rep)
-        url = "/api/sales/returns/"
+        url = self.returns_url
         data = {
             "original_sale": str(self.sale.id),
-            "organization": str(self.org.id),
             "return_reason": "Defective item",
             "refund_amount": "15.00",
             "items": [
@@ -222,10 +225,9 @@ class SalesAPITest(APITestCase):
     def test_manager_can_create_sale_return(self):
         """Manager has CREATE_SALE_RETURN: can process customer returns."""
         self.client.force_authenticate(user=self.manager)
-        url = "/api/sales/returns/"
+        url = self.returns_url
         data = {
             "original_sale": str(self.sale.id),
-            "organization": str(self.org.id),
             "return_reason": "Customer changed mind",
             "refund_amount": "15.00",
             "items": [
@@ -244,28 +246,24 @@ class SalesAPITest(APITestCase):
     # Multi-Tenant Boundary Isolation Tests
     # -------------------------------------------------------------------------
     def test_tenant_isolation_sales(self):
-        """User from Org B cannot retrieve Org A's sale or create sales in Org A."""
+        """User from Org B cannot access Org A's tenant-scoped endpoints."""
         self.client.force_authenticate(user=self.other_user)
 
-        # Cannot see in list
-        list_resp = self.client.get("/api/sales/")
-        self.assertEqual(list_resp.status_code, status.HTTP_200_OK)
-        results = list_resp.data.get('results', []) if isinstance(list_resp.data, dict) else list_resp.data
-        sale_ids = [str(r['id']).replace('-', '') for r in results]
-        self.assertNotIn(str(self.sale.id).replace('-', ''), sale_ids)
+        # Accessing Org A's URL when belonging to Org B -> 404 Not Found
+        list_resp = self.client.get(f"/api/organizations/{self.org.id}/sales/")
+        self.assertEqual(list_resp.status_code, status.HTTP_404_NOT_FOUND)
 
         # Cannot retrieve Org A's sale -> 404
-        get_resp = self.client.get(f"/api/sales/{self.sale.id}/")
+        get_resp = self.client.get(f"/api/organizations/{self.org.id}/sales/{self.sale.id}/")
         self.assertEqual(get_resp.status_code, status.HTTP_404_NOT_FOUND)
 
-        # Cannot create sale for Org A -> 403
-        create_resp = self.client.post("/api/sales/", {
-            "organization": str(self.org.id),
+        # Cannot create sale in Org A -> 404
+        create_resp = self.client.post(f"/api/organizations/{self.org.id}/sales/", {
             "customer": str(self.customer.id),
             "location": str(self.location.id),
             "items": []
         }, format="json")
-        self.assertEqual(create_resp.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(create_resp.status_code, status.HTTP_404_NOT_FOUND)
 
     # -------------------------------------------------------------------------
     # Authentication & Inactive Membership Tests
@@ -275,23 +273,23 @@ class SalesAPITest(APITestCase):
         self.client.logout()
 
         # 1. Sales list
-        resp_list = self.client.get("/api/sales/")
+        resp_list = self.client.get(self.sales_url)
         self.assertEqual(resp_list.status_code, status.HTTP_401_UNAUTHORIZED)
 
         # 2. Sales detail
-        resp_detail = self.client.get(f"/api/sales/{self.sale.id}/")
+        resp_detail = self.client.get(f"{self.sales_url}{self.sale.id}/")
         self.assertEqual(resp_detail.status_code, status.HTTP_401_UNAUTHORIZED)
 
         # 3. Sales create
-        resp_create = self.client.post("/api/sales/", {}, format="json")
+        resp_create = self.client.post(self.sales_url, {}, format="json")
         self.assertEqual(resp_create.status_code, status.HTTP_401_UNAUTHORIZED)
 
         # 4. Returns list
-        resp_ret_list = self.client.get("/api/sales/returns/")
+        resp_ret_list = self.client.get(self.returns_url)
         self.assertEqual(resp_ret_list.status_code, status.HTTP_401_UNAUTHORIZED)
 
         # 5. Returns create
-        resp_ret_create = self.client.post("/api/sales/returns/", {}, format="json")
+        resp_ret_create = self.client.post(self.returns_url, {}, format="json")
         self.assertEqual(resp_ret_create.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_inactive_membership_blocks_sales_access(self):
@@ -305,22 +303,21 @@ class SalesAPITest(APITestCase):
         )
         self.client.force_authenticate(user=inactive_user)
 
-        # Cannot list sales -> 403
-        resp_list = self.client.get("/api/sales/")
-        self.assertEqual(resp_list.status_code, status.HTTP_403_FORBIDDEN)
+        # Cannot list sales -> 404 (non-member / inactive member blocked from tenant path)
+        resp_list = self.client.get(self.sales_url)
+        self.assertEqual(resp_list.status_code, status.HTTP_404_NOT_FOUND)
 
-        # Cannot retrieve sale -> 404 Not Found (tenant-isolated queryset hides non-member resources)
-        resp_detail = self.client.get(f"/api/sales/{self.sale.id}/")
+        # Cannot retrieve sale -> 404 Not Found
+        resp_detail = self.client.get(f"{self.sales_url}{self.sale.id}/")
         self.assertEqual(resp_detail.status_code, status.HTTP_404_NOT_FOUND)
 
-        # Cannot create sale -> 403
-        resp_create = self.client.post("/api/sales/", {
-            "organization": str(self.org.id),
+        # Cannot create sale -> 404 Not Found
+        resp_create = self.client.post(self.sales_url, {
             "customer": str(self.customer.id),
             "location": str(self.location.id),
             "items": []
         }, format="json")
-        self.assertEqual(resp_create.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(resp_create.status_code, status.HTTP_404_NOT_FOUND)
 
     # -------------------------------------------------------------------------
     # Granular Role Permission Tests
@@ -337,11 +334,11 @@ class SalesAPITest(APITestCase):
         self.client.force_authenticate(user=teacher_user)
 
         # List -> 403
-        resp_list = self.client.get("/api/sales/")
+        resp_list = self.client.get(self.sales_url)
         self.assertEqual(resp_list.status_code, status.HTTP_403_FORBIDDEN)
 
         # Detail -> 403
-        resp_detail = self.client.get(f"/api/sales/{self.sale.id}/")
+        resp_detail = self.client.get(f"{self.sales_url}{self.sale.id}/")
         self.assertEqual(resp_detail.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_accountant_can_view_sales_but_cannot_create_sales(self):
@@ -356,16 +353,15 @@ class SalesAPITest(APITestCase):
         self.client.force_authenticate(user=accountant)
 
         # Can list -> 200
-        resp_list = self.client.get("/api/sales/")
+        resp_list = self.client.get(self.sales_url)
         self.assertEqual(resp_list.status_code, status.HTTP_200_OK)
 
         # Can retrieve -> 200
-        resp_detail = self.client.get(f"/api/sales/{self.sale.id}/")
+        resp_detail = self.client.get(f"{self.sales_url}{self.sale.id}/")
         self.assertEqual(resp_detail.status_code, status.HTTP_200_OK)
 
         # Cannot create sale -> 403
-        resp_create = self.client.post("/api/sales/", {
-            "organization": str(self.org.id),
+        resp_create = self.client.post(self.sales_url, {
             "customer": str(self.customer.id),
             "location": str(self.location.id),
             "items": [
@@ -386,7 +382,6 @@ class SalesAPITest(APITestCase):
         """Cannot create sale in Org A with customer belonging to Org B."""
         other_customer = Customer.objects.create(organization=self.other_org, name="Foreign Customer")
         data = {
-            "organization": str(self.org.id),
             "customer": str(other_customer.id),
             "location": str(self.location.id),
             "items": [
@@ -398,7 +393,7 @@ class SalesAPITest(APITestCase):
                 }
             ]
         }
-        resp = self.client.post("/api/sales/", data, format="json")
+        resp = self.client.post(self.sales_url, data, format="json")
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         errors = resp.data.get("errors", resp.data)
         self.assertIn("customer", errors)
@@ -407,7 +402,6 @@ class SalesAPITest(APITestCase):
         """Cannot create sale in Org A with stock location belonging to Org B."""
         other_location = StockLocationFactory(warehouse__organization=self.other_org)
         data = {
-            "organization": str(self.org.id),
             "customer": str(self.customer.id),
             "location": str(other_location.id),
             "items": [
@@ -419,7 +413,7 @@ class SalesAPITest(APITestCase):
                 }
             ]
         }
-        resp = self.client.post("/api/sales/", data, format="json")
+        resp = self.client.post(self.sales_url, data, format="json")
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         errors = resp.data.get("errors", resp.data)
         self.assertIn("location", errors)
@@ -428,7 +422,6 @@ class SalesAPITest(APITestCase):
         """Cannot create sale in Org A selling product belonging to Org B."""
         other_product = ProductFactory(organization=self.other_org)
         data = {
-            "organization": str(self.org.id),
             "customer": str(self.customer.id),
             "location": str(self.location.id),
             "items": [
@@ -440,7 +433,7 @@ class SalesAPITest(APITestCase):
                 }
             ]
         }
-        resp = self.client.post("/api/sales/", data, format="json")
+        resp = self.client.post(self.sales_url, data, format="json")
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         errors = resp.data.get("errors", resp.data)
         self.assertIn("items", errors)
@@ -459,20 +452,18 @@ class SalesAPITest(APITestCase):
             total=Decimal("50.00"),
         )
         data = {
-            "organization": str(self.org.id),
             "original_sale": str(other_sale.id),
             "return_reason": "Attempt cross-tenant return",
             "refund_amount": "10.00",
             "items": []
         }
-        resp = self.client.post("/api/sales/returns/", data, format="json")
+        resp = self.client.post(self.returns_url, data, format="json")
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         errors = resp.data.get("errors", resp.data)
         self.assertIn("original_sale", errors)
 
     def test_sale_return_item_must_belong_to_original_sale(self):
         """Sale return items must belong to the referenced original sale."""
-        # Create second sale in self.org with its own item
         second_sale = Sale.objects.create(
             sale_id=f"SALE-{uuid.uuid4().hex[:6]}",
             organization=self.org,
@@ -491,7 +482,6 @@ class SalesAPITest(APITestCase):
         )
 
         data = {
-            "organization": str(self.org.id),
             "original_sale": str(self.sale.id),
             "return_reason": "Returning unrelated item",
             "refund_amount": "20.00",
@@ -503,17 +493,17 @@ class SalesAPITest(APITestCase):
                 }
             ]
         }
-        resp = self.client.post("/api/sales/returns/", data, format="json")
+        resp = self.client.post(self.returns_url, data, format="json")
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         errors = resp.data.get("errors", resp.data)
         self.assertIn("items", errors)
 
-    def test_multi_org_user_scopes_sales_by_query_param(self):
+    def test_multi_org_user_scopes_sales_by_url_path(self):
         """
         User belonging to Org A and Org B:
-        - Defaults to primary org (Org A)
-        - ?organization=<org_b> switches scope to Org B
-        - ?organization=<foreign_org> is rejected with 403 Forbidden
+        - URL path determines tenant scope deterministically
+        - /organizations/{other_org.id}/sales/ scopes strictly to Org B
+        - Foreign organization where user has no membership -> 404 Not Found
         """
         # Add owner to other_org
         Membership.objects.create(
@@ -536,24 +526,24 @@ class SalesAPITest(APITestCase):
             total=Decimal("45.00"),
         )
 
-        # 1. Default request -> scopes to primary (self.org)
-        resp_default = self.client.get("/api/sales/")
+        # 1. Primary org path -> scopes strictly to self.org
+        resp_default = self.client.get(self.sales_url)
         self.assertEqual(resp_default.status_code, status.HTTP_200_OK)
         results = resp_default.data.get('results', []) if isinstance(resp_default.data, dict) else resp_default.data
         ids = [str(r['id']).replace('-', '') for r in results]
         self.assertIn(str(self.sale.id).replace('-', ''), ids)
         self.assertNotIn(str(other_sale.id).replace('-', ''), ids)
 
-        # 2. Query param ?organization=<other_org.id> -> scopes to other_org
-        resp_other = self.client.get(f"/api/sales/?organization={self.other_org.id}")
+        # 2. Other org path -> scopes strictly to other_org
+        resp_other = self.client.get(f"/api/organizations/{self.other_org.id}/sales/")
         self.assertEqual(resp_other.status_code, status.HTTP_200_OK)
         other_results = resp_other.data.get('results', []) if isinstance(resp_other.data, dict) else resp_other.data
         other_ids = [str(r['id']).replace('-', '') for r in other_results]
         self.assertNotIn(str(self.sale.id).replace('-', ''), other_ids)
         self.assertIn(str(other_sale.id).replace('-', ''), other_ids)
 
-        # 3. Foreign organization where user has no membership -> 403 Forbidden
+        # 3. Foreign organization where user has no membership -> 404 Not Found
         foreign_org = OrganizationFactory()
-        resp_foreign = self.client.get(f"/api/sales/?organization={foreign_org.id}")
-        self.assertEqual(resp_foreign.status_code, status.HTTP_403_FORBIDDEN)
+        resp_foreign = self.client.get(f"/api/organizations/{foreign_org.id}/sales/")
+        self.assertEqual(resp_foreign.status_code, status.HTTP_404_NOT_FOUND)
 

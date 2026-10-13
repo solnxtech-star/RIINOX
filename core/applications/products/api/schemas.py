@@ -47,17 +47,10 @@ PRODUCT_CREATE_EXAMPLE = {
 }
 
 PRODUCT_ORGANIZATION_PARAM = OpenApiParameter(
-    "organization",
+    "organization_id",
     OpenApiTypes.UUID,
-    OpenApiParameter.QUERY,
-    description="Filter products by organization UUID. By default (when omitted), queries automatically scope to the authenticated user's current (primary) organization.",
-)
-
-PRODUCT_ORG_HEADER_PARAM = OpenApiParameter(
-    "X-Organization-ID",
-    OpenApiTypes.UUID,
-    OpenApiParameter.HEADER,
-    description="Header to explicitly scope requests to a specific organization UUID.",
+    OpenApiParameter.PATH,
+    description="UUID of the tenant organization.",
 )
 
 product_schema = extend_schema_view(
@@ -66,17 +59,15 @@ product_schema = extend_schema_view(
         summary="List all Products",
         description="""Retrieves a paginated list of products for the active tenant, including nested batches, discounts, and packaging unit conversions.
 
-### Multi-Tenancy & Scoping:
-- **Default Scoping**: When `?organization=` and `X-Organization-ID` are omitted, results are automatically scoped to the authenticated user's primary/current organization.
-- **Explicit Scoping**: Multi-tenant users can switch workspaces by passing `?organization=<UUID>` or the `X-Organization-ID` header.
-- **Cross-Tenant Isolation**: Requesting products from an unauthorized tenant returns zero results (or 404 for object lookups).
+### Multi-Tenancy & Tenant-Enforced URL Structure:
+- **Tenant Path Isolation**: Endpoints are strictly scoped under `/api/organizations/{organization_id}/products/`.
+- **Cross-Tenant Isolation**: Requesting products from an unauthorized tenant returns 404 Not Found.
 
 ### Field-Level Security & Cost Redaction (PRD §55):
 - Users holding `VIEW_PRODUCT_COSTS` (Owner, Admin, Accountant) receive full monetary visibility (`purchase_cost`, `vendor_sale_cost`, and batch `cost_price`).
 - Users without this permission (Sales Rep, Manager, Cashier) have cost fields dynamically stripped from the JSON response.""",
         parameters=[
             PRODUCT_ORGANIZATION_PARAM,
-            PRODUCT_ORG_HEADER_PARAM,
         ],
     ),
     create=extend_schema(

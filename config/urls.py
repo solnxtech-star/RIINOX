@@ -70,6 +70,20 @@ urlpatterns += [
             namespace="purchase",
         ),
     ),
+    path(
+        "api/",
+        include(
+            "core.applications.warehouse.api.routers",
+            namespace="warehouse",
+        ),
+    ),
+    path(
+        "api/",
+        include(
+            "core.applications.transactions.api.routers",
+            namespace="transactions",
+        ),
+    ),
     path("api/auth/", include("core.applications.users.api.jwt")),
     # DRF auth token
     path("api/auth-token/", obtain_auth_token, name="obtain_auth_token"),

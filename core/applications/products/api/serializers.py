@@ -103,12 +103,36 @@ class ProductCreateSerializer(serializers.ModelSerializer):
             'quantity_in_stock', 'warehouse_id', 'batches', 'bulk_discounts', 'unit_conversions'
         ]
         read_only_fields = ['status']
+        extra_kwargs = {
+            'organization': {'required': False},
+        }
+
+    def to_internal_value(self, data):
+        data = data.copy() if hasattr(data, 'copy') else dict(data)
+        if 'organization' not in data:
+            request = self.context.get('request')
+            view = self.context.get('view')
+            url_org = getattr(view, 'organization', None) if view else None
+            if not url_org and request and hasattr(request, 'parser_context'):
+                v = request.parser_context.get('view')
+                url_org = getattr(v, 'organization', None) if v else None
+            if url_org:
+                data['organization'] = str(url_org.id)
+        return super().to_internal_value(data)
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
         request = self.context.get('request')
+        view = self.context.get('view')
         user = getattr(request, 'user', None)
-        org = attrs.get('organization') or (self.instance.organization if self.instance else None)
+        url_org = getattr(view, 'organization', None) if view else None
+
+        if url_org and attrs.get('organization') and attrs['organization'].id != url_org.id:
+            raise serializers.ValidationError({'organization': 'Organization does not match URL path.'})
+
+        org = attrs.get('organization') or url_org or (self.instance.organization if self.instance else None)
+        if org and not attrs.get('organization'):
+            attrs['organization'] = org
 
         if org:
             category = attrs.get('category')

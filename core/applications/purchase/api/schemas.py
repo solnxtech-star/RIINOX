@@ -277,15 +277,14 @@ purchase_schema = extend_schema_view(
             "- **`total_value`**: Total monetary value of items **physically received so far**, net of prorated discounts "
             "plus other costs. Only received value reflects actual supplier liability.\n\n"
             "### Query Parameters\n"
-            "- `organization`: (UUID) Filter purchase orders strictly to a single organization tenant."
+            "- `organization_id`: (UUID in URL path) Target tenant organization."
         ),
         parameters=[
             OpenApiParameter(
-                name="organization",
+                name="organization_id",
                 type=OpenApiTypes.UUID,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description="Filter purchase orders belonging to a specific organization UUID.",
+                location=OpenApiParameter.PATH,
+                description="UUID of the tenant organization owning the purchase orders.",
             ),
         ],
         responses={

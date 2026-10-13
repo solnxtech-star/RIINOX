@@ -45,12 +45,23 @@ class SaleCreateSerializer(serializers.ModelSerializer):
             'reference_number', 'due_date', 'billing_address', 'shipping_address',
             'subtotal', 'discount_amount', 'tax_amount', 'notes', 'items'
         ]
+        extra_kwargs = {
+            'organization': {'required': False},
+        }
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
         request = self.context.get("request")
+        view = self.context.get("view")
         user = getattr(request, "user", None)
-        org = attrs.get("organization") or (self.instance.organization if self.instance else None)
+        url_org = getattr(view, "organization", None) if view else None
+
+        if url_org and attrs.get("organization") and attrs["organization"].id != url_org.id:
+            raise serializers.ValidationError({"organization": "Organization does not match URL path."})
+
+        org = attrs.get("organization") or url_org or (self.instance.organization if self.instance else None)
+        if org and not attrs.get("organization"):
+            attrs["organization"] = org
 
         if org:
             customer = attrs.get("customer")
@@ -114,10 +125,22 @@ class SaleReturnCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = SaleReturn
         fields = ['original_sale', 'organization', 'return_reason', 'refund_amount', 'refund_method', 'items']
+        extra_kwargs = {
+            'organization': {'required': False},
+        }
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
-        org = attrs.get("organization") or (self.instance.organization if self.instance else None)
+        view = self.context.get("view")
+        url_org = getattr(view, "organization", None) if view else None
+
+        if url_org and attrs.get("organization") and attrs["organization"].id != url_org.id:
+            raise serializers.ValidationError({"organization": "Organization does not match URL path."})
+
+        org = attrs.get("organization") or url_org or (self.instance.organization if self.instance else None)
+        if org and not attrs.get("organization"):
+            attrs["organization"] = org
+
         original_sale = attrs.get("original_sale")
 
         if org and original_sale:

@@ -4,10 +4,16 @@ from django.db import models
 from django.utils.translation import gettext_lazy as _
 
 from core.helper.models import TimeBasedModel
+from core.applications.warehouse.queryset import (
+    WarehouseQuerySet,
+    StockLocationQuerySet,
+)
 
 
 class Warehouse(TimeBasedModel):
     """A physical warehouse/store location (PRD §36)."""
+
+    objects = WarehouseQuerySet.as_manager()
 
     organization = auto_prefetch.ForeignKey(
         "users.Organization",
@@ -59,6 +65,8 @@ class StockLocation(TimeBasedModel):
     Optional finer-grained location within a warehouse — a shelf, rack,
     or bin (PRD §36: Warehouse → Shelf/Rack → Product).
     """
+
+    objects = StockLocationQuerySet.as_manager()
 
     warehouse = auto_prefetch.ForeignKey(
         "warehouse.Warehouse",

@@ -7,6 +7,7 @@ from core.applications.products.models import Product
 from core.applications.products.api.serializers import ProductSerializer, ProductCreateSerializer
 from core.applications.products.api.schemas import product_schema
 from core.applications.products.api.permissions import ProductPermission
+from core.applications.users.permissions import OrganizationScopedMixin
 from core.helper.enums import ProductStatusChoices
 
 from core.applications.notification.audit.services import record as audit_record
@@ -14,7 +15,7 @@ from core.applications.notification.audit.context import AuditContext
 from core.applications.notification.audit.action import AuditAction
 
 @product_schema
-class ProductViewSet(viewsets.ModelViewSet):
+class ProductViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, ProductPermission]
 
     def get_queryset(self):
@@ -22,17 +23,10 @@ class ProductViewSet(viewsets.ModelViewSet):
         if not user.is_authenticated:
             return Product.objects.none()
 
-        qs = Product.objects.for_user(user).with_details()
-        org_id = self.request.query_params.get("organization") or self.request.headers.get("X-Organization-ID")
-        if org_id:
-            return qs.for_organization(org_id)
+        if not self.organization:
+            return Product.objects.none()
 
-        # By default scope to current user's organization
-        current_org = getattr(user, "organization", None)
-        if current_org:
-            return qs.for_organization(current_org)
-
-        return qs
+        return Product.objects.for_organization(self.organization).with_details()
     
     def get_serializer_class(self):
         if self.action in ['create', 'update', 'partial_update']:
@@ -40,7 +34,7 @@ class ProductViewSet(viewsets.ModelViewSet):
         return ProductSerializer
 
     def perform_create(self, serializer):
-        product = serializer.save(created_by=self.request.user)
+        product = serializer.save(created_by=self.request.user, organization=self.organization)
         audit_record(
             action=AuditAction.PRODUCT_CREATED,
             organization=product.organization,

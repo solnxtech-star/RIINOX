@@ -78,10 +78,12 @@ class PurchaseAPITest(APITestCase):
 
         # Default client authenticated as Owner
         self.client.force_authenticate(user=self.owner)
+        self.base_url = f"/api/organizations/{self.org.id}/purchases/"
+        self.detail_url = f"/api/organizations/{self.org.id}/purchases/{self.purchase.id}/"
 
     def test_list_purchases(self):
         """Owner can list purchases scoped to their organization."""
-        url = "/api/purchases/"
+        url = self.base_url
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         results = response.data.get('results', []) if isinstance(response.data, dict) else response.data
@@ -93,7 +95,7 @@ class PurchaseAPITest(APITestCase):
         Verify creating a Purchase Order WITH nested items (per serializer standard).
         Performs Round-Trip check: POST -> verify DB -> GET detail endpoint.
         """
-        url = "/api/purchases/"
+        url = self.base_url
         product2 = ProductFactory(organization=self.org)
         data = {
             "organization": str(self.org.id),
@@ -129,7 +131,7 @@ class PurchaseAPITest(APITestCase):
         self.assertEqual(item1.purchase_cost, 15.00)
 
         # 2. Round-Trip GET verification (Read Serializer checks)
-        get_response = self.client.get(f"/api/purchases/{purchase_id}/")
+        get_response = self.client.get(f"/api/organizations/{self.org.id}/purchases/{purchase_id}/")
         self.assertEqual(get_response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(get_response.data['items']), 2)
         self.assertEqual(get_response.data['status'], PurchaseStatusChoices.DRAFT)
@@ -140,7 +142,7 @@ class PurchaseAPITest(APITestCase):
         - Updates PurchaseItem.quantity_received
         - Transitions Purchase.status from draft -> partially_received -> received
         """
-        url = f"/api/purchases/{self.purchase.id}/receive/"
+        url = f"{self.detail_url}receive/"
         item_uuid = str(self.purchase_item.id)
 
         # Receive 50 units out of 100
@@ -170,7 +172,7 @@ class PurchaseAPITest(APITestCase):
 
     def test_receive_purchase_over_receiving_rejected(self):
         """Over-receiving goods beyond quantity_ordered must fail with HTTP 400."""
-        url = f"/api/purchases/{self.purchase.id}/receive/"
+        url = f"{self.detail_url}receive/"
         data = {
             "items_received": [
                 {
@@ -189,7 +191,7 @@ class PurchaseAPITest(APITestCase):
         self.purchase_item.quantity_received = 10
         self.purchase_item.save(update_fields=['quantity_received'])
 
-        url = f"/api/purchases/{self.purchase.id}/"
+        url = self.detail_url
         response = self.client.delete(url)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data["code"], "CANNOT_DELETE_RECEIVED_PURCHASE")
@@ -197,7 +199,7 @@ class PurchaseAPITest(APITestCase):
 
     def test_receive_purchase_invalid_uuid(self):
         """Test rejection when passing an invalid UUID string."""
-        url = f"/api/purchases/{self.purchase.id}/receive/"
+        url = f"{self.detail_url}receive/"
         data = {
             "items_received": [
                 {
@@ -217,11 +219,11 @@ class PurchaseAPITest(APITestCase):
         self.client.force_authenticate(user=self.sales_rep)
 
         # Cannot list
-        list_resp = self.client.get("/api/purchases/")
+        list_resp = self.client.get(self.base_url)
         self.assertEqual(list_resp.status_code, status.HTTP_403_FORBIDDEN)
 
         # Cannot create
-        create_resp = self.client.post("/api/purchases/", {
+        create_resp = self.client.post(self.base_url, {
             "organization": str(self.org.id),
             "vendor": str(self.vendor.id),
             "warehouse": str(self.warehouse.id),
@@ -234,11 +236,11 @@ class PurchaseAPITest(APITestCase):
         self.client.force_authenticate(user=self.inventory_staff)
 
         # Can list
-        list_resp = self.client.get("/api/purchases/")
+        list_resp = self.client.get(self.base_url)
         self.assertEqual(list_resp.status_code, status.HTTP_200_OK)
 
         # Cannot create -> 403
-        create_resp = self.client.post("/api/purchases/", {
+        create_resp = self.client.post(self.base_url, {
             "organization": str(self.org.id),
             "vendor": str(self.vendor.id),
             "warehouse": str(self.warehouse.id),
@@ -247,7 +249,7 @@ class PurchaseAPITest(APITestCase):
         self.assertEqual(create_resp.status_code, status.HTTP_403_FORBIDDEN)
 
         # Can receive goods -> 200
-        receive_resp = self.client.post(f"/api/purchases/{self.purchase.id}/receive/", {
+        receive_resp = self.client.post(f"{self.detail_url}receive/", {
             "items_received": [
                 {
                     "item_id": str(self.purchase_item.id),
@@ -264,28 +266,30 @@ class PurchaseAPITest(APITestCase):
         """User from Org B cannot retrieve, update, delete, or receive goods on Org A purchase."""
         self.client.force_authenticate(user=self.other_user)
 
-        # Org A purchase is invisible in list
-        list_resp = self.client.get("/api/purchases/")
-        self.assertEqual(list_resp.status_code, status.HTTP_200_OK)
-        results = list_resp.data.get('results', []) if isinstance(list_resp.data, dict) else list_resp.data
-        purchase_ids = [str(r['id']).replace('-', '') for r in results]
-        self.assertNotIn(str(self.purchase.id).replace('-', ''), purchase_ids)
+        # Org A endpoints return 404 Not Found to non-member
+        list_resp = self.client.get(self.base_url)
+        self.assertEqual(list_resp.status_code, status.HTTP_404_NOT_FOUND)
 
-        # Detail retrieve -> 404
-        get_resp = self.client.get(f"/api/purchases/{self.purchase.id}/")
+        get_resp = self.client.get(self.detail_url)
         self.assertEqual(get_resp.status_code, status.HTTP_404_NOT_FOUND)
 
-        # Receive on Org A purchase -> 404
-        receive_resp = self.client.post(f"/api/purchases/{self.purchase.id}/receive/", {
+        receive_resp = self.client.post(f"{self.detail_url}receive/", {
             "items_received": [{"item_id": str(self.purchase_item.id), "quantity_received": 10}]
         }, format="json")
         self.assertEqual(receive_resp.status_code, status.HTTP_404_NOT_FOUND)
 
-        # Attempt to create purchase in Org A -> 403
-        create_resp = self.client.post("/api/purchases/", {
+        create_resp = self.client.post(self.base_url, {
             "organization": str(self.org.id),
             "vendor": str(self.vendor.id),
             "warehouse": str(self.warehouse.id),
             "items": []
         }, format="json")
-        self.assertEqual(create_resp.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(create_resp.status_code, status.HTTP_404_NOT_FOUND)
+
+        # Accessing own Org B endpoint is allowed and does not expose Org A purchases
+        other_base_url = f"/api/organizations/{self.other_org.id}/purchases/"
+        own_list_resp = self.client.get(other_base_url)
+        self.assertEqual(own_list_resp.status_code, status.HTTP_200_OK)
+        results = own_list_resp.data.get('results', []) if isinstance(own_list_resp.data, dict) else own_list_resp.data
+        purchase_ids = [str(r['id']).replace('-', '') for r in results]
+        self.assertNotIn(str(self.purchase.id).replace('-', ''), purchase_ids)
