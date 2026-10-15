@@ -147,7 +147,7 @@ if TEST_MODE:
     EMAIL_BACKEND = "anymail.backends.brevo.EmailBackend"
     ANYMAIL = {
         "BREVO_API_KEY": env("BREVO_API_KEY"),
-        "BREVO_API_URL": env("BREVO_API_KEY", default="https://api.brevo.com/v3/"),
+        "BREVO_API_URL": env("BREVO_API_URL", default="https://api.brevo.com/v3/"),
     }
 else:
     EMAIL_HOST = env("EMAIL_HOST")
