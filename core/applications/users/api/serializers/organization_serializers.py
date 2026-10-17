@@ -14,7 +14,7 @@ from core.applications.users.errors import domain_errors
 from core.applications.users.invitation_services import assignable_roles
 from core.applications.users.invitation_services import mask_email
 from core.applications.users.models import BusinessType
-from core.applications.users.models import Invitation, State
+from core.applications.users.models import Invitation
 from core.applications.users.models import Membership
 from core.applications.users.models import Organization
 from core.applications.users.models import OrganizationBusinessType
@@ -33,7 +33,7 @@ class PlanSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Plan
-        fields = ["id", "name", "description", "price", "is_active"]
+        fields = ["id", "name", "description", "is_active"]
 
 
 class BusinessTypeSerializer(serializers.ModelSerializer):
