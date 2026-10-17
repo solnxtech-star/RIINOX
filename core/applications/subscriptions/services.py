@@ -10,7 +10,6 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
 from django.utils import timezone
 
-from core.applications.subscriptions import paystack
 from core.applications.subscriptions.errors import SubscriptionErrorCode as Err
 from core.applications.subscriptions.errors import fail
 from core.applications.subscriptions.models import PaymentTransaction
@@ -18,6 +17,7 @@ from core.applications.subscriptions.models import PaymentTransactionStatus
 from core.applications.subscriptions.models import Plan
 from core.applications.subscriptions.models import PlanFeature
 from core.applications.subscriptions.models import Subscription
+from core.applications.subscriptions.providers import paystack
 from core.helper.enums import SubscriptionStatus
 
 if TYPE_CHECKING:

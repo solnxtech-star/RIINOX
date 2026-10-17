@@ -318,11 +318,75 @@ class SubscriptionStatus(TextChoices):
     CANCELED = "canceled", _("Canceled")
     EXPIRED = "expired", _("Expired")
 
+
+class BillingInterval(TextChoices):
+    MONTHLY = "monthly", _("Monthly")
+    YEARLY = "yearly", _("Yearly")
+
+class PaymentKind(TextChoices):
+    CHECKOUT = "checkout", _("Checkout")
+    RENEWAL = "renewal", _("Renewal")
+
+
+class PaymentTransactionStatus(TextChoices):
+    PENDING = "pending", _("Pending")
+    SUCCESS = "success", _("Success")
+    FAILED = "failed", _("Failed")
+    ABANDONED = "abandoned", _("Abandoned")
+
+
+class PaymentMethodStatus(TextChoices):
+    ACTIVE = "active", _("Active")
+    EXPIRED = "expired", _("Expired")
+    REVOKED = "revoked", _("Revoked")
+
+
+class WebhookEventStatus(TextChoices):
+    RECEIVED = "received", _("Received")
+    PROCESSED = "processed", _("Processed")
+    IGNORED = "ignored", _("Ignored")
+    FAILED = "failed", _("Failed")
+
+
+class SubscriptionEventType(TextChoices):
+    CREATED = "created", _("Created")
+    ACTIVATED = "activated", _("Activated")
+    RENEWED = "renewed", _("Renewed")
+    RENEWAL_FAILED = "renewal_failed", _("Renewal failed")
+    PAST_DUE = "past_due", _("Past due")
+    PLAN_CHANGED = "plan_changed", _("Plan changed")
+    CANCEL_REQUESTED = "cancel_requested", _("Cancel requested")
+    CANCELED = "canceled", _("Canceled")
+    EXPIRED = "expired", _("Expired")
+    PAYMENT_METHOD_CHANGED = "payment_method_changed", _("Payment method changed")
+
+
+class UsageMetric(TextChoices):
+    USERS = "users", _("Users")
+    PRODUCTS = "products", _("Products")
+    LOCATIONS = "locations", _("Locations")
+    TRANSACTIONS = "transactions", _("Transactions")
+    STORAGE_MB = "storage_mb", _("Storage (MB)")
+
 class CustomerType(TextChoices):
     INDIVIDUAL = "individual", _("Individual")
     BUSINESS = "business", _("Business")
 
 
+class FeatureCode(TextChoices):
+    API_ACCESS = "API_ACCESS", _("API access")
+    CUSTOM_TEMPLATES = "CUSTOM_TEMPLATES", _("Custom document templates")
+    INTEGRATIONS = "INTEGRATIONS", _("Integrations")
+    SMS_NOTIFICATIONS = "SMS_NOTIFICATIONS", _("SMS notifications")
+    PRIORITY_SUPPORT = "PRIORITY_SUPPORT", _("Priority support")
+
+class PaymentTransactionKind(TextChoices):
+    CHECKOUT = "checkout", _("Checkout")   # customer-initiated; saves the payment method
+    RENEWAL = "renewal", _("Renewal")
+class BillingPaymentMethodStatus(TextChoices):
+    ACTIVE = "active", _("Active")
+    EXPIRED = "expired", _("Expired")
+    REVOKED = "revoked", _("Revoked")
 class CustomerStatus(TextChoices):
     ACTIVE = "active", _("Active")
     INACTIVE = "inactive", _("Inactive")
