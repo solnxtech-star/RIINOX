@@ -231,4 +231,5 @@ dependencies = [
     "psycopg[binary]==3.2.10",
     "cloudinary>=1.46.2",
     "django-cloudinary-storage>=0.3.0",
+    "cryptography>=45.0.7",
 ]

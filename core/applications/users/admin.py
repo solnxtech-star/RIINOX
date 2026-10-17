@@ -380,8 +380,6 @@ class PlanAdmin(admin.ModelAdmin):
     list_display = [
         "id",
         "name",
-        "price",
-        "billing_period_days",
         "trial_period_days",
         "max_users",
         "max_products",
@@ -390,7 +388,7 @@ class PlanAdmin(admin.ModelAdmin):
     ]
     list_filter = ["is_active"]
     search_fields = ["name"]
-    ordering = ["price"]
+    # ordering = ["price"]
     inlines = [PlanFeatureInline]
 
 

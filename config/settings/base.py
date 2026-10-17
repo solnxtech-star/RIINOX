@@ -496,3 +496,6 @@ SEEDING_SKIP = set()         # names of seeds to skip after migrate
 
 # test settings: the template seed uploads files to Cloudinary
 # SEEDING_SKIP = {"document_templates"}
+
+BILLING_GRACE_PERIOD_DAYS = 7
+BILLING_RENEWAL_LEEWAY_HOURS = 24
