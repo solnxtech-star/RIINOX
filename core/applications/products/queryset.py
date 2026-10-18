@@ -1,12 +1,3 @@
-"""
-Last Modified: 2026-10-18
-Module: core.applications.products.queryset
-Description:
-    Custom QuerySets and Managers for the Products app (Product, ProductVariant,
-    Category, Brand). Provides organization-scoped filtering (for_organization, for_user)
-    and optimized prefetching (with_details) to prevent N+1 query overhead.
-"""
-
 from __future__ import annotations
 
 import auto_prefetch

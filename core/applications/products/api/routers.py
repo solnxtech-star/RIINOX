@@ -1,12 +1,3 @@
-"""
-Last Modified: 2026-10-18
-Module: core.applications.products.api.routers
-Description:
-    URL router registration for the Products API.
-    Configures tenant-scoped URL endpoints for Products and nested Product Variants
-    using UUID-regex patterns matching both 32-char hex and standard 36-char hyphenated UUIDs.
-"""
-
 from django.conf import settings
 from rest_framework.routers import DefaultRouter, SimpleRouter
 from core.applications.products.api.views import ProductViewSet, ProductVariantViewSet

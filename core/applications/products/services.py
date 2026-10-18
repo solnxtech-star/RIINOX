@@ -1,13 +1,3 @@
-"""
-Last Modified: 2026-10-18
-Module: core.applications.products.services
-Description:
-    Core domain services and business orchestration for the Products application.
-    Enforces multi-tenant scoping, subscription limits (PRD §44), permission-based
-    cost protection, strict opening stock validation (PRD §15), atomic nested entity
-    synchronization (variants, batches, discounts, conversions), and immutable audit logs.
-"""
-
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
