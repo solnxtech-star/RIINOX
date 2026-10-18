@@ -1,5 +1,5 @@
 """
-Last Modified: 2026-10-18
+Last Modified: 2026-10-19
 Module: core.applications.products.api.schemas
 Description:
     OpenAPI schema extensions and documentation via drf-spectacular.
@@ -16,11 +16,9 @@ from drf_spectacular.utils import (
 )
 
 PRODUCT_CREATE_EXAMPLE = {
-
     "name": "NEW TEST PRODUCT 1",
     "sku": "MED-AMX-500",
     "barcode": "8901234567890",
-    "organization": "a1b2c3d4-e5f6-4789-b1c2-d3e4f5a6b7c8",
     "category": "b2c3d4e5-f6a7-4890-c1d2-e3f4a5b6c7d8",
     "brand": "c3d4e5f6-a7b8-4901-d2e3-f4a5b6c7d8e9",
     "description": "Broad-spectrum antibacterial medication.",

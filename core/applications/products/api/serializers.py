@@ -1,14 +1,3 @@
-"""
-Last Modified: 2026-10-18
-Module: core.applications.products.api.serializers
-Description:
-    Serializers for Product, ProductVariant, and related nested collections
-    (batches, bulk discounts, unit conversions). Enforces non-negative price/cost validation,
-    strict warehouse requirement on opening stock (PRD §15), role-based cost masking
-    (VIEW_PRODUCT_COSTS), permission enforcement (EDIT_PRODUCT_COSTS, EDIT_SELLING_PRICE),
-    and delegation to domain services.
-"""
-
 from rest_framework import serializers
 
 from core.applications.products.models import (
@@ -135,10 +124,13 @@ class ProductSerializer(serializers.ModelSerializer):
             'status', 'organization', 'category', 'brand', 'created_by',
             'current_stock', 'batches', 'bulk_discounts', 'unit_conversions', 'variants'
         ]
+        read_only_fields = ['id', 'status', 'organization', 'created_by', 'created_at', 'updated_at']
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
-        org = attrs.get('organization') or (self.instance.organization if self.instance else None)
+        view = self.context.get('view')
+        url_org = getattr(view, 'organization', None) if view else None
+        org = url_org or (self.instance.organization if self.instance else None)
         if org:
             category = attrs.get('category')
             if category and getattr(category, 'organization_id', None) != org.id:
@@ -189,23 +181,7 @@ class ProductCreateSerializer(serializers.ModelSerializer):
             'status', 'organization', 'category', 'brand', 'created_by',
             'quantity_in_stock', 'warehouse_id', 'batches', 'bulk_discounts', 'unit_conversions', 'variants'
         ]
-        read_only_fields = ['status']
-        extra_kwargs = {
-            'organization': {'required': False},
-        }
-
-    def to_internal_value(self, data):
-        data = data.copy() if hasattr(data, 'copy') else dict(data)
-        if 'organization' not in data:
-            request = self.context.get('request')
-            view = self.context.get('view')
-            url_org = getattr(view, 'organization', None) if view else None
-            if not url_org and request and hasattr(request, 'parser_context'):
-                v = request.parser_context.get('view')
-                url_org = getattr(v, 'organization', None) if v else None
-            if url_org:
-                data['organization'] = str(url_org.id)
-        return super().to_internal_value(data)
+        read_only_fields = ['id', 'status', 'organization', 'created_by', 'created_at', 'updated_at']
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
@@ -214,12 +190,12 @@ class ProductCreateSerializer(serializers.ModelSerializer):
         user = getattr(request, 'user', None)
         url_org = getattr(view, 'organization', None) if view else None
 
-        if url_org and attrs.get('organization') and attrs['organization'].id != url_org.id:
-            raise serializers.ValidationError({'organization': 'Organization does not match URL path.'})
+        if url_org and hasattr(self, 'initial_data') and isinstance(self.initial_data, dict):
+            raw_org = self.initial_data.get('organization')
+            if raw_org and str(raw_org) != str(url_org.id):
+                raise serializers.ValidationError({'organization': 'Organization does not match URL path.'})
 
-        org = attrs.get('organization') or url_org or (self.instance.organization if self.instance else None)
-        if org and not attrs.get('organization'):
-            attrs['organization'] = org
+        org = url_org or (self.instance.organization if self.instance else None)
 
         if org:
             category = attrs.get('category')
@@ -292,7 +268,8 @@ class ProductCreateSerializer(serializers.ModelSerializer):
         units_data = validated_data.pop('unit_conversions', [])
         variants_data = validated_data.pop('variants', [])
 
-        organization = validated_data.pop('organization')
+        view = self.context.get('view')
+        organization = validated_data.pop('organization', None) or (getattr(view, 'organization', None) if view else None)
         created_by = validated_data.pop('created_by', None)
         if created_by is None and 'request' in self.context:
             created_by = self.context['request'].user
