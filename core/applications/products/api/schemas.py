@@ -1,3 +1,12 @@
+"""
+Last Modified: 2026-10-18
+Module: core.applications.products.api.schemas
+Description:
+    OpenAPI schema extensions and documentation via drf-spectacular.
+    Documents multi-tenant path parameters, request/response bodies, nested relations
+    (batches, discounts, packaging conversions, variants), and dedicated lifecycle actions.
+"""
+
 from drf_spectacular.utils import (
     extend_schema,
     extend_schema_view,
@@ -7,6 +16,7 @@ from drf_spectacular.utils import (
 )
 
 PRODUCT_CREATE_EXAMPLE = {
+
     "name": "NEW TEST PRODUCT 1",
     "sku": "MED-AMX-500",
     "barcode": "8901234567890",
@@ -151,5 +161,15 @@ product_schema = extend_schema_view(
 ### Invariant Handling:
 - **Clean Delete**: If the product has zero inventory ledger entries or sales transactions, it is hard-deleted from the database (HTTP 204 No Content).
 - **Protected Archival**: If the product has existing stock movements or sales history, `ProtectedError` is trapped, the product is automatically soft-archived (`status = 'archived'`), an audit log `PRODUCT_ARCHIVED` is emitted, and HTTP 200 OK is returned with an explanatory message.""",
+    ),
+    archive=extend_schema(
+        tags=['Products'],
+        summary="Archive a Product",
+        description="""Explicitly soft-archive an active product (PRD §44). Changes status to 'archived' and records audit event `product.archived`.""",
+    ),
+    restore=extend_schema(
+        tags=['Products'],
+        summary="Restore an Archived Product",
+        description="""Restores a previously archived product back to active status (PRD §44). Evaluates subscription plan quota before activation and records audit event `product.restored`.""",
     ),
 )

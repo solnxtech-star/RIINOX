@@ -1,13 +1,52 @@
+"""
+Last Modified: 2026-10-18
+Module: core.applications.products.api.serializers
+Description:
+    Serializers for Product, ProductVariant, and related nested collections
+    (batches, bulk discounts, unit conversions). Enforces non-negative price/cost validation,
+    strict warehouse requirement on opening stock (PRD §15), role-based cost masking
+    (VIEW_PRODUCT_COSTS), permission enforcement (EDIT_PRODUCT_COSTS, EDIT_SELLING_PRICE),
+    and delegation to domain services.
+"""
+
 from rest_framework import serializers
-from core.applications.products.models import Product, ProductBatch, ProductBulkDiscount, ProductUnitConversion
+
+from core.applications.products.models import (
+    Product,
+    ProductBatch,
+    ProductBulkDiscount,
+    ProductUnitConversion,
+    ProductVariant,
+)
+from core.applications.products.services import create_product, update_product
+from core.applications.users.services import has_org_permission
 from core.applications.warehouse.models import Warehouse
+from core.helper.enums import PermissionCode
+
 
 class ProductBatchSerializer(serializers.ModelSerializer):
+    """
+    Serializer for product batches.
+    Validates non-negative costs/prices and masks cost_price for users without VIEW_PRODUCT_COSTS.
+    """
     class Meta:
         model = ProductBatch
         fields = ['id', 'batch_number', 'expiry_date', 'cost_price', 'selling_price']
 
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        cost = attrs.get('cost_price')
+        if cost is not None and cost < 0:
+            raise serializers.ValidationError({'cost_price': 'Cost price cannot be negative.'})
+        selling = attrs.get('selling_price')
+        if selling is not None and selling < 0:
+            raise serializers.ValidationError({'selling_price': 'Selling price cannot be negative.'})
+        return attrs
+
     def to_representation(self, instance):
+        """
+        Security: Mask purchasing cost if the requesting user lacks VIEW_PRODUCT_COSTS permission.
+        """
         data = super().to_representation(instance)
         request = self.context.get('request')
         user = getattr(request, 'user', None)
@@ -15,26 +54,74 @@ class ProductBatchSerializer(serializers.ModelSerializer):
         if hasattr(instance, 'product') and instance.product:
             org = instance.product.organization
         if org and user and user.is_authenticated:
-            from core.applications.users.services import has_org_permission
-            from core.helper.enums import PermissionCode
             if not has_org_permission(user, org, PermissionCode.VIEW_PRODUCT_COSTS):
                 data.pop('cost_price', None)
         return data
+
+
+class ProductVariantSerializer(serializers.ModelSerializer):
+    """
+    Serializer for product variants (PRD §13/§14).
+    Validates non-negative costs/prices and masks purchase_cost for users without VIEW_PRODUCT_COSTS.
+    """
+    class Meta:
+        model = ProductVariant
+        fields = ['id', 'name', 'sku', 'barcode', 'purchase_cost', 'customer_sale_price', 'is_active']
+        read_only_fields = ['id']
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        cost = attrs.get('purchase_cost')
+        if cost is not None and cost < 0:
+            raise serializers.ValidationError({'purchase_cost': 'Purchase cost cannot be negative.'})
+        price = attrs.get('customer_sale_price')
+        if price is not None and price < 0:
+            raise serializers.ValidationError({'customer_sale_price': 'Customer sale price cannot be negative.'})
+        return attrs
+
+    def to_representation(self, instance):
+        """
+        Security: Mask purchasing cost if the requesting user lacks VIEW_PRODUCT_COSTS permission.
+        """
+        data = super().to_representation(instance)
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        org = None
+        if hasattr(instance, 'product') and instance.product:
+            org = instance.product.organization
+        if org and user and user.is_authenticated:
+            if not has_org_permission(user, org, PermissionCode.VIEW_PRODUCT_COSTS):
+                data.pop('purchase_cost', None)
+        return data
+
 
 class ProductBulkDiscountSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProductBulkDiscount
         fields = ['id', 'min_quantity', 'discount_amount']
 
+    def validate_discount_amount(self, value):
+        if value < 0:
+            raise serializers.ValidationError('Discount amount cannot be negative.')
+        return value
+
+
 class ProductUnitConversionSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProductUnitConversion
         fields = ['id', 'unit_name', 'multiplier', 'price_override']
 
+    def validate_multiplier(self, value):
+        if value <= 0:
+            raise serializers.ValidationError('Multiplier must be greater than zero.')
+        return value
+
+
 class ProductSerializer(serializers.ModelSerializer):
     batches = ProductBatchSerializer(many=True, read_only=True)
     bulk_discounts = ProductBulkDiscountSerializer(many=True, read_only=True)
     unit_conversions = ProductUnitConversionSerializer(many=True, read_only=True)
+    variants = ProductVariantSerializer(many=True, read_only=True)
     current_stock = serializers.IntegerField(read_only=True)
 
     class Meta:
@@ -46,7 +133,7 @@ class ProductSerializer(serializers.ModelSerializer):
             'purchase_cost', 'vendor_sale_cost', 'customer_sale_price',
             'minimum_stock_level', 'low_stock_alert_unit', 'opening_stock',
             'status', 'organization', 'category', 'brand', 'created_by',
-            'current_stock', 'batches', 'bulk_discounts', 'unit_conversions'
+            'current_stock', 'batches', 'bulk_discounts', 'unit_conversions', 'variants'
         ]
 
     def validate(self, attrs):
@@ -71,12 +158,11 @@ class ProductSerializer(serializers.ModelSerializer):
         request = self.context.get('request')
         user = getattr(request, 'user', None)
         if instance.organization and user and user.is_authenticated:
-            from core.applications.users.services import has_org_permission
-            from core.helper.enums import PermissionCode
             if not has_org_permission(user, instance.organization, PermissionCode.VIEW_PRODUCT_COSTS):
                 data.pop('purchase_cost', None)
                 data.pop('vendor_sale_cost', None)
         return data
+
 
 class ProductCreateSerializer(serializers.ModelSerializer):
     quantity_in_stock = serializers.IntegerField(write_only=True, required=False, default=0, help_text="Initial opening stock quantity")
@@ -90,6 +176,7 @@ class ProductCreateSerializer(serializers.ModelSerializer):
     batches = ProductBatchSerializer(many=True, required=False)
     bulk_discounts = ProductBulkDiscountSerializer(many=True, required=False)
     unit_conversions = ProductUnitConversionSerializer(many=True, required=False)
+    variants = ProductVariantSerializer(many=True, required=False)
 
     class Meta:
         model = Product
@@ -100,7 +187,7 @@ class ProductCreateSerializer(serializers.ModelSerializer):
             'purchase_cost', 'vendor_sale_cost', 'customer_sale_price',
             'minimum_stock_level', 'low_stock_alert_unit', 'opening_stock',
             'status', 'organization', 'category', 'brand', 'created_by',
-            'quantity_in_stock', 'warehouse_id', 'batches', 'bulk_discounts', 'unit_conversions'
+            'quantity_in_stock', 'warehouse_id', 'batches', 'bulk_discounts', 'unit_conversions', 'variants'
         ]
         read_only_fields = ['status']
         extra_kwargs = {
@@ -153,10 +240,19 @@ class ProductCreateSerializer(serializers.ModelSerializer):
                     {'warehouse_id': 'Selected warehouse belongs to a different organization.'}
                 )
 
-        if org and user and user.is_authenticated:
-            from core.applications.users.services import has_org_permission
-            from core.helper.enums import PermissionCode
+        # Enforce non-negative price/cost amounts
+        for price_field in ('customer_sale_price', 'purchase_cost', 'vendor_sale_cost'):
+            val = attrs.get(price_field)
+            if val is not None and val < 0:
+                raise serializers.ValidationError({price_field: 'Value cannot be negative.'})
 
+        # Enforce warehouse when opening stock is specified (PRD §15)
+        if attrs.get('quantity_in_stock', 0) > 0 and not attrs.get('warehouse_id'):
+            raise serializers.ValidationError(
+                {'warehouse_id': 'Warehouse is required when opening stock is specified.'}
+            )
+
+        if org and user and user.is_authenticated:
             cost_fields = {'purchase_cost', 'vendor_sale_cost'}
             if any(field in attrs for field in cost_fields):
                 if not has_org_permission(user, org, PermissionCode.EDIT_PRODUCT_COSTS):
@@ -170,16 +266,31 @@ class ProductCreateSerializer(serializers.ModelSerializer):
                         raise serializers.ValidationError(
                             {'customer_sale_price': 'You do not have permission to edit selling prices in this organization.'}
                         )
+
+            # Enforce EDIT_PRODUCT_COSTS on nested batches
+            batches = attrs.get('batches') or []
+            if any(b.get('cost_price') is not None for b in batches):
+                if not has_org_permission(user, org, PermissionCode.EDIT_PRODUCT_COSTS):
+                    raise serializers.ValidationError(
+                        {'batches': 'You do not have permission to set batch costs.'}
+                    )
+
+            # Enforce EDIT_PRODUCT_COSTS on nested variants
+            variants = attrs.get('variants') or []
+            if any(v.get('purchase_cost') is not None for v in variants):
+                if not has_org_permission(user, org, PermissionCode.EDIT_PRODUCT_COSTS):
+                    raise serializers.ValidationError(
+                        {'variants': 'You do not have permission to set variant purchase costs.'}
+                    )
         return attrs
 
     def create(self, validated_data):
-        from core.applications.products.services import create_product
-
         quantity_in_stock = validated_data.pop('quantity_in_stock', 0)
         warehouse = validated_data.pop('warehouse_id', None)
         batches_data = validated_data.pop('batches', [])
         discounts_data = validated_data.pop('bulk_discounts', [])
         units_data = validated_data.pop('unit_conversions', [])
+        variants_data = validated_data.pop('variants', [])
 
         organization = validated_data.pop('organization')
         created_by = validated_data.pop('created_by', None)
@@ -194,6 +305,7 @@ class ProductCreateSerializer(serializers.ModelSerializer):
             batches=batches_data,
             bulk_discounts=discounts_data,
             unit_conversions=units_data,
+            variants=variants_data,
             **validated_data,
         )
 
@@ -202,37 +314,19 @@ class ProductCreateSerializer(serializers.ModelSerializer):
         validated_data.pop('quantity_in_stock', None)
         validated_data.pop('warehouse_id', None)
 
-        # Extract nested data
         batches_data = validated_data.pop('batches', None)
         discounts_data = validated_data.pop('bulk_discounts', None)
         units_data = validated_data.pop('unit_conversions', None)
+        variants_data = validated_data.pop('variants', None)
 
-        # Update the main product instance
-        instance = super().update(instance, validated_data)
+        user = self.context['request'].user if 'request' in self.context else instance.created_by
 
-        # Handle Batches (update existing by batch_number, else create)
-        if batches_data is not None:
-            for batch_data in batches_data:
-                batch_number = batch_data.get('batch_number')
-                if batch_number:
-                    ProductBatch.objects.update_or_create(
-                        product=instance,
-                        batch_number=batch_number,
-                        defaults=batch_data
-                    )
-                else:
-                    ProductBatch.objects.create(product=instance, **batch_data)
-
-        # Handle Bulk Discounts (full replace)
-        if discounts_data is not None:
-            instance.bulk_discounts.all().delete()
-            for discount_data in discounts_data:
-                ProductBulkDiscount.objects.create(product=instance, **discount_data)
-
-        # Handle Unit Conversions (full replace)
-        if units_data is not None:
-            instance.unit_conversions.all().delete()
-            for unit_data in units_data:
-                ProductUnitConversion.objects.create(product=instance, **unit_data)
-
-        return instance
+        return update_product(
+            product=instance,
+            user=user,
+            batches=batches_data,
+            bulk_discounts=discounts_data,
+            unit_conversions=units_data,
+            variants=variants_data,
+            **validated_data,
+        )
