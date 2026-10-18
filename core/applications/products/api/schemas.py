@@ -1,12 +1,3 @@
-"""
-Last Modified: 2026-10-19
-Module: core.applications.products.api.schemas
-Description:
-    OpenAPI schema extensions and documentation via drf-spectacular.
-    Documents multi-tenant path parameters, request/response bodies, nested relations
-    (batches, discounts, packaging conversions, variants), and dedicated lifecycle actions.
-"""
-
 from drf_spectacular.utils import (
     extend_schema,
     extend_schema_view,

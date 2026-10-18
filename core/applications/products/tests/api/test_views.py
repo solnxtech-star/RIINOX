@@ -1,14 +1,3 @@
-"""
-Last Modified: 2026-10-19
-Module: core.applications.products.tests.api.test_views
-Description:
-    Comprehensive API test suite for the Products application.
-    Validates tenant isolation, RBAC capabilities (Owner, Manager, Sales Rep),
-    cost masking (VIEW_PRODUCT_COSTS), opening stock warehouse strictness (PRD §15),
-    nested & sub-resource variant management (PRD §13/§14), soft archival & restoration (PRD §44),
-    and catalog search/filtering.
-"""
-
 import uuid
 from decimal import Decimal
 from django.urls import reverse
@@ -174,7 +163,8 @@ class ProductAPITest(APITestCase):
         }
         response = self.client.post(url, data, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("organization", response.data)
+        errors = response.data.get("errors", response.data)
+        self.assertIn("organization", errors)
 
     def test_owner_create_product_payload_matching_organization_allowed(self):
         """Explicitly providing the matching organization in payload succeeds and binds to tenant."""
@@ -188,7 +178,7 @@ class ProductAPITest(APITestCase):
         }
         response = self.client.post(url, data, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data["organization"], self.org.id)
+        self.assertEqual(str(response.data["organization"]).replace("-", ""), str(self.org.id).replace("-", ""))
 
     def test_owner_retrieve_product(self):
         """Owner retrieves product; all cost fields are returned."""

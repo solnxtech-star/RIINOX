@@ -1,13 +1,3 @@
-"""
-Last Modified: 2026-10-18
-Module: core.applications.products.api.views
-Description:
-    REST ViewSets for Products and Product Variants.
-    Provides strict tenant-scoped endpoints via OrganizationScopedMixin,
-    granular role permissions, protected deletion fallback to soft-archival (PRD §44),
-    rich search/filtering capabilities, and dedicated variant sub-resource management.
-"""
-
 from rest_framework import viewsets, mixins, status
 from rest_framework.decorators import action
 from rest_framework.filters import SearchFilter, OrderingFilter

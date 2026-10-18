@@ -1,12 +1,3 @@
-"""
-Last Modified: 2026-10-18
-Module: core.applications.products.api.permissions
-Description:
-    RBAC permission enforcement for Product and Variant endpoints.
-    Maps DRF viewset actions to granular system permissions (e.g., ARCHIVE_PRODUCT,
-    EDIT_PRODUCT, VIEW_PRODUCTS) and guarantees strict tenant boundary validation.
-"""
-
 from __future__ import annotations
 
 from core.applications.users.permissions import BaseTenantPermission

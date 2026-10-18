@@ -1,3 +1,4 @@
+import uuid
 from rest_framework import serializers
 
 from core.applications.products.models import (
@@ -192,8 +193,12 @@ class ProductCreateSerializer(serializers.ModelSerializer):
 
         if url_org and hasattr(self, 'initial_data') and isinstance(self.initial_data, dict):
             raw_org = self.initial_data.get('organization')
-            if raw_org and str(raw_org) != str(url_org.id):
-                raise serializers.ValidationError({'organization': 'Organization does not match URL path.'})
+            if raw_org:
+                try:
+                    if uuid.UUID(str(raw_org)) != uuid.UUID(str(url_org.id)):
+                        raise serializers.ValidationError({'organization': 'Organization does not match URL path.'})
+                except (ValueError, AttributeError):
+                    raise serializers.ValidationError({'organization': 'Invalid organization UUID.'})
 
         org = url_org or (self.instance.organization if self.instance else None)
 
