@@ -1,5 +1,5 @@
 """
-Last Modified: 2026-10-18
+Last Modified: 2026-10-19
 Module: core.applications.products.tests.api.test_views
 Description:
     Comprehensive API test suite for the Products application.
@@ -162,6 +162,33 @@ class ProductAPITest(APITestCase):
         self.assertEqual(get_resp.data["purchase_cost"], "30.00")
         self.assertEqual(len(get_resp.data["batches"]), 1)
         self.assertEqual(get_resp.data["batches"][0]["cost_price"], "28.00")
+
+    def test_owner_create_product_payload_organization_mismatch_rejected(self):
+        """Passing an organization in payload that contradicts the URL tenant yields a validation error."""
+        url = self.products_url
+        data = {
+            "name": "Mismatched Org Product",
+            "sku": f"SKU-MISMATCH-{uuid.uuid4().hex[:6]}",
+            "organization": str(self.other_org.id),
+            "customer_sale_price": "45.00"
+        }
+        response = self.client.post(url, data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("organization", response.data)
+
+    def test_owner_create_product_payload_matching_organization_allowed(self):
+        """Explicitly providing the matching organization in payload succeeds and binds to tenant."""
+        url = self.products_url
+        sku = f"SKU-MATCH-{uuid.uuid4().hex[:6]}"
+        data = {
+            "name": "Explicit Org Product",
+            "sku": sku,
+            "organization": str(self.org.id),
+            "customer_sale_price": "45.00"
+        }
+        response = self.client.post(url, data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["organization"], self.org.id)
 
     def test_owner_retrieve_product(self):
         """Owner retrieves product; all cost fields are returned."""
