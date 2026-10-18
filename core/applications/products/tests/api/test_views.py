@@ -1,10 +1,21 @@
+"""
+Last Modified: 2026-10-18
+Module: core.applications.products.tests.api.test_views
+Description:
+    Comprehensive API test suite for the Products application.
+    Validates tenant isolation, RBAC capabilities (Owner, Manager, Sales Rep),
+    cost masking (VIEW_PRODUCT_COSTS), opening stock warehouse strictness (PRD §15),
+    nested & sub-resource variant management (PRD §13/§14), soft archival & restoration (PRD §44),
+    and catalog search/filtering.
+"""
+
 import uuid
 from decimal import Decimal
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 from django.core.exceptions import ValidationError
-from core.applications.products.models import Brand, Category, Product, ProductBatch
+from core.applications.products.models import Brand, Category, Product, ProductBatch, ProductVariant
 from core.applications.users.models import Membership
 from core.applications.users.services import seed_default_roles
 from core.applications.inventory.tests.factories import OrganizationFactory, UserFactory
@@ -17,7 +28,7 @@ EXPECTED_PRODUCT_FIELDS = [
     'purchase_cost', 'vendor_sale_cost', 'customer_sale_price',
     'minimum_stock_level', 'low_stock_alert_unit', 'opening_stock',
     'status', 'organization', 'category', 'brand', 'created_by',
-    'current_stock', 'batches', 'bulk_discounts', 'unit_conversions'
+    'current_stock', 'batches', 'bulk_discounts', 'unit_conversions', 'variants'
 ]
 
 EXPECTED_PRODUCT_FIELDS_NO_COSTS = [
@@ -26,8 +37,9 @@ EXPECTED_PRODUCT_FIELDS_NO_COSTS = [
 
 
 class ProductAPITest(APITestCase):
+
     def setUp(self):
-        # 1. Primary Organization setup
+        # Primary Organization setup
         self.org = OrganizationFactory()
         self.roles = seed_default_roles(self.org)
 
@@ -55,7 +67,7 @@ class ProductAPITest(APITestCase):
             is_active=True,
         )
 
-        # 2. Secondary Organization setup for Tenant Boundary verification
+        # Secondary Organization setup for Tenant Boundary verification
         self.other_org = OrganizationFactory()
         self.other_roles = seed_default_roles(self.other_org)
 
@@ -67,7 +79,7 @@ class ProductAPITest(APITestCase):
             is_active=True,
         )
 
-        # 3. Base Products
+        # Base Products
         self.product = Product.objects.create(
             organization=self.org,
             name="Org1 Product",
@@ -460,7 +472,7 @@ class ProductAPITest(APITestCase):
             is_active=True,
         )
 
-        # 1. Primary organization path -> scopes to self.org
+        # Primary organization path -> scopes to self.org
         resp_default = self.client.get(self.products_url)
         self.assertEqual(resp_default.status_code, status.HTTP_200_OK)
         results_default = resp_default.data.get("results", resp_default.data)
@@ -468,7 +480,7 @@ class ProductAPITest(APITestCase):
         self.assertIn(str(self.product.id).replace("-", ""), ids_default)
         self.assertNotIn(str(self.other_product.id).replace("-", ""), ids_default)
 
-        # 2. Secondary organization path -> scopes to other_org
+        # Secondary organization path -> scopes to other_org
         resp_other = self.client.get(f"/api/organizations/{self.other_org.id}/products/")
         self.assertEqual(resp_other.status_code, status.HTTP_200_OK)
         results_other = resp_other.data.get("results", resp_other.data)
@@ -476,9 +488,162 @@ class ProductAPITest(APITestCase):
         self.assertNotIn(str(self.product.id).replace("-", ""), ids_other)
         self.assertIn(str(self.other_product.id).replace("-", ""), ids_other)
 
-        # 3. Foreign organization where user has no membership -> 404 Not Found
+        # Foreign organization where user has no membership -> 404 Not Found
         foreign_org = OrganizationFactory()
         resp_foreign = self.client.get(f"/api/organizations/{foreign_org.id}/products/")
         self.assertEqual(resp_foreign.status_code, status.HTTP_404_NOT_FOUND)
+
+    # -------------------------------------------------------------------------
+    # Nested and Sub-resource Variants Tests
+    # -------------------------------------------------------------------------
+    def test_create_product_with_nested_variants(self):
+        """Creating a product with nested variants provisions ProductVariant records and serializes them."""
+        url = self.products_url
+        sku = f"SKU-VAR-{uuid.uuid4().hex[:6]}"
+        data = {
+            "name": "Product with Variants",
+            "sku": sku,
+            "customer_sale_price": "100.00",
+            "variants": [
+                {
+                    "name": "Small / Red",
+                    "sku": f"{sku}-S-RED",
+                    "customer_sale_price": "90.00",
+                    "is_active": True,
+                },
+                {
+                    "name": "Large / Blue",
+                    "sku": f"{sku}-L-BLU",
+                    "customer_sale_price": "110.00",
+                    "is_active": True,
+                },
+            ],
+        }
+        resp = self.client.post(url, data, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(len(resp.data.get("variants", [])), 2)
+
+        prod = Product.objects.get(sku=sku)
+        self.assertEqual(prod.variants.count(), 2)
+
+    def test_product_variant_subresource_endpoints(self):
+        """Dedicated sub-resource route /products/{id}/variants/ allows managing variants."""
+        var_url = f"{self.products_url}{self.product.id}/variants/"
+        data = {
+            "name": "Variant Direct",
+            "sku": f"VAR-DIR-{uuid.uuid4().hex[:6]}",
+            "customer_sale_price": "35.00",
+            "is_active": True,
+        }
+        create_resp = self.client.post(var_url, data, format="json")
+        self.assertEqual(create_resp.status_code, status.HTTP_201_CREATED)
+        var_id = create_resp.data["id"]
+
+        # List variants for this product
+        list_resp = self.client.get(var_url)
+        self.assertEqual(list_resp.status_code, status.HTTP_200_OK)
+        results = list_resp.data.get("results", list_resp.data)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"].replace("-", ""), var_id.replace("-", ""))
+
+    # -------------------------------------------------------------------------
+    # Opening Stock & Pricing Validation Tests
+    # -------------------------------------------------------------------------
+    def test_opening_stock_requires_warehouse(self):
+        """Setting quantity_in_stock > 0 without warehouse_id returns 400 Bad Request (PRD §15)."""
+        url = self.products_url
+        data = {
+            "name": "Missing Warehouse Product",
+            "sku": f"SKU-NOWH-{uuid.uuid4().hex[:6]}",
+            "customer_sale_price": "50.00",
+            "quantity_in_stock": 25,
+        }
+        resp = self.client.post(url, data, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        errors = resp.data.get("errors", resp.data)
+        self.assertIn("warehouse_id", errors)
+
+    def test_non_negative_pricing_validation(self):
+        """Negative price or cost returns 400 Bad Request."""
+        url = self.products_url
+        data = {
+            "name": "Negative Price Product",
+            "sku": f"SKU-NEG-{uuid.uuid4().hex[:6]}",
+            "customer_sale_price": "-10.00",
+        }
+        resp = self.client.post(url, data, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        errors = resp.data.get("errors", resp.data)
+        self.assertIn("customer_sale_price", errors)
+
+    def test_batch_cost_requires_edit_product_costs_permission(self):
+        """Supplying batch cost_price without EDIT_PRODUCT_COSTS returns 400 Bad Request."""
+        self.client.force_authenticate(user=self.manager)
+        url = self.products_url
+        data = {
+            "name": "Manager Batch Cost Product",
+            "sku": f"SKU-MGRBAT-{uuid.uuid4().hex[:6]}",
+            "customer_sale_price": "50.00",
+            "batches": [
+                {
+                    "batch_number": "BCH-DENIED",
+                    "cost_price": "20.00",
+                    "selling_price": "50.00",
+                }
+            ],
+        }
+        resp = self.client.post(url, data, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        errors = resp.data.get("errors", resp.data)
+        self.assertIn("batches", errors)
+
+    # -------------------------------------------------------------------------
+    # Archive & Restore Tests
+    # -------------------------------------------------------------------------
+    def test_product_archive_and_restore_endpoints(self):
+        """Owner can explicitly archive and restore a product via dedicated actions (PRD §44)."""
+        archive_url = f"{self.products_url}{self.product.id}/archive/"
+        arch_resp = self.client.post(archive_url, {"reason": "End of season"}, format="json")
+        self.assertEqual(arch_resp.status_code, status.HTTP_200_OK)
+
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.status, "archived")
+
+        # Restore product
+        restore_url = f"{self.products_url}{self.product.id}/restore/"
+        rest_resp = self.client.post(restore_url, format="json")
+        self.assertEqual(rest_resp.status_code, status.HTTP_200_OK)
+
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.status, "active")
+
+    def test_unauthorized_user_cannot_archive_product(self):
+        """Users without ARCHIVE_PRODUCT (e.g. Sales Rep or Manager) cannot archive a product -> 403."""
+        self.client.force_authenticate(user=self.sales_rep)
+        archive_url = f"{self.products_url}{self.product.id}/archive/"
+        arch_resp = self.client.post(archive_url, {"reason": "Unauthorized"}, format="json")
+        self.assertEqual(arch_resp.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Manager also lacks ARCHIVE_PRODUCT by default
+        self.client.force_authenticate(user=self.manager)
+        mgr_resp = self.client.post(archive_url, {"reason": "Manager attempt"}, format="json")
+        self.assertEqual(mgr_resp.status_code, status.HTTP_403_FORBIDDEN)
+
+
+    # -------------------------------------------------------------------------
+    # Search & Filtering Tests
+    # -------------------------------------------------------------------------
+    def test_product_search_and_filtering(self):
+        """Product list supports search by name/sku and query parameter filtering by status."""
+        search_resp = self.client.get(f"{self.products_url}?search=Org1")
+        self.assertEqual(search_resp.status_code, status.HTTP_200_OK)
+        results = search_resp.data.get("results", search_resp.data)
+        self.assertTrue(any(r["id"].replace("-", "") == str(self.product.id).replace("-", "") for r in results))
+
+        status_resp = self.client.get(f"{self.products_url}?status=active")
+        self.assertEqual(status_resp.status_code, status.HTTP_200_OK)
+        results = status_resp.data.get("results", status_resp.data)
+        self.assertTrue(all(r["status"] == "active" for r in results))
+
 
 
