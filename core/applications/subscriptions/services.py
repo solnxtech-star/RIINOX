@@ -66,7 +66,9 @@ PLAN_LIMIT_FIELDS = frozenset(
 # Plans and subscriptions
 # --------------------------------------------------------------------------- #
 def get_default_plan() -> Plan:
-    plan = Plan.objects.filter(name__iexact=DEFAULT_PLAN_NAME, is_active=True).first()
+    plan = Plan.objects.filter(is_default=True, is_active=True).first()
+    if plan is None:
+        plan = Plan.objects.filter(name__iexact=DEFAULT_PLAN_NAME, is_active=True).first()
     if plan is None:
         # Server misconfiguration, not a client error -> surfaces as a 500.
         raise ImproperlyConfigured(f"Default plan '{DEFAULT_PLAN_NAME}' is not configured.")
@@ -106,7 +108,7 @@ def start_subscription(organization: Organization, plan: Plan | None = None) -> 
         status=status,
         trial_ends_at=trial_ends_at,
         current_period_start=now,
-        current_period_end=now + timedelta(days=plan.billing_period_days),
+        current_period_end=None,
     )
 
 

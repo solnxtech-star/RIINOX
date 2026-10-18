@@ -27,9 +27,8 @@ class PlanLimitEnforcementTests(TestCase):
 
         # Create custom capped test plan
         self.capped_plan = Plan.objects.create(
+            code="capped-test-plan",
             name="Capped Test Plan",
-            price=Decimal("10.00"),
-            billing_period_days=30,
             max_products=2,
             max_locations=1,
             max_transactions_per_month=2,
@@ -37,9 +36,8 @@ class PlanLimitEnforcementTests(TestCase):
         )
 
         self.unlimited_plan = Plan.objects.create(
+            code="unlimited-test-plan",
             name="Unlimited Test Plan",
-            price=Decimal("100.00"),
-            billing_period_days=30,
             max_products=None,
             max_locations=None,
             max_transactions_per_month=None,
