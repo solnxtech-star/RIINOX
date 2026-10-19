@@ -234,18 +234,18 @@ class OrganizationAdmin(admin.ModelAdmin):
     def has_delete_permission(self, request, obj=None):
         return request.user.is_superuser
 
-    def save_formset(self, request, form, formset, change):
-        if isinstance(formset, OrganizationBusinessTypeFormSet):
-            # Single write path: same service (and same primary-flag ordering) as the API.
-            rows = formset.selected()
-            primary = next(row["business_type"] for row in rows if row["is_primary"])
-            services.set_business_types(
-                organization=form.instance,
-                business_types=[row["business_type"] for row in rows],
-                primary=primary,
-            )
-            return
-        super().save_formset(request, form, formset, change)
+    # def save_formset(self, request, form, formset, change):
+    #     if isinstance(formset, OrganizationBusinessTypeFormSet):
+    #         # Single write path: same service (and same primary-flag ordering) as the API.
+    #         rows = formset.selected()
+    #         primary = next(row["business_type"] for row in rows if row["is_primary"])
+    #         services.set_business_types(
+    #             organization=form.instance,
+    #             business_types=[row["business_type"] for row in rows],
+    #             primary=primary,
+    #         )
+    #         return
+    #     super().save_formset(request, form, formset, change)
 
 
 # ---------------------------------------------------------------------------
