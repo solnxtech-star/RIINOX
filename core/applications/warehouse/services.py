@@ -1,54 +1,55 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
+from typing import Any
 
 from django.db import transaction
 
-from core.applications.subscriptions.services import (
-    check_plan_limit,
+from core.applications.subscriptions.services.entitlements import (
     ensure_subscription_active,
 )
+from core.applications.subscriptions.services.usage import consume_usage
+from core.applications.subscriptions.services.usage import release_usage
 from core.applications.warehouse.models import Warehouse
+from core.helper.enums import UsageMetric
 
 if TYPE_CHECKING:
     from core.applications.users.models import Organization
 
-__all__ = [
-    "create_warehouse",
-    "ensure_location_limit",
-]
-
-
-def ensure_location_limit(organization: Organization) -> None:
-    """
-    Asserts that adding a new warehouse/location does not exceed the organization's plan limit.
-    Deactivated locations are excluded so organizations can retire locations without losing history.
-    """
-    active_count = Warehouse.objects.filter(
-        organization=organization,
-        is_active=True,
-    ).count()
-    check_plan_limit(organization, "max_locations", active_count)
+__all__ = ["create_warehouse", "deactivate_warehouse", "reactivate_warehouse"]
 
 
 @transaction.atomic
-def create_warehouse(
-    *,
-    organization: Organization,
-    name: str,
-    code: str,
-    **kwargs: Any,
-) -> Warehouse:
+def create_warehouse(*, organization: Organization, name: str, code: str, **kwargs: Any) -> Warehouse:
     """
     Creates a new physical warehouse/location for the organization.
     Enforces active subscription standing and the max_locations plan limit server-side.
+    Only ACTIVE locations count, so organizations can retire locations without losing history.
     """
-    ensure_subscription_active(organization)
-    ensure_location_limit(organization)
+    ensure_subscription_active(organization)  # quick early refusal if the plan has lapsed
 
-    return Warehouse.objects.create(
-        organization=organization,
-        name=name,
-        code=code,
-        **kwargs,
-    )
+    warehouse = Warehouse.objects.create(organization=organization, name=name, code=code, **kwargs)
+
+    # Last step: reserve one location. At the limit this raises PLAN_LIMIT_REACHED and,
+    # being inside atomic(), also undoes the insert above.
+    consume_usage(organization, UsageMetric.LOCATIONS)
+    return warehouse
+
+
+@transaction.atomic
+def deactivate_warehouse(warehouse: Warehouse) -> Warehouse:
+    """Retire a location: history stays, its slot is given back. Not gated: shrinking is always allowed."""
+    if Warehouse.objects.filter(pk=warehouse.pk, is_active=True).update(is_active=False):
+        release_usage(warehouse.organization, UsageMetric.LOCATIONS)
+    warehouse.is_active = False
+    return warehouse
+
+
+@transaction.atomic
+def reactivate_warehouse(warehouse: Warehouse) -> Warehouse:
+    """Bring a retired location back. Needs a free slot, so it can be refused at the plan limit."""
+    ensure_subscription_active(warehouse.organization)
+    if Warehouse.objects.filter(pk=warehouse.pk, is_active=False).update(is_active=True):
+        consume_usage(warehouse.organization, UsageMetric.LOCATIONS)
+    warehouse.is_active = True
+    return warehouse

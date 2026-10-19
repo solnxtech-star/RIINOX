@@ -5,10 +5,12 @@ from typing import Any
 from typing import Final
 
 import auto_prefetch
+from django.apps import apps
 from django.db.models import Count
 from django.db.models import DecimalField
 from django.db.models import ExpressionWrapper
 from django.db.models import F
+from django.db.models import Prefetch
 from django.db.models import Q
 from django.db.models import Sum
 from django.db.models.functions import Coalesce
@@ -22,6 +24,8 @@ if TYPE_CHECKING:
     from core.applications.users.models import Organization
 
 __all__ = [
+    "OUTSTANDING_STATUSES",
+    "SALE_STATUSES",
     "ClientManager",
     "ClientQuerySet",
     "DocumentSequenceManager",
@@ -56,16 +60,10 @@ def _clamp_page_size(limit: int) -> int:
     return max(1, min(limit, MAX_PAGE_SIZE))
 
 
-# --------------------------------------------------------------------------- #
-# DocumentTemplate
-# --------------------------------------------------------------------------- #
-
-
 class DocumentTemplateQuerySet(auto_prefetch.QuerySet):
     """Templates are either shared (organization is NULL) or owned by one tenant."""
 
     def active(self):
-        """Only templates that are not soft-deleted (PRD §24)."""
         return self.filter(is_active=True)
 
     def shared(self):
@@ -209,8 +207,22 @@ class InvoiceQuerySet(auto_prefetch.QuerySet):
         return self.select_related("client", "sales_rep", "confirmed_by", "warehouse")
 
     def for_detail(self):
-        """Detail/PDF pages: parties plus line items and products in two queries."""
-        return self.for_list().select_related("replaces").prefetch_related("items__product")
+        """
+        Detail/PDF pages: parties, the voiding user and the replaced invoice in
+        the main query; line items (with their products, in a stable order) and
+        any corrected replacements in two more. Three queries however many lines.
+        """
+        items = Prefetch(
+            "items",
+            queryset=apps.get_model("invoice", "InvoiceItem")
+            .objects.select_related("product")
+            .order_by("pk"),
+        )
+        return (
+            self.for_list()
+            .select_related("replaces", "voided_by")
+            .prefetch_related(items, "corrections")
+        )
 
     def with_computed_subtotal(self):
         """

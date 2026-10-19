@@ -3,11 +3,12 @@ from django.db import transaction
 from django.utils import timezone
 from django.contrib.contenttypes.models import ContentType
 from core.applications.inventory.models import Inventory, InventoryLedgerEntry, StockAdjustmentRequest
-from core.applications.transactions.services import create_transaction, TransactionData      
+from core.applications.subscriptions.services.entitlements import ensure_subscription_active
+from core.applications.transactions.services import create_transaction, TransactionData
 from core.applications.notification.audit.services import record as audit_record
 from core.applications.notification.audit.action import AuditAction
 from core.helper.enums import (
-    TransactionTypeChoices, 
+    TransactionTypeChoices,
     TransactionStatusChoices,
     RestockActionChoices,
     ApprovalStatusChoices,
@@ -20,7 +21,6 @@ from django.db.models import F
 
 from rest_framework.exceptions import ValidationError
 from core.applications.inventory.models import PhysicalStockCount
-from core.applications.subscriptions.services import ensure_subscription_active
 
 @transaction.atomic
 def process_sale_inventory_and_ledger(sale):
@@ -39,10 +39,10 @@ def process_sale_inventory_and_ledger(sale):
     ))
 
     ledger_entries = []
-    
+
     for item in sale.items.all():
         remaining_qty = item.quantity * item.unit_multiplier
-        
+
         # Order by expiry date (FIFO) to handle multiple batches safely
         inventory_records = Inventory.objects.select_for_update(of=('self',)).filter(
             product=item.product,
@@ -52,7 +52,7 @@ def process_sale_inventory_and_ledger(sale):
 
         # Calculate total available stock across all batches
         total_available = sum(inv.quantity for inv in inventory_records)
-        
+
         # We only block the sale if the product STRICTLY tracks inventory.
         if total_available < remaining_qty and item.product.track_inventory:
             raise ValidationError(
@@ -72,7 +72,7 @@ def process_sale_inventory_and_ledger(sale):
             )
             inv.quantity -= remaining_qty
             inv.save(update_fields=['quantity'])
-            
+
             ledger_entries.append(InventoryLedgerEntry(
                 transaction=transaction_record,
                 product=item.product,
@@ -87,14 +87,14 @@ def process_sale_inventory_and_ledger(sale):
         for inv in inventory_records:
             if remaining_qty <= 0:
                 break
-                
+
             qty_to_deduct = min(remaining_qty, inv.quantity)
-            
+
             if qty_to_deduct > 0:
                 inv.quantity -= qty_to_deduct
                 inv.save(update_fields=['quantity'])
                 remaining_qty -= qty_to_deduct
-                
+
                 ledger_entries.append(InventoryLedgerEntry(
                     transaction=transaction_record,
                     product=item.product,
@@ -130,12 +130,12 @@ def process_return_inventory_and_ledger(sale_return):
         object_id=sale_return.id,
         created_by=sale_return.original_sale.sales_rep
     ))
-    
+
     entries = []
     for item in sale_return.items.all():
         if item.restock_action == RestockActionChoices.RETURN_TO_STOCK:
             return_qty_in_base_units = item.quantity * item.sale_item.unit_multiplier
-            
+
             # Without a specific batch_id on SaleReturnItem, we restock to the generic pool
             inventory, _ = Inventory.objects.select_for_update().get_or_create(
                 product=item.sale_item.product,
@@ -155,7 +155,7 @@ def process_return_inventory_and_ledger(sale_return):
                 quantity_moved=return_qty_in_base_units,
                 unit_cost=item.sale_item.product.purchase_cost
             ))
-            
+
     if entries:
         InventoryLedgerEntry.objects.bulk_create(entries)
 
@@ -184,7 +184,7 @@ def create_opening_stock(product, variant, batch, warehouse, quantity, user):
         quantity_moved=quantity,
         unit_cost=product.purchase_cost
     )
-    
+
     inventory, _ = Inventory.objects.get_or_create(
         product=product, variant=variant, batch=batch, warehouse=warehouse
     )
@@ -218,9 +218,9 @@ def request_stock_adjustment(product, variant, batch, warehouse, quantity_change
         requested_by=user,
         status=ApprovalStatusChoices.PENDING
     )
-    
+
     is_privileged = user.is_superuser or getattr(user, "role", None) in (UsersRole.OWNER, UsersRole.ADMIN)
-    
+
     if is_privileged:
         approve_stock_adjustment(adjustment.id, admin_user=user)
         adjustment.refresh_from_db()
@@ -347,13 +347,13 @@ def bulk_transfer_stock(source_warehouse, destination_warehouse, items, user, no
     ))
 
     ledger_entries = []
-    
+
     for item in items:
         product = item['product']
         variant = item.get('variant')
         batch = item.get('batch')
         quantity = item['quantity']
-        
+
         # Source Decrease Ledger Entry
         ledger_entries.append(
             InventoryLedgerEntry(
@@ -369,7 +369,7 @@ def bulk_transfer_stock(source_warehouse, destination_warehouse, items, user, no
         )
         source_inventory.quantity -= quantity
         source_inventory.save(update_fields=['quantity'])
-        
+
         # Destination Increase Ledger Entry
         ledger_entries.append(
             InventoryLedgerEntry(
@@ -437,13 +437,13 @@ def receive_purchase_order(purchase, items_received, user):
             quantity_moved=received_quantity,
             unit_cost=item.purchase_cost
         ))
-        
+
         inventory, _ = Inventory.objects.get_or_create(
             product=item.product, variant=item.variant, batch=None, warehouse=purchase.warehouse
         )
         inventory.quantity += received_quantity
         inventory.save(update_fields=['quantity'])
-        
+
     InventoryLedgerEntry.objects.bulk_create(entries)
 
     # Transition purchase status and update received_by
@@ -476,7 +476,7 @@ def finalize_physical_stock_count(count_id, admin_user):
     count = PhysicalStockCount.objects.prefetch_related('items__product', 'warehouse__organization').get(id=count_id)
     if count.status != PhysicalCountStatusChoices.DRAFT:
         raise ValidationError("Only DRAFT stock counts can be finalized.")
-        
+
     transaction_record = create_transaction(TransactionData(
         transaction_id=f"COUNT-{count.id}"[:50],
         organization=count.warehouse.organization,
@@ -488,22 +488,22 @@ def finalize_physical_stock_count(count_id, admin_user):
     ))
 
     ledger_entries = []
-    
+
     for item in count.items.all():
         variance = item.counted_quantity - item.expected_quantity
         if variance == 0:
             continue
-            
+
         inv, _ = Inventory.objects.select_for_update().get_or_create(
             product=item.product,
             variant=item.variant,
             batch=None,
             warehouse=count.warehouse
         )
-        
+
         inv.quantity += variance
         inv.save(update_fields=['quantity'])
-        
+
         ledger_entries.append(InventoryLedgerEntry(
             transaction=transaction_record,
             product=item.product,
@@ -516,7 +516,7 @@ def finalize_physical_stock_count(count_id, admin_user):
 
     if ledger_entries:
         InventoryLedgerEntry.objects.bulk_create(ledger_entries)
-        
+
     count.status = PhysicalCountStatusChoices.COMPLETED
     count.save(update_fields=['status'])
     return count

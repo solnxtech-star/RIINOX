@@ -33,7 +33,10 @@ EVENT_INVOICE_VOIDED: Final = "invoice.voided"
 
 @dataclass(frozen=True, slots=True)
 class PricedLine:
-    """A line after the backend has priced it (PRD §39: the frontend never sends prices)."""
+    """
+    A line after the backend has priced it
+    (PRD §39: the frontend never sends prices).
+    """
 
     product_id: Any
     quantity: int

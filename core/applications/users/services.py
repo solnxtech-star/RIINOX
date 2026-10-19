@@ -16,8 +16,8 @@ from core.applications.invoice.services.documents import (
 from core.applications.notification.audit import services as audit
 from core.applications.notification.audit.action import AuditAction
 from core.applications.notification.audit.context import AuditContext
-from core.applications.subscriptions.services import get_plan_limit
-from core.applications.subscriptions.services import start_subscription
+from core.applications.subscriptions.services.entitlements import get_plan_limit
+from core.applications.subscriptions.services.lifecycle import start_subscription
 from core.applications.users import reference_data
 from core.applications.users.defaults import ADMINISTRATOR_ROLE_SLUG
 from core.applications.users.defaults import ALL
@@ -129,14 +129,18 @@ def _validate_profile(profile: OrganizationProfile) -> None:
     primary source of field-level errors a normal request sees.
     """
     if not reference_data.is_valid_country(profile.country):
-        raise OrganizationProfileInvalid(f"'{profile.country}' is not a recognised country code.", field="country")
+        msg = f"'{profile.country}' is not a recognised country code."
+        raise OrganizationProfileInvalid(msg, field="country")
     if not reference_data.is_valid_currency(profile.currency):
-        raise OrganizationProfileInvalid(f"'{profile.currency}' is not a recognised currency code.", field="currency")
+        msg = f"'{profile.currency}' is not a recognised currency code."
+        raise OrganizationProfileInvalid(msg, field="currency")
     if not reference_data.is_valid_timezone(profile.timezone):
-        raise OrganizationProfileInvalid(f"'{profile.timezone}' is not a recognised timezone.", field="timezone")
+        msg = f"'{profile.timezone}' is not a recognised timezone."
+        raise OrganizationProfileInvalid(msg, field="timezone")
     if not State.objects.filter(country=profile.country, name__iexact=profile.state).exists():
+        msg = f"'{profile.state}' is not a recognised state for '{profile.country}'."
         raise OrganizationProfileInvalid(
-            f"'{profile.state}' is not a recognised state for '{profile.country}'.", field="state"
+            msg, field="state"
         )
 
 
