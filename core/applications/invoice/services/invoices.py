@@ -44,6 +44,7 @@ from core.helper.enums import CustomerStatusChoices
 from core.helper.enums import InvoiceStatusChoices
 
 if TYPE_CHECKING:
+    from collections.abc import Collection
     from collections.abc import Sequence
     from datetime import date
     from datetime import datetime
@@ -75,6 +76,11 @@ VOIDABLE_CONFIRMED_STATUSES: Final = (_S.CONFIRMED, _S.OVERDUE)
 VOIDABLE_STATUSES: Final = (_S.DRAFT, _S.PENDING, *VOIDABLE_CONFIRMED_STATUSES)
 PAID_STATUSES: Final = (_S.PARTIALLY_PAID, _S.PAID)
 
+# Actions an invoice can offer, as shown on the detail page (PRD §38).
+ACTION_CONFIRM: Final = "confirm"
+ACTION_VOID: Final = "void"
+ACTION_VOID_AND_CORRECT: Final = "void_and_correct"
+
 # Raised by Django while converting a malformed id (e.g. "abc" for a UUID or
 # integer key) before any SQL runs. Treated as "not found".
 _BAD_ID_ERRORS: Final = (ValidationError, ValueError, TypeError)
@@ -105,6 +111,7 @@ class InvoiceFilters:
     due_from: date | None = None
     due_to: date | None = None
     overdue_only: bool = False
+    warehouse_id: Any = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -276,6 +283,12 @@ def _calculate_totals(
 ) -> _Totals:
     ports = get_invoice_ports()
     subtotal = _money(sum((i.unit_price * i.quantity for i in items), Decimal(0)))
+    if subtotal > MAX_MONEY:
+        # The subtotal column is as narrow as the total: a huge subtotal fully
+        # covered by a discount would otherwise pass the total check below and
+        # fail at the database instead of as a validation error.
+        msg = "The invoice subtotal is too large."
+        raise InvoiceValidationError(msg, detail={"subtotal": str(subtotal)})
     discount = _money(discount_amount)
     if discount < 0:
         msg = "The discount cannot be negative."
@@ -724,21 +737,66 @@ def list_invoices(
     `cursor` to get the next page; cost does not grow with depth.
     """
     get_invoice_ports().authorize(actor, organization, PERM_INVOICE_VIEW)
-    f = filters or InvoiceFilters()
+    qs = _filtered_invoices(organization, filters or InvoiceFilters())
+    return list(qs.for_list().page_after(cursor, limit))
 
+
+def get_invoice_summary(
+    organization: Organization,
+    *,
+    actor: Any,
+    filters: InvoiceFilters | None = None,
+) -> dict[str, Any]:
+    """
+    The Summary block of the invoice list page (PRD §38): count and money totals
+    for the filtered invoices, excluding voided ones so cancelled paper never
+    inflates sales, plus how many voided invoices matched. Two queries.
+    """
+    get_invoice_ports().authorize(actor, organization, PERM_INVOICE_VIEW)
+    matching = _filtered_invoices(organization, filters or InvoiceFilters())
+    summary = matching.not_voided().totals()
+    summary["voided_count"] = matching.voided().count()
+    return summary
+
+
+def available_actions(invoice: Invoice, permissions: Collection[str]) -> list[str]:
+    """
+    Actions the holder of `permissions` may attempt on this invoice, so the
+    frontend never re-implements status rules (PRD §39). Advisory only: every
+    action is re-validated when it runs (PRD §29).
+    """
+    if invoice.is_voided:
+        return []
+    actions: list[str] = []
+    if invoice.status in CONFIRMABLE_STATUSES and PERM_INVOICE_CONFIRM in permissions:
+        actions.append(ACTION_CONFIRM)
+    if invoice.status in VOIDABLE_STATUSES and PERM_INVOICE_VOID in permissions:
+        actions.append(ACTION_VOID)
+        if PERM_INVOICE_CREATE in permissions:
+            actions.append(ACTION_VOID_AND_CORRECT)
+    return actions
+
+
+def _filtered_invoices(organization: Organization, f: InvoiceFilters):
+    """The tenant's invoices narrowed by `f`. A malformed id matches nothing."""
     qs = Invoice.objects.for_organization(organization)
+    try:
+        if f.client_id is not None:
+            qs = qs.filter(client_id=f.client_id)
+        if f.sales_rep_id is not None:
+            qs = qs.filter(sales_rep_id=f.sales_rep_id)
+        if f.warehouse_id is not None:
+            qs = qs.filter(warehouse_id=f.warehouse_id)
+    except _BAD_ID_ERRORS:
+        return qs.none()
     if f.statuses:
         qs = qs.with_status(*f.statuses)
-    if f.client_id is not None:
-        qs = qs.filter(client_id=f.client_id)
-    if f.sales_rep_id is not None:
-        qs = qs.filter(sales_rep_id=f.sales_rep_id)
     if f.search:
         qs = qs.search(f.search)
     qs = qs.issued_between(f.issued_from, f.issued_to).due_between(f.due_from, f.due_to)
     if f.overdue_only:
         qs = qs.overdue(timezone.localdate())
-    return list(qs.for_list().page_after(cursor, limit))
+    return qs
 
 
 def get_invoice_audit_trail(
@@ -750,7 +808,7 @@ def get_invoice_audit_trail(
     limit: int = 50,
 ) -> list[AuditLog]:
     """
-    The Audit tab of the invoice detail page (PRD §14, §31): every recorded
+    The Audit tab of the invoice detail page (PRD §31, §38): every recorded
     action on one invoice, newest first, keyset paginated. Served by the
     (resource_type, resource_id) index. Requires audit access, which is separate
     from invoice access because audit data is sensitive.

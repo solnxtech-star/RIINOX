@@ -20,7 +20,7 @@ from core.applications.invoice.exceptions import InvalidTemplateFileError
 from core.applications.invoice.exceptions import TemplateNotAvailableError
 from core.applications.invoice.models import DocumentSequence
 from core.applications.invoice.models import DocumentTemplate
-from core.applications.subscriptions.services import plan_has_feature
+from core.applications.subscriptions.services.entitlements import plan_has_feature
 from core.helper.enums import TEMPLATE_TYPES
 
 if TYPE_CHECKING:
@@ -64,7 +64,9 @@ TEMPLATE_FIELD_BY_TYPE: Final[Mapping[str, str]] = MappingProxyType(
 
 # Types every deployment must have a shared default for before organizations
 # can be provisioned.
-REQUIRED_DEFAULT_TEMPLATE_TYPES: Final = frozenset({TEMPLATE_TYPES.INVOICE, TEMPLATE_TYPES.RECEIPT})
+REQUIRED_DEFAULT_TEMPLATE_TYPES: Final = frozenset(
+    {TEMPLATE_TYPES.INVOICE, TEMPLATE_TYPES.RECEIPT}
+)
 
 ALLOWED_TEMPLATE_EXTENSIONS: Final = frozenset({".html", ".docx"})
 MAX_TEMPLATE_FILE_BYTES: Final = 2 * 1024 * 1024
@@ -123,8 +125,9 @@ def get_default_templates() -> dict[str, DocumentTemplate]:
     templates = {t.template_type: t for t in DocumentTemplate.objects.active().defaults()}
     missing = sorted(REQUIRED_DEFAULT_TEMPLATE_TYPES - templates.keys())
     if missing:
+        msg = f"No default template for {missing}. Run `manage.py seed_default_templates`."
         raise DefaultTemplateMissingError(
-            f"No default template for {missing}. Run `manage.py seed_default_templates`.",
+            msg,
             detail={"missing": missing},
         )
     return templates
@@ -135,15 +138,21 @@ def get_default_template(template_type: str) -> DocumentTemplate:
     _validate_document_type(template_type)
     template = DocumentTemplate.objects.active().defaults().of_type(template_type).first()
     if template is None:
+        msg = f"No default template for ['{template_type}']."
         raise DefaultTemplateMissingError(
-            f"No default template for ['{template_type}'].",
+            msg,
             detail={"missing": [template_type]},
         )
     return template
 
 
-def templates_available_to(organization: Organization | None, template_type: str) -> QuerySet[DocumentTemplate]:
-    """Active templates an organization may assign for a type: shared plus its own."""
+def templates_available_to(
+    organization: Organization | None, template_type: str
+) -> QuerySet[DocumentTemplate]:
+    """
+    Active templates an organization may assign for a type:
+    shared plus its own.
+    """
     return DocumentTemplate.objects.active().of_type(template_type).available_to(organization)
 
 
