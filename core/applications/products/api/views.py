@@ -6,14 +6,20 @@ from rest_framework.permissions import IsAuthenticated
 from django.db.models import ProtectedError
 from django.shortcuts import get_object_or_404
 
-from core.applications.products.models import Product, ProductVariant
+from core.applications.products.models import Brand, Category, Product, ProductVariant
 from core.applications.products.api.serializers import (
+    BrandSerializer,
+    CategorySerializer,
     ProductSerializer,
     ProductCreateSerializer,
     ProductVariantSerializer,
 )
-from core.applications.products.api.schemas import product_schema
-from core.applications.products.api.permissions import ProductPermission
+from core.applications.products.api.schemas import brand_schema, category_schema, product_schema
+from core.applications.products.api.permissions import (
+    BrandPermission,
+    CategoryPermission,
+    ProductPermission,
+)
 from core.applications.users.permissions import OrganizationScopedMixin
 from core.applications.products.services import archive_product, restore_product
 
@@ -186,4 +192,93 @@ class ProductVariantViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
         product_id = self.kwargs.get("product_id")
         product = get_object_or_404(Product, id=product_id, organization=self.organization)
         serializer.save(product=product)
+
+
+@category_schema
+class CategoryViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
+    """
+    Tenant-scoped ViewSet for Product Categories.
+    Supports search, ordering, active status filtering, and soft-deactivation fallback on protected delete.
+    """
+    permission_classes = [IsAuthenticated, CategoryPermission]
+    serializer_class = CategorySerializer
+    filter_backends = [SearchFilter, OrderingFilter]
+    search_fields = ["name", "description"]
+    ordering_fields = ["name", "created_at"]
+    ordering = ["name"]
+
+    def get_queryset(self):
+        user = self.request.user
+        if not user.is_authenticated or not self.organization:
+            return Category.objects.none()
+
+        qs = Category.objects.for_organization(self.organization)
+        is_active = self.request.query_params.get("is_active")
+        if is_active is not None:
+            if is_active.lower() in ("true", "1"):
+                qs = qs.filter(is_active=True)
+            elif is_active.lower() in ("false", "0"):
+                qs = qs.filter(is_active=False)
+        return qs
+
+    def perform_create(self, serializer):
+        serializer.save(organization=self.organization)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        try:
+            self.perform_destroy(instance)
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except ProtectedError:
+            instance.is_active = False
+            instance.save(update_fields=["is_active"])
+            return Response(
+                {"detail": f"Category '{instance.name}' is referenced and was deactivated instead of deleted."},
+                status=status.HTTP_200_OK,
+            )
+
+
+@brand_schema
+class BrandViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
+    """
+    Tenant-scoped ViewSet for Product Brands.
+    Supports search, ordering, active status filtering, and soft-deactivation fallback on protected delete.
+    """
+    permission_classes = [IsAuthenticated, BrandPermission]
+    serializer_class = BrandSerializer
+    filter_backends = [SearchFilter, OrderingFilter]
+    search_fields = ["name"]
+    ordering_fields = ["name", "created_at"]
+    ordering = ["name"]
+
+    def get_queryset(self):
+        user = self.request.user
+        if not user.is_authenticated or not self.organization:
+            return Brand.objects.none()
+
+        qs = Brand.objects.for_organization(self.organization)
+        is_active = self.request.query_params.get("is_active")
+        if is_active is not None:
+            if is_active.lower() in ("true", "1"):
+                qs = qs.filter(is_active=True)
+            elif is_active.lower() in ("false", "0"):
+                qs = qs.filter(is_active=False)
+        return qs
+
+    def perform_create(self, serializer):
+        serializer.save(organization=self.organization)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        try:
+            self.perform_destroy(instance)
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except ProtectedError:
+            instance.is_active = False
+            instance.save(update_fields=["is_active"])
+            return Response(
+                {"detail": f"Brand '{instance.name}' is referenced and was deactivated instead of deleted."},
+                status=status.HTTP_200_OK,
+            )
+
 

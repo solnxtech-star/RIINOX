@@ -162,3 +162,84 @@ product_schema = extend_schema_view(
         description="""Restores a previously archived product back to active status (PRD §44). Evaluates subscription plan quota before activation and records audit event `product.restored`.""",
     ),
 )
+
+
+category_schema = extend_schema_view(
+    list=extend_schema(
+        tags=["Categories"],
+        summary="List all Categories",
+        description="Retrieves a list of categories scoped to the active tenant organization.",
+        parameters=[PRODUCT_ORGANIZATION_PARAM],
+    ),
+    create=extend_schema(
+        tags=["Categories"],
+        summary="Create a Category",
+        description="Creates a new product category within the active tenant organization.",
+        parameters=[PRODUCT_ORGANIZATION_PARAM],
+    ),
+    retrieve=extend_schema(
+        tags=["Categories"],
+        summary="Retrieve a Category",
+        description="Retrieves a specific category by its UUID.",
+        parameters=[PRODUCT_ORGANIZATION_PARAM],
+    ),
+    update=extend_schema(
+        tags=["Categories"],
+        summary="Update a Category",
+        description="Updates an existing category within the active tenant organization.",
+        parameters=[PRODUCT_ORGANIZATION_PARAM],
+    ),
+    partial_update=extend_schema(
+        tags=["Categories"],
+        summary="Partially Update a Category",
+        description="Partially updates an existing category within the active tenant organization.",
+        parameters=[PRODUCT_ORGANIZATION_PARAM],
+    ),
+    destroy=extend_schema(
+        tags=["Categories"],
+        summary="Delete or Deactivate a Category",
+        description="Deletes a category, or soft-deactivates it if referenced by existing products.",
+        parameters=[PRODUCT_ORGANIZATION_PARAM],
+    ),
+)
+
+
+brand_schema = extend_schema_view(
+    list=extend_schema(
+        tags=["Brands"],
+        summary="List all Brands",
+        description="Retrieves a list of brands scoped to the active tenant organization.",
+        parameters=[PRODUCT_ORGANIZATION_PARAM],
+    ),
+    create=extend_schema(
+        tags=["Brands"],
+        summary="Create a Brand",
+        description="Creates a new brand within the active tenant organization.",
+        parameters=[PRODUCT_ORGANIZATION_PARAM],
+    ),
+    retrieve=extend_schema(
+        tags=["Brands"],
+        summary="Retrieve a Brand",
+        description="Retrieves a specific brand by its UUID.",
+        parameters=[PRODUCT_ORGANIZATION_PARAM],
+    ),
+    update=extend_schema(
+        tags=["Brands"],
+        summary="Update a Brand",
+        description="Updates an existing brand within the active tenant organization.",
+        parameters=[PRODUCT_ORGANIZATION_PARAM],
+    ),
+    partial_update=extend_schema(
+        tags=["Brands"],
+        summary="Partially Update a Brand",
+        description="Partially updates an existing brand within the active tenant organization.",
+        parameters=[PRODUCT_ORGANIZATION_PARAM],
+    ),
+    destroy=extend_schema(
+        tags=["Brands"],
+        summary="Delete or Deactivate a Brand",
+        description="Deletes a brand, or soft-deactivates it if referenced by existing products.",
+        parameters=[PRODUCT_ORGANIZATION_PARAM],
+    ),
+)
+
