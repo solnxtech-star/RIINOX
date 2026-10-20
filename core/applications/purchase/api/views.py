@@ -19,7 +19,11 @@ from core.helper.enums import PurchaseStatusChoices
 
 
 from core.applications.purchase.api.permissions import PurchasePermission
+from core.applications.subscriptions.services.entitlements import (
+    ensure_subscription_active,
+)
 from core.applications.users.permissions import OrganizationScopedMixin
+from core.helper.custom_exceptions import BusinessRuleError
 
 
 @purchase_schema
@@ -40,6 +44,7 @@ class PurchaseViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
         return PurchaseSerializer
 
     def perform_create(self, serializer):
+        ensure_subscription_active(self.organization)
         purchase = serializer.save(organization=self.organization, ordered_by=self.request.user)
         audit_record(
             action=AuditAction.PURCHASE_ORDER_CREATED,
@@ -51,6 +56,7 @@ class PurchaseViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
         )
 
     def perform_update(self, serializer):
+        ensure_subscription_active(self.organization)
         old_instance = self.get_object()
         old_data = {"status": old_instance.status}
 
@@ -75,6 +81,7 @@ class PurchaseViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
+        ensure_subscription_active(instance.organization)
         # PRD §18: Orders that have already received goods cannot be deleted
         if instance.items.filter(quantity_received__gt=0).exists():
             return Response(
@@ -114,5 +121,8 @@ class PurchaseViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
                 "items_received_count": len(serializer.validated_data['items_received']),
             }
             return Response(data, status=status.HTTP_200_OK)
+        except BusinessRuleError:
+            raise
         except Exception as e:
             return Response({"code": "RECEIVE_ERROR", "detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+

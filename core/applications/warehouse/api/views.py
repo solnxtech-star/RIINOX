@@ -3,19 +3,27 @@ from __future__ import annotations
 from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 
-from core.applications.users.permissions import OrganizationScopedMixin
-from core.applications.warehouse.models import Warehouse, StockLocation
-from core.applications.warehouse.api.permissions import (
-    WarehousePermission,
-    StockLocationPermission,
+from core.applications.subscriptions.services.entitlements import (
+    ensure_subscription_active,
 )
-from core.applications.warehouse.api.serializers import (
-    WarehouseSerializer,
-    StockLocationSerializer,
+from core.applications.users.permissions import OrganizationScopedMixin
+from core.applications.warehouse.api.permissions import (
+    StockLocationPermission,
+    WarehousePermission,
 )
 from core.applications.warehouse.api.schemas import (
-    warehouse_schema,
     stock_location_schema,
+    warehouse_schema,
+)
+from core.applications.warehouse.api.serializers import (
+    StockLocationSerializer,
+    WarehouseSerializer,
+)
+from core.applications.warehouse.models import StockLocation, Warehouse
+from core.applications.warehouse.services import (
+    deactivate_warehouse,
+    delete_warehouse,
+    reactivate_warehouse,
 )
 
 
@@ -38,6 +46,19 @@ class WarehouseViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(organization=self.organization)
 
+    def perform_update(self, serializer):
+        instance = self.get_object()
+        new_is_active = serializer.validated_data.get("is_active")
+        if new_is_active is not None and new_is_active != instance.is_active:
+            if new_is_active:
+                reactivate_warehouse(instance)
+            else:
+                deactivate_warehouse(instance)
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        delete_warehouse(warehouse=instance, user=self.request.user)
+
 
 @stock_location_schema
 class StockLocationViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
@@ -56,4 +77,6 @@ class StockLocationViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
         return StockLocation.objects.for_organization(org).for_user(user)
 
     def perform_create(self, serializer):
+        ensure_subscription_active(self.organization)
         serializer.save()
+

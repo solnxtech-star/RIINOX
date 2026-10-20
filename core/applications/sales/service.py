@@ -21,6 +21,9 @@ from core.applications.inventory.services import (
     process_sale_inventory_and_ledger,
     process_return_inventory_and_ledger,
 )
+from core.applications.subscriptions.services.entitlements import (
+    ensure_subscription_active,
+)
 
 
 def get_or_create_client_for_customer(customer) -> Client:
@@ -242,6 +245,9 @@ mock_create_audit_event = record_sale_audit_event
 
 def create_sale(data: dict) -> Sale:
     """Create a Sale and its items, coordinating external side-effects."""
+    if "organization" in data:
+        ensure_subscription_active(data["organization"])
+
     if not data.get("sale_id"):
         data["sale_id"] = f"SALE-{uuid.uuid4().hex[:8].upper()}"
 
@@ -289,6 +295,9 @@ def create_sale(data: dict) -> Sale:
 
 def create_sale_return(data: dict) -> SaleReturn:
     """Create a SaleReturn and its items."""
+    if "organization" in data:
+        ensure_subscription_active(data["organization"])
+
     items_data = data.pop("items", [])
 
     with transaction.atomic():
@@ -302,3 +311,4 @@ def create_sale_return(data: dict) -> SaleReturn:
         record_sale_return_audit_event(sale_return)
 
     return sale_return
+

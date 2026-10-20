@@ -3,28 +3,37 @@ from __future__ import annotations
 import auto_prefetch
 from django.db.models import QuerySet
 
+from core.applications.users.models import Organization
 from core.helper.enums import ProductStatusChoices
 
 
 class ProductQuerySet(auto_prefetch.QuerySet):
-    """Slim, organization-scoped queryset for Product."""
+    """
+    Slim, organization-scoped queryset for Product.
+    Enforces multi-tenant isolation and eager relation loading.
+    """
 
     def for_organization(self, organization):
+        """Scope records strictly to the specified tenant organization."""
         return self.filter(organization=organization)
 
     def for_user(self, user):
-        from core.applications.users.models import Organization
-
+        """Scope records to organizations the given user is an active member of."""
         return self.filter(
             organization__in=Organization.objects.for_user(user)
         )
 
     def active(self):
+        """Filter to products in ACTIVE status, excluding archived or draft items."""
         return self.filter(status=ProductStatusChoices.ACTIVE)
 
     def with_details(self):
+        """
+        Eagerly load related foreign keys and reverse relations (batches, discounts,
+        unit conversions, variants, images) to eliminate N+1 queries during serialization.
+        """
         return self.select_related("category", "brand").prefetch_related(
-            "batches", "bulk_discounts", "unit_conversions", "images"
+            "batches", "bulk_discounts", "unit_conversions", "variants", "images"
         )
 
 
@@ -35,8 +44,6 @@ class CategoryQuerySet(auto_prefetch.QuerySet):
         return self.filter(organization=organization)
 
     def for_user(self, user):
-        from core.applications.users.models import Organization
-
         return self.filter(
             organization__in=Organization.objects.for_user(user)
         )
@@ -52,8 +59,6 @@ class BrandQuerySet(auto_prefetch.QuerySet):
         return self.filter(organization=organization)
 
     def for_user(self, user):
-        from core.applications.users.models import Organization
-
         return self.filter(
             organization__in=Organization.objects.for_user(user)
         )
@@ -69,8 +74,6 @@ class ProductVariantQuerySet(auto_prefetch.QuerySet):
         return self.filter(product__organization=organization)
 
     def for_user(self, user):
-        from core.applications.users.models import Organization
-
         return self.filter(
             product__organization__in=Organization.objects.for_user(user)
         )

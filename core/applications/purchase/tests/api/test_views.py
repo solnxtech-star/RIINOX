@@ -9,7 +9,7 @@ from core.applications.users.services import seed_default_roles
 from core.applications.inventory.tests.factories import (
     OrganizationFactory, UserFactory, WarehouseFactory, ProductFactory
 )
-from core.helper.enums import PurchaseStatusChoices
+from core.helper.enums import PurchaseStatusChoices, SubscriptionStatus
 
 
 class PurchaseAPITest(APITestCase):
@@ -293,3 +293,29 @@ class PurchaseAPITest(APITestCase):
         results = own_list_resp.data.get('results', []) if isinstance(own_list_resp.data, dict) else own_list_resp.data
         purchase_ids = [str(r['id']).replace('-', '') for r in results]
         self.assertNotIn(str(self.purchase.id).replace('-', ''), purchase_ids)
+
+    # -------------------------------------------------------------------------
+    # Subscription Write-Gate and Usage Tests
+    # -------------------------------------------------------------------------
+    def test_inactive_subscription_blocks_purchase_operations(self):
+        """Inactive subscription prevents creating, updating, or receiving purchases."""
+        self.client.force_authenticate(user=self.owner)
+        self.org.subscription.status = SubscriptionStatus.CANCELED
+        self.org.subscription.save(update_fields=["status"])
+
+        # Create blocked
+        create_resp = self.client.post(self.base_url, {
+            "vendor": str(self.vendor.id),
+            "warehouse": str(self.warehouse.id),
+            "items": []
+        }, format="json")
+        self.assertEqual(create_resp.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(create_resp.data.get("code"), "SUBSCRIPTION_REQUIRED")
+
+        # Receive blocked
+        receive_resp = self.client.post(f"{self.detail_url}receive/", {
+            "items_received": [{"item_id": str(self.purchase_item.id), "quantity_received": 5}]
+        }, format="json")
+        self.assertEqual(receive_resp.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(receive_resp.data.get("code"), "SUBSCRIPTION_REQUIRED")
+

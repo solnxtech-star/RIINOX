@@ -18,7 +18,7 @@ class OrganizationFactory(DjangoModelFactory):
             return
         from core.applications.subscriptions.models import Subscription
         if not Subscription.objects.filter(organization=self).exists():
-            from core.applications.subscriptions.services import start_subscription
+            from core.applications.subscriptions.services.lifecycle import start_subscription
             start_subscription(self)
 
 

@@ -9,11 +9,18 @@ from core.applications.inventory.services import (
     single_transfer_stock,
 )
 from core.applications.products.models import Product
-from core.applications.products.services import create_product
+from core.applications.products.services import (
+    archive_product,
+    create_product,
+    restore_product,
+)
 from core.applications.subscriptions.models import Plan, Subscription
-from core.applications.subscriptions.services import start_subscription
 from core.applications.warehouse.models import Warehouse
-from core.applications.warehouse.services import create_warehouse
+from core.applications.warehouse.services import (
+    create_warehouse,
+    deactivate_warehouse,
+    reactivate_warehouse,
+)
 from core.helper.custom_exceptions import BusinessRuleError
 from core.helper.enums import ProductStatusChoices, SubscriptionStatus
 from core.applications.inventory.tests.factories import OrganizationFactory, UserFactory
@@ -86,8 +93,7 @@ class PlanLimitEnforcementTests(TestCase):
         self.assertEqual(ctx.exception.code, "PLAN_LIMIT_REACHED")
 
         # Archive p1: frees up 1 slot
-        p1.status = ProductStatusChoices.ARCHIVED
-        p1.save(update_fields=["status"])
+        archive_product(p1, self.user)
 
         # Now creating p3 succeeds
         p3 = create_product(
@@ -135,8 +141,7 @@ class PlanLimitEnforcementTests(TestCase):
         self.assertEqual(ctx.exception.code, "PLAN_LIMIT_REACHED")
 
         # Deactivate wh1: frees up location slot
-        wh1.is_active = False
-        wh1.save(update_fields=["is_active"])
+        deactivate_warehouse(wh1)
 
         # Creating wh2 now succeeds
         wh2 = create_warehouse(
@@ -147,11 +152,20 @@ class PlanLimitEnforcementTests(TestCase):
         self.assertIsNotNone(wh2.id)
 
     def test_max_transactions_per_month_enforced_on_inventory_movements(self):
+        # Allow 2 locations so both source and destination can be active for the transfer
+        self.capped_plan.max_locations = 2
+        self.capped_plan.save(update_fields=["max_locations"])
+
         # Wh1 created
         wh1 = create_warehouse(
             organization=self.org,
             name="Warehouse 1",
             code=f"WH-TRX-1-{uuid.uuid4().hex[:4]}",
+        )
+        wh2 = create_warehouse(
+            organization=self.org,
+            name="Warehouse 2",
+            code=f"WH-TRX-2-{uuid.uuid4().hex[:4]}",
         )
         p1 = create_product(
             organization=self.org,
@@ -164,17 +178,6 @@ class PlanLimitEnforcementTests(TestCase):
 
         # Transaction 1: Opening stock (uses 1 transaction)
         create_opening_stock(p1, None, None, wh1, 50, self.user)
-
-        # Deactivate wh1 to allow creating wh2
-        wh1.is_active = False
-        wh1.save(update_fields=["is_active"])
-        wh2 = create_warehouse(
-            organization=self.org,
-            name="Warehouse 2",
-            code=f"WH-TRX-2-{uuid.uuid4().hex[:4]}",
-        )
-        wh1.is_active = True
-        wh1.save(update_fields=["is_active"])
 
         # Transaction 2: Transfer stock (uses 2nd transaction -> limit of 2 reached)
         single_transfer_stock(wh1, wh2, p1, None, None, 10, self.user)
