@@ -90,8 +90,8 @@ product_schema = extend_schema_view(
 - `category`, `brand`, and `warehouse_id` must belong to the specified `organization`. Cross-tenant relations return HTTP 400 Bad Request.
 
 ### Plan Limits & Subscription Invariants (PRD §10, §52):
-- **Active Subscription**: Validates `ensure_subscription_active(organization)`. Inactive/expired subscriptions reject creation with `SUBSCRIPTION_REQUIRED` (HTTP 402).
-- **Product Quota**: Evaluates `check_plan_limit(organization, 'max_products', active_count)`. Exceeding plan limit returns HTTP 402/403. Archived products are excluded.
+- **Active Subscription**: Validates `ensure_subscription_active(organization)`. Inactive/expired subscriptions reject creation with `SUBSCRIPTION_REQUIRED` (HTTP 402/403).
+- **Product Quota**: Atomically reserves a slot via `consume_usage(organization, UsageMetric.PRODUCTS)`. Exceeding plan limit returns `PLAN_LIMIT_REACHED` (HTTP 403). Archived products free up their quota slot.
 - **Monthly Transactions**: If opening stock is provisioned, the initial transaction counts toward `max_transactions_per_month`.
 - **Warehouse Quota**: The `warehouse_id` for opening stock must be active within `max_locations`.""",
         examples=[

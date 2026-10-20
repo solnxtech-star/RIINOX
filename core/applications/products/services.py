@@ -10,18 +10,23 @@ from core.applications.inventory.services import create_opening_stock
 from core.applications.notification.audit.action import AuditAction
 from core.applications.notification.audit.services import record as audit_record
 from core.applications.products.models import (
+    Brand,
+    Category,
     Product,
     ProductBatch,
     ProductBulkDiscount,
     ProductUnitConversion,
     ProductVariant,
 )
-from core.applications.subscriptions.services import (
-    check_plan_limit,
+from core.applications.subscriptions.services.entitlements import (
     ensure_subscription_active,
 )
+from core.applications.subscriptions.services.usage import (
+    consume_usage,
+    release_usage,
+)
 from core.applications.users.services import has_org_permission
-from core.helper.enums import PermissionCode, ProductStatusChoices
+from core.helper.enums import PermissionCode, ProductStatusChoices, UsageMetric
 
 if TYPE_CHECKING:
     from core.applications.users.models import Organization, User
@@ -29,31 +34,13 @@ if TYPE_CHECKING:
 
 __all__ = [
     "create_product",
-    "ensure_product_limit",
     "update_product",
     "archive_product",
     "restore_product",
+    "delete_product",
+    "create_category",
+    "create_brand",
 ]
-
-
-def ensure_product_limit(organization: Organization) -> None:
-    """
-    Asserts that adding or restoring a product does not exceed the organization's plan limit.
-    
-    Strategic Note (PRD §44):
-    Archived products are excluded from the active count so that organizations reaching
-    their plan quota can archive obsolete or discontinued items to free up slots without
-    losing historical transaction records.
-    """
-    active_count = (
-        Product.objects.filter(organization=organization)
-        .exclude(status=ProductStatusChoices.ARCHIVED)
-        .count()
-    )
-    # Delegates to the centralized subscription limit service (raises PlanLimitExceeded if reached)
-    check_plan_limit(organization, "max_products", active_count)
-
-
 @transaction.atomic
 def create_product(
     *,
@@ -69,11 +56,10 @@ def create_product(
 ) -> Product:
     """
     Creates a new Product and coordinates associated nested items and opening stock.
-    Enforces active subscription standing and the max_products plan limit server-side.
+    Enforces active subscription standing and reserves product quota server-side.
     """
     # Verify tenant subscription standing and quota
     ensure_subscription_active(organization)
-    ensure_product_limit(organization)
 
     # Verify basic product creation capability
     if not has_org_permission(created_by, organization, PermissionCode.CREATE_PRODUCT):
@@ -147,6 +133,8 @@ def create_product(
             user=created_by,
         )
 
+    # Reserve one product slot. If limit is reached, raises PLAN_LIMIT_REACHED and rolls back.
+    consume_usage(organization, UsageMetric.PRODUCTS)
     return product
 
 
@@ -248,49 +236,106 @@ def update_product(
 
 
 @transaction.atomic
-def archive_product(*, product: Product, user: User, reason: str = "") -> Product:
+def archive_product(
+    product: Product | None = None,
+    user: User | None = None,
+    *,
+    reason: str = "",
+    **kwargs: Any,
+) -> Product:
     """
-    Soft-archives a product and records an immutable audit event (PRD §44).
-    Invoked when items are referenced by transaction history (invoices, movements)
-    and cannot be safely deleted via hard delete.
+    Soft-archives a product, releases its quota slot, and records an audit event (PRD §44).
+    Retains inventory and transaction history while retiring it from active sale.
     """
-    if not has_org_permission(user, product.organization, PermissionCode.ARCHIVE_PRODUCT):
+    if product is None:
+        product = kwargs.get("product")
+    if user is None:
+        user = kwargs.get("user")
+    if not reason and "reason" in kwargs:
+        reason = kwargs["reason"]
+
+    if user and not has_org_permission(user, product.organization, PermissionCode.ARCHIVE_PRODUCT):
         raise PermissionDenied("You do not have permission to archive products in this organization.")
 
+    was_active = product.status != ProductStatusChoices.ARCHIVED
     product.status = ProductStatusChoices.ARCHIVED
     product.save(update_fields=["status", "updated_at"])
-    
-    # Audit trail: Record the archival action with the actor and optional justification reason
-    audit_record(
-        action=AuditAction.PRODUCT_ARCHIVED,
-        organization=product.organization,
-        actor=user,
-        resource=product,
-        reason=reason or "Product archived.",
-    )
+
+    if was_active:
+        release_usage(product.organization, UsageMetric.PRODUCTS)
+
+    if user:
+        audit_record(
+            action=AuditAction.PRODUCT_ARCHIVED,
+            organization=product.organization,
+            actor=user,
+            resource=product,
+            reason=reason or "Product archived.",
+        )
     return product
 
 
 @transaction.atomic
-def restore_product(*, product: Product, user: User) -> Product:
+def restore_product(
+    product: Product | None = None,
+    user: User | None = None,
+    **kwargs: Any,
+) -> Product:
     """
     Restores an archived product to active status, enforcing plan limits and recording audit event (PRD §44).
     """
-    if not has_org_permission(user, product.organization, PermissionCode.EDIT_PRODUCT):
+    if product is None:
+        product = kwargs.get("product")
+    if user is None:
+        user = kwargs.get("user")
+
+    if user and not has_org_permission(user, product.organization, PermissionCode.EDIT_PRODUCT):
         raise PermissionDenied("You do not have permission to restore products in this organization.")
 
-    # Enforce that restoring this product does not breach active subscription plan limits
     ensure_subscription_active(product.organization)
-    ensure_product_limit(product.organization)
+
+    was_archived = product.status == ProductStatusChoices.ARCHIVED
+    if was_archived:
+        consume_usage(product.organization, UsageMetric.PRODUCTS)
 
     product.status = ProductStatusChoices.ACTIVE
     product.save(update_fields=["status", "updated_at"])
 
-    # Audit trail: Record the restoration action
-    audit_record(
-        action=AuditAction.PRODUCT_RESTORED,
-        organization=product.organization,
-        actor=user,
-        resource=product,
-    )
+    if user:
+        audit_record(
+            action=AuditAction.PRODUCT_RESTORED,
+            organization=product.organization,
+            actor=user,
+            resource=product,
+        )
     return product
+
+
+@transaction.atomic
+def delete_product(*, product: Product, user: User) -> None:
+    """
+    Hard-deletes a product, ensuring permissions and releasing its slot if active.
+    """
+    if not has_org_permission(user, product.organization, PermissionCode.DELETE_PRODUCT):
+        raise PermissionDenied("You do not have permission to delete products in this organization.")
+
+    was_active = product.status != ProductStatusChoices.ARCHIVED
+    product.delete()
+    if was_active:
+        release_usage(product.organization, UsageMetric.PRODUCTS)
+
+
+def create_category(*, organization: Organization, name: str, description: str = "") -> Category:
+    """
+    Creates a new category for the organization, write-gated by active subscription.
+    """
+    ensure_subscription_active(organization)
+    return Category.objects.create(organization=organization, name=name, description=description)
+
+
+def create_brand(*, organization: Organization, name: str) -> Brand:
+    """
+    Creates a new brand for the organization, write-gated by active subscription.
+    """
+    ensure_subscription_active(organization)
+    return Brand.objects.create(organization=organization, name=name)

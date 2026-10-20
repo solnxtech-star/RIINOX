@@ -22,6 +22,9 @@ from core.applications.products.api.permissions import (
 )
 from core.applications.users.permissions import OrganizationScopedMixin
 from core.applications.products.services import archive_product, restore_product
+from core.applications.subscriptions.services.entitlements import ensure_subscription_active
+from core.applications.subscriptions.services.usage import release_usage
+from core.helper.enums import ProductStatusChoices, UsageMetric
 
 from core.applications.notification.audit.services import record as audit_record
 from core.applications.notification.audit.context import AuditContext
@@ -123,13 +126,17 @@ class ProductViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
         """
         instance = self.get_object()
         try:
+            was_active = instance.status != ProductStatusChoices.ARCHIVED
+            org = instance.organization
             self.perform_destroy(instance)
+            if was_active:
+                release_usage(org, UsageMetric.PRODUCTS)
             return Response(status=status.HTTP_204_NO_CONTENT)
         except ProtectedError:
             archive_product(
                 product=instance,
                 user=request.user,
-                reason="Archived due to existing records preventing deletion."
+                reason="Archived due to existing records preventing deletion.",
             )
             return Response(
                 {"detail": f"'{instance.name}' has existing records and was archived instead of deleted."},
@@ -222,6 +229,7 @@ class CategoryViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
+        ensure_subscription_active(self.organization)
         serializer.save(organization=self.organization)
 
     def destroy(self, request, *args, **kwargs):
@@ -266,6 +274,7 @@ class BrandViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
+        ensure_subscription_active(self.organization)
         serializer.save(organization=self.organization)
 
     def destroy(self, request, *args, **kwargs):

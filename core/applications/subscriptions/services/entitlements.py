@@ -199,7 +199,7 @@ def ensure_subscription_active(organization: Any) -> Entitlements:
     entitlements = require_entitlements(organization)
     if entitlements.access is not Access.FULL:
         raise fail(
-            Err.SUBSCRIPTION_READ_ONLY,
+            Err.SUBSCRIPTION_REQUIRED,
             message="Your subscription has ended. Your data is safe and viewable; renew to make changes.",
             status=entitlements.status,
         )

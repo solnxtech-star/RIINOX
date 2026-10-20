@@ -16,7 +16,7 @@ from core.helper.enums import UsageMetric
 if TYPE_CHECKING:
     from core.applications.users.models import Organization
 
-__all__ = ["create_warehouse", "deactivate_warehouse", "reactivate_warehouse"]
+__all__ = ["create_warehouse", "deactivate_warehouse", "reactivate_warehouse", "delete_warehouse"]
 
 
 @transaction.atomic
@@ -53,3 +53,13 @@ def reactivate_warehouse(warehouse: Warehouse) -> Warehouse:
         consume_usage(warehouse.organization, UsageMetric.LOCATIONS)
     warehouse.is_active = True
     return warehouse
+
+
+@transaction.atomic
+def delete_warehouse(*, warehouse: Warehouse, user: User | None = None) -> None:
+    """Hard-deletes a warehouse location, releasing its quota slot if active."""
+    was_active = warehouse.is_active
+    warehouse.delete()
+    if was_active:
+        release_usage(warehouse.organization, UsageMetric.LOCATIONS)
+

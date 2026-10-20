@@ -45,7 +45,7 @@ stock_adjustment_create_example = OpenApiExample(
 
 ### Plan Limits & Subscription Invariants (PRD §10, §52):
 - **Subscription Standing**: Enforces `ensure_subscription_active(product.organization)`. The tenant must be in good standing (`ACTIVE` or `TRIALING`). Inactive subscriptions reject creation with `SUBSCRIPTION_REQUIRED` (HTTP 402).
-- **Monthly Transactions Limit**: When approved, records a system `Transaction` (`transaction_type = 'ADJUSTMENT'`) evaluated against `check_plan_limit(organization, 'max_transactions_per_month')`.
+- **Monthly Transactions Limit**: When approved, records a system `Transaction` (`transaction_type = 'ADJUSTMENT'`) and consumes allowance via `consume_usage(organization, UsageMetric.TRANSACTIONS)`.
 - **Locations Limit**: The target warehouse must be an active facility within the tenant's `max_locations` plan quota.""",
     value={
         "product": "d290f1ee-6c54-4b01-90e6-d701748f0851",
