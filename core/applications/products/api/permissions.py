@@ -29,3 +29,42 @@ class ProductPermission(BaseTenantPermission):
     default_permission: str = PermissionCode.VIEW_PRODUCTS
 
 
+class CategoryPermission(BaseTenantPermission):
+    """
+    Action-level and object-level permission enforcement for Category endpoints.
+    Enforces tenant isolation and granular capabilities:
+      - list / retrieve: VIEW_PRODUCTS
+      - create / update / partial_update / destroy: MANAGE_CATEGORIES
+    """
+
+    action_permissions: dict[str, str] = {
+        "list": PermissionCode.VIEW_PRODUCTS,
+        "retrieve": PermissionCode.VIEW_PRODUCTS,
+        "create": PermissionCode.MANAGE_CATEGORIES,
+        "update": PermissionCode.MANAGE_CATEGORIES,
+        "partial_update": PermissionCode.MANAGE_CATEGORIES,
+        "destroy": PermissionCode.MANAGE_CATEGORIES,
+    }
+    default_permission: str = PermissionCode.VIEW_PRODUCTS
+
+
+class BrandPermission(BaseTenantPermission):
+    """
+    Action-level and object-level permission enforcement for Brand endpoints.
+    Enforces tenant isolation and granular capabilities:
+      - list / retrieve: VIEW_PRODUCTS
+      - create / update / partial_update / destroy: MANAGE_CATEGORIES
+    """
+
+    action_permissions: dict[str, str] = {
+        "list": PermissionCode.VIEW_PRODUCTS,
+        "retrieve": PermissionCode.VIEW_PRODUCTS,
+        "create": PermissionCode.MANAGE_CATEGORIES,
+        "update": PermissionCode.MANAGE_CATEGORIES,
+        "partial_update": PermissionCode.MANAGE_CATEGORIES,
+        "destroy": PermissionCode.MANAGE_CATEGORIES,
+    }
+    default_permission: str = PermissionCode.VIEW_PRODUCTS
+
+
+

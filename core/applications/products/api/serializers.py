@@ -2,6 +2,8 @@ import uuid
 from rest_framework import serializers
 
 from core.applications.products.models import (
+    Brand,
+    Category,
     Product,
     ProductBatch,
     ProductBulkDiscount,
@@ -105,6 +107,72 @@ class ProductUnitConversionSerializer(serializers.ModelSerializer):
         if value <= 0:
             raise serializers.ValidationError('Multiplier must be greater than zero.')
         return value
+
+
+class CategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Category
+        fields = ["id", "name", "description", "is_active", "organization", "created_at", "updated_at"]
+        read_only_fields = ["id", "organization", "created_at", "updated_at"]
+
+    def validate_name(self, value):
+        view = self.context.get("view")
+        org = getattr(view, "organization", None)
+        if org:
+            name_val = value.strip()
+            qs = Category.objects.filter(organization=org, name__iexact=name_val)
+            if self.instance:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise serializers.ValidationError("A category with this name already exists in your organization.")
+        return value.strip()
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        view = self.context.get("view")
+        url_org = getattr(view, "organization", None) if view else None
+        if url_org and hasattr(self, "initial_data") and isinstance(self.initial_data, dict):
+            raw_org = self.initial_data.get("organization")
+            if raw_org:
+                try:
+                    if uuid.UUID(str(raw_org)) != uuid.UUID(str(url_org.id)):
+                        raise serializers.ValidationError({"organization": "Organization does not match URL path."})
+                except (ValueError, AttributeError):
+                    raise serializers.ValidationError({"organization": "Invalid organization UUID."})
+        return attrs
+
+
+class BrandSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Brand
+        fields = ["id", "name", "is_active", "organization", "created_at", "updated_at"]
+        read_only_fields = ["id", "organization", "created_at", "updated_at"]
+
+    def validate_name(self, value):
+        view = self.context.get("view")
+        org = getattr(view, "organization", None)
+        if org:
+            name_val = value.strip()
+            qs = Brand.objects.filter(organization=org, name__iexact=name_val)
+            if self.instance:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise serializers.ValidationError("A brand with this name already exists in your organization.")
+        return value.strip()
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        view = self.context.get("view")
+        url_org = getattr(view, "organization", None) if view else None
+        if url_org and hasattr(self, "initial_data") and isinstance(self.initial_data, dict):
+            raw_org = self.initial_data.get("organization")
+            if raw_org:
+                try:
+                    if uuid.UUID(str(raw_org)) != uuid.UUID(str(url_org.id)):
+                        raise serializers.ValidationError({"organization": "Organization does not match URL path."})
+                except (ValueError, AttributeError):
+                    raise serializers.ValidationError({"organization": "Invalid organization UUID."})
+        return attrs
 
 
 class ProductSerializer(serializers.ModelSerializer):
