@@ -45,7 +45,10 @@ class Client(TimeBasedModel):
         choices=CustomerTypeChoices.choices,
         default=CustomerTypeChoices.INDIVIDUAL,
     )
-    credit_limit = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    credit_limit = models.DecimalField(
+        max_digits=12, decimal_places=2,
+        default=0, help_text=_("Maximum allowed outstanding balance. 0 = no limit.")
+    )
     current_balance = models.DecimalField(
         max_digits=12,
         decimal_places=2,
@@ -88,7 +91,7 @@ class Invoice(TimeBasedModel):
 
     client = auto_prefetch.ForeignKey(
         "invoice.Client",
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name="invoices",
     )
     organization = auto_prefetch.ForeignKey(
@@ -115,12 +118,12 @@ class Invoice(TimeBasedModel):
         blank=True,
         related_name="confirmed_invoices",
     )
-    invoice_number = models.CharField(max_length=50, unique=True, db_index=True)
+    invoice_number = models.CharField(max_length=50, db_index=True)
     due_date = models.DateField(_("Due Date"))
     status = models.CharField(
         max_length=20,
         choices=InvoiceStatusChoices.choices,
-        default=InvoiceStatusChoices.PENDING,
+        default=InvoiceStatusChoices.DRAFT,
     )
 
     subtotal = models.DecimalField(max_digits=12, decimal_places=2, default=0)
@@ -133,14 +136,12 @@ class Invoice(TimeBasedModel):
         help_text=_("Frozen at confirm-time: subtotal - discount + tax."),
     )
 
-    is_voided = models.BooleanField(default=False)
     voided_by = auto_prefetch.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
         related_name="voided_invoices",
-        limit_choices_to={"memberships__role__slug": "admin"},
     )
     voided_at = models.DateTimeField(null=True, blank=True)
     void_reason = models.TextField(blank=True, null=True)
@@ -152,9 +153,13 @@ class Invoice(TimeBasedModel):
         related_name="corrections",
         help_text=_("Set on the corrected invoice, pointing back at the voided original (PRD §14)."),
     )
-
+    issued_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        editable=False,
+        help_text=_("Set when the invoice is confirmed. Null for Draft and Pending."),
+    )
     notes = models.TextField(blank=True, null=True)
-    created_at = models.DateTimeField(auto_now_add=True)
     extra_data = models.JSONField(default=dict, blank=True, null=True)
 
     objects = InvoiceManager()
@@ -162,6 +167,47 @@ class Invoice(TimeBasedModel):
         verbose_name = _("Invoice")
         verbose_name_plural = _("Invoices")
         ordering = ["-created_at"]
+        constraints: ClassVar = [
+            models.UniqueConstraint(
+                        fields=["organization", "invoice_number"],
+                        name="unique_invoice_number_per_org",
+                    ),
+        ]
+        indexes: ClassVar = [
+        models.Index(fields=["organization", "-created_at"], name="inv_org_created_idx"),
+        models.Index(
+            fields=["organization", "status", "due_date"], name="inv_org_status_due_idx"
+            ),
+        models.Index(fields=["organization", "client"], name="inv_org_client_idx"),
+        models.Index(fields=["organization", "issued_at"], name="inv_org_issued_idx"),
+    ]
+    constraints: ClassVar = [
+        models.UniqueConstraint(
+            fields=["organization", "invoice_number"], name="unique_invoice_number_per_org"
+        ),
+        models.CheckConstraint(
+            check=models.Q(subtotal__gte=0, discount_amount__gte=0, tax_amount__gte=0, total__gte=0),
+            name="invoice_amounts_non_negative",
+        ),
+        models.CheckConstraint(
+            check=models.Q(discount_amount__lte=models.F("subtotal")),
+            name="invoice_discount_within_subtotal",
+        ),
+        models.CheckConstraint(
+            check=models.Q(
+                total=models.F("subtotal") - models.F("discount_amount") + models.F("tax_amount")
+            ),
+            name="invoice_total_matches_components",
+        ),
+        # Cancelled <=> voided metadata present: the DB enforces Fix 3's single truth.
+        models.CheckConstraint(
+            check=(
+                models.Q(status=InvoiceStatusChoices.CANCELLED, voided_at__isnull=False)
+                | (~models.Q(status=InvoiceStatusChoices.CANCELLED) & models.Q(voided_at__isnull=True))
+            ),
+            name="invoice_cancelled_iff_voided",
+        ),
+    ]
 
     def __str__(self):
         return f"Invoice {self.invoice_number} for {self.client}"
@@ -170,6 +216,10 @@ class Invoice(TimeBasedModel):
     def computed_subtotal(self):
         """Live sum of line items — useful while the invoice is still a Draft."""
         return sum(item.total for item in self.items.all())
+
+    @property
+    def is_voided(self) -> bool:
+        return self.status == InvoiceStatusChoices.CANCELLED
 
 
 class InvoiceItem(TimeBasedModel):
@@ -203,6 +253,10 @@ class InvoiceItem(TimeBasedModel):
     class Meta(auto_prefetch.Model.Meta):
         verbose_name = _("Invoice Item")
         verbose_name_plural = _("Invoice Items")
+        constraints: ClassVar = [
+        models.CheckConstraint(check=models.Q(quantity__gt=0), name="invoice_item_quantity_positive"),
+        models.CheckConstraint(check=models.Q(unit_price__gte=0), name="invoice_item_unit_price_non_negative"),
+    ]
 
     @property
     def total(self):

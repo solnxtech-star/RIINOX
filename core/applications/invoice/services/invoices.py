@@ -18,6 +18,8 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
+from core.applications.invoice.exceptions import ApprovalRequiredError
+from core.applications.invoice.exceptions import CreditLimitExceededError
 from core.applications.invoice.exceptions import InvalidInvoiceTransitionError
 from core.applications.invoice.exceptions import InvoiceHasPaymentsError
 from core.applications.invoice.exceptions import InvoiceNotFoundError
@@ -26,6 +28,8 @@ from core.applications.invoice.models import Client
 from core.applications.invoice.models import Invoice
 from core.applications.invoice.models import InvoiceItem
 from core.applications.invoice.services.documents import allocate_document_number
+from core.applications.invoice.services.ports import APPROVAL_CREDIT_OVERRIDE
+from core.applications.invoice.services.ports import APPROVAL_INVOICE_VOID
 from core.applications.invoice.services.ports import EVENT_INVOICE_CONFIRMED
 from core.applications.invoice.services.ports import EVENT_INVOICE_VOIDED
 from core.applications.invoice.services.ports import PERM_AUDIT_VIEW
@@ -166,7 +170,7 @@ def _snapshot(invoice: Invoice) -> dict[str, Any]:
         "discount_amount": str(invoice.discount_amount),
         "tax_amount": str(invoice.tax_amount),
         "total": str(invoice.total),
-        "is_voided": invoice.is_voided,
+        "issued_at": invoice.issued_at.isoformat() if invoice.issued_at else None,
         "replaces_id": str(invoice.replaces_id) if invoice.replaces_id else None,
     }
 
@@ -280,6 +284,7 @@ def _calculate_totals(
     actor: Any,
     items: Sequence[_PricedItem],
     discount_amount: Decimal | int | str,
+    discount_approval_id: Any = None,
 ) -> _Totals:
     ports = get_invoice_ports()
     subtotal = _money(sum((i.unit_price * i.quantity for i in items), Decimal(0)))
@@ -305,6 +310,7 @@ def _calculate_totals(
             organization=organization,
             subtotal=subtotal,
             discount=discount,
+            approval_id=discount_approval_id,
         )
 
     taxable = subtotal - discount
@@ -342,7 +348,7 @@ def _lock_invoice(organization: Organization, invoice_id: Any) -> Invoice:
 
 
 def _require_status(invoice: Invoice, allowed: Sequence[str], action: str) -> None:
-    if invoice.is_voided or invoice.status not in allowed:
+    if invoice.status not in allowed:
         msg = f"An invoice that is {invoice.status} cannot be {action}."
         raise InvalidInvoiceTransitionError(
             msg,
@@ -367,17 +373,80 @@ def _stock_lines(invoice: Invoice) -> list[StockLine]:
     return [StockLine(product_id=pid, quantity=quantity) for pid, quantity in rows]
 
 
-def _refresh_client_balance(invoice: Invoice) -> None:
+def _lock_client(invoice: Invoice) -> Client:
     """
-    Recompute the client's cached balance while holding a lock on the client row.
+    Lock the invoice's client row. Lock order everywhere is
+    invoice -> client -> inventory, so concurrent confirms and voids for the
+    same client can never deadlock.
+    """
+    return Client.objects.select_for_update().get(pk=invoice.client_id)
+
+
+def _refresh_client_balance(client: Client) -> None:
+    """
+    Recompute the client's cached balance. Call with a client already locked
+    via `_lock_client`.
 
     Without the lock, two concurrent confirmations for the same client each
     recompute from data that excludes the other's uncommitted invoice, and the
     last writer leaves the balance short. The lock only serializes invoices of
     one client; other clients and tenants are unaffected.
     """
-    client = Client.objects.select_for_update().get(pk=invoice.client_id)
     get_invoice_ports().refresh_client_balance(client)
+
+
+def _enforce_credit_limit(
+    organization: Organization,
+    actor: Any,
+    invoice: Invoice,
+    client: Client,
+    invoice_total: Decimal,
+    upfront_payment: Decimal | int | str,
+    approval_id: Any,
+) -> bool:
+    """
+    Block a sale that takes the client over their credit limit unless the
+    approval port allows it. A limit of 0 means credit is not tracked for this
+    client. Exposure counts only the unpaid part of this invoice.
+
+    Returns True when the sale exceeded the limit and went through on an
+    override, so the caller records the approval only when it was relied on.
+    """
+    paid_now = _money(upfront_payment)
+    if not Decimal(0) <= paid_now <= invoice_total:
+        msg = "The upfront payment must be between zero and the invoice total."
+        raise InvoiceValidationError(
+            msg,
+            detail={"upfront_payment": str(paid_now), "total": str(invoice_total)},
+        )
+    if client.credit_limit <= 0:
+        return False
+
+    exposure = client.current_balance + invoice_total - paid_now
+    if exposure <= client.credit_limit:
+        return False
+
+    try:
+        get_invoice_ports().require_approval(
+            actor=actor,
+            organization=organization,
+            action=APPROVAL_CREDIT_OVERRIDE,
+            resource=invoice,
+            approval_id=approval_id,
+        )
+    except ApprovalRequiredError as exc:
+        msg = "This sale would take the client over their credit limit."
+        raise CreditLimitExceededError(
+            msg,
+            detail={
+                "credit_limit": str(client.credit_limit),
+                "current_balance": str(client.current_balance),
+                "invoice_total": str(invoice_total),
+                "upfront_payment": str(paid_now),
+                "exposure": str(exposure),
+            },
+        ) from exc
+    return True
 
 
 # --------------------------------------------------------------------------- #
@@ -395,6 +464,7 @@ def create_invoice(
     lines: Sequence[InvoiceLineInput],
     due_date: date | None = None,
     discount_amount: Decimal | int | str = 0,
+    discount_approval_id: Any = None,
     notes: str | None = "",
     extra_data: dict[str, Any] | None = None,
     replaces: Invoice | None = None,
@@ -419,7 +489,13 @@ def create_invoice(
     warehouse = _load_warehouse(organization, warehouse_id)
     due = _resolve_due_date(due_date)
     items = _price_lines(organization, lines)
-    totals = _calculate_totals(organization, actor, items, discount_amount)
+    totals = _calculate_totals(
+        organization,
+        actor,
+        items,
+        discount_amount,
+        discount_approval_id,
+    )
     number = allocate_document_number(organization, TEMPLATE_TYPES.INVOICE)
 
     invoice = Invoice.objects.create(
@@ -456,6 +532,7 @@ def create_invoice(
         actor=actor,
         resource=invoice,
         new_values=_snapshot(invoice),
+        approval_id=discount_approval_id if totals.discount else None,
         metadata={
             "client_id": str(client.pk),
             "warehouse_id": str(warehouse.pk),
@@ -485,15 +562,22 @@ def confirm_invoice(
     invoice_id: Any,
     *,
     actor: Any,
+    upfront_payment: Decimal | int | str = 0,
+    credit_approval_id: Any = None,
     audit_context: AuditContext | None = None,
 ) -> Invoice:
     """
-    Confirm a sale atomically: lock, validate, deduct stock through the ledger,
-    freeze totals, refresh the client balance, audit. Any failure, including
-    INSUFFICIENT_STOCK, rolls back everything (PRD §22, §42).
+    Confirm a sale atomically: lock the invoice, then the client, validate
+    credit, deduct stock through the ledger, freeze totals, refresh the client
+    balance, audit. Any failure, including INSUFFICIENT_STOCK, rolls back
+    everything (PRD §22, §42).
 
-    Confirming an invoice that is already confirmed raises
-    InvalidInvoiceTransitionError, so a double submit can never deduct stock twice.
+    Lock order is invoice -> client -> inventory everywhere. Confirming an
+    invoice that is already confirmed raises InvalidInvoiceTransitionError, so
+    a double submit can never deduct stock twice.
+
+    `upfront_payment` is the amount the caller records against this invoice in
+    the same transaction; it reduces the credit exposure checked here.
     """
     ports = get_invoice_ports()
     ports.authorize(actor, organization, PERM_INVOICE_CONFIRM)
@@ -506,16 +590,31 @@ def confirm_invoice(
         msg = "An invoice without lines cannot be confirmed."
         raise InvoiceValidationError(msg, detail={"invoice_id": str(invoice.pk)})
 
+    total = invoice.subtotal - invoice.discount_amount + invoice.tax_amount
+    client = _lock_client(invoice)
+    credit_override_used = _enforce_credit_limit(
+        organization,
+        actor,
+        invoice,
+        client,
+        total,
+        upfront_payment,
+        credit_approval_id,
+    )
+
     before = _snapshot(invoice)
     ports.deduct_stock(invoice, stock_lines)
 
     invoice.status = _S.CONFIRMED
     invoice.confirmed_by = actor
+    invoice.issued_at = timezone.now()
     # Frozen from here on.
-    invoice.total = invoice.subtotal - invoice.discount_amount + invoice.tax_amount
-    invoice.save(update_fields=["status", "confirmed_by", "total", "updated_at"])
+    invoice.total = total
+    invoice.save(
+        update_fields=["status", "confirmed_by", "issued_at", "total", "updated_at"]
+    )
 
-    _refresh_client_balance(invoice)
+    _refresh_client_balance(client)
     record(
         action=AuditAction.INVOICE_CONFIRMED,
         organization=organization,
@@ -523,7 +622,11 @@ def confirm_invoice(
         resource=invoice,
         previous_values=before,
         new_values=_snapshot(invoice),
-        metadata={"lines": len(stock_lines)},
+        approval_id=credit_approval_id if credit_override_used else None,
+        metadata={
+            "lines": len(stock_lines),
+            "credit_override": credit_override_used,
+        },
         context=audit_context,
     )
     transaction.on_commit(partial(ports.publish, EVENT_INVOICE_CONFIRMED, invoice))
@@ -555,6 +658,10 @@ def void_invoice(
     A Draft or Pending invoice never moved stock, so it is simply cancelled.
     A Confirmed or Overdue one returns its stock through reversing ledger
     entries. An invoice with payments is refused: reverse those first.
+
+    The approval port decides whether this void needs an approval and, if so,
+    verifies and consumes `approval_id` (PRD §30). Lock order is
+    invoice -> client -> inventory.
     """
     ports = get_invoice_ports()
     ports.authorize(actor, organization, PERM_INVOICE_VOID)
@@ -572,22 +679,29 @@ def void_invoice(
     _require_status(invoice, VOIDABLE_STATUSES, "voided")
 
     stock_was_deducted = invoice.status in VOIDABLE_CONFIRMED_STATUSES
+    client = _lock_client(invoice) if stock_was_deducted else None
     if stock_was_deducted and ports.has_payments(invoice):
         raise InvoiceHasPaymentsError(detail={"invoice_id": str(invoice.pk)})
+
+    ports.require_approval(
+        actor=actor,
+        organization=organization,
+        action=APPROVAL_INVOICE_VOID,
+        resource=invoice,
+        approval_id=approval_id,
+    )
 
     before = _snapshot(invoice)
     if stock_was_deducted:
         ports.restore_stock(invoice, _stock_lines(invoice))
 
     invoice.status = _S.CANCELLED
-    invoice.is_voided = True
     invoice.voided_by = actor
     invoice.voided_at = timezone.now()
     invoice.void_reason = reason
     invoice.save(
         update_fields=[
             "status",
-            "is_voided",
             "voided_by",
             "voided_at",
             "void_reason",
@@ -595,8 +709,8 @@ def void_invoice(
         ]
     )
 
-    if stock_was_deducted:
-        _refresh_client_balance(invoice)
+    if client is not None:
+        _refresh_client_balance(client)
     record(
         action=AuditAction.INVOICE_VOIDED,
         organization=organization,
@@ -627,6 +741,7 @@ def void_and_correct(
     lines: Sequence[InvoiceLineInput],
     due_date: date | None = None,
     discount_amount: Decimal | int | str | None = None,
+    discount_approval_id: Any = None,
     notes: str | None = None,
     approval_id: Any = None,
     audit_context: AuditContext | None = None,
@@ -638,7 +753,8 @@ def void_and_correct(
     through `replaces`; confirm it like any other.
 
     The actor needs both the void and the create permission, and the client
-    must still be active.
+    must still be active. `approval_id` covers the void;
+    `discount_approval_id` covers any discount on the corrected invoice.
     """
     original = void_invoice(
         organization,
@@ -658,6 +774,7 @@ def void_and_correct(
         discount_amount=(
             original.discount_amount if discount_amount is None else discount_amount
         ),
+        discount_approval_id=discount_approval_id,
         notes=(original.notes or "") if notes is None else notes,
         extra_data=original.extra_data,
         replaces=original,

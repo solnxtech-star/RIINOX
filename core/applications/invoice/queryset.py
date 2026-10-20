@@ -146,19 +146,22 @@ class InvoiceQuerySet(auto_prefetch.QuerySet):
         return self.filter(status=_S.DRAFT)
 
     def not_voided(self):
-        """Excludes voided/cancelled records. Completed invoices are never deleted (PRD §44)."""
-        return self.filter(is_voided=False).exclude(status=_S.CANCELLED)
+        """
+        Excludes voided/cancelled records.
+        Completed invoices are never deleted (PRD §44).
+        """
+        return self.exclude(status=_S.CANCELLED)
 
     def voided(self):
-        return self.filter(Q(is_voided=True) | Q(status=_S.CANCELLED))
+        return self.filter(status=_S.CANCELLED)
 
     def confirmed_sales(self):
         """Invoices that count as real sales: confirmed and beyond, not voided."""
-        return self.not_voided().filter(status__in=SALE_STATUSES)
+        return self.filter(status__in=SALE_STATUSES)
 
     def outstanding(self):
         """Confirmed invoices that still carry a balance."""
-        return self.not_voided().filter(status__in=OUTSTANDING_STATUSES)
+        return self.filter(status__in=OUTSTANDING_STATUSES)
 
     def overdue(self, today: date):
         """Past due and not settled. `today` is passed in so timezones stay explicit."""
@@ -299,7 +302,7 @@ class InvoiceItemQuerySet(auto_prefetch.QuerySet):
 
     def on_confirmed_sales(self):
         """Only lines from invoices that count as real sales."""
-        return self.filter(invoice__is_voided=False, invoice__status__in=SALE_STATUSES)
+        return self.filter(invoice__status__in=SALE_STATUSES)
 
     def with_product(self):
         return self.select_related("product")

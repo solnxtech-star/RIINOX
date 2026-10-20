@@ -75,3 +75,12 @@ class InsufficientStockError(DocumentError):
 class InvoiceHasPaymentsError(DocumentError):
     code = "INVOICE_HAS_PAYMENTS"
     default_message = "An invoice with payments cannot be voided. Reverse the payments first."
+
+
+class ApprovalRequiredError(DocumentError):
+    code = "APPROVAL_REQUIRED"
+    default_message = "This action requires approval from a user with the appropriate permissions."
+
+class CreditLimitExceededError(DocumentError):
+    code = "CREDIT_LIMIT_EXCEEDED"
+    default_message = "The client has exceeded their credit limit. Payment is required before proceeding."

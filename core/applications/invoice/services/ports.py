@@ -25,6 +25,8 @@ PERM_INVOICE_CREATE: Final = P.CREATE_SALE.value
 PERM_INVOICE_CONFIRM: Final = P.CONFIRM_INVOICE.value
 PERM_INVOICE_VOID: Final = P.CANCEL_INVOICE.value
 PERM_AUDIT_VIEW: Final = P.VIEW_AUDIT_LOGS.value
+APPROVAL_INVOICE_VOID: Final = "invoice.void"
+APPROVAL_CREDIT_OVERRIDE: Final = "invoice.credit_override"
 
 # Domain events passed to `InvoicePorts.publish` after the transaction commits.
 EVENT_INVOICE_CONFIRMED: Final = "invoice.confirmed"
@@ -57,9 +59,24 @@ class InvoicePorts(Protocol):
         """Raise the platform's permission error unless `actor` holds `permission` in `organization`."""
 
     def validate_discount(
-        self, *, actor: Any, organization: Organization, subtotal: Decimal, discount: Decimal
+        self, *, actor: Any, organization: Organization, subtotal: Decimal,
+        discount: Decimal, approval_id: Any = None,
     ) -> None:
-        """Raise if the discount needs an approval that has not been granted (PRD §30)."""
+        """Raise ApprovalRequiredError if the discount needs an approval that is missing or invalid (PRD §30)."""
+
+    def require_approval(
+        self, *, actor: Any, organization: Organization, action: str,
+        resource: Invoice, approval_id: Any,
+    ) -> None:
+        """
+        Raise ApprovalRequiredError unless the action may proceed: either the
+        organization's rules don't require approval for `action` on `resource`
+        (or `actor` holds an override permission), or `approval_id` names an
+        Approved request matching this organization, action and resource that is
+        unexpired and unused. A valid approval is consumed here, inside the
+        caller's transaction, so a rollback un-consumes it and it can never be
+        replayed on another invoice. Never trust the id without checking all of that.
+        """
 
     def calculate_tax(
         self, *, organization: Organization, lines: Sequence[PricedLine], taxable_amount: Decimal
