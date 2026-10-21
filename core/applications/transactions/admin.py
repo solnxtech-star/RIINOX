@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from core.applications.transactions.models import Customer, FinancialLedgerEntry, Transaction
+from core.applications.transactions.models import FinancialLedgerEntry, Transaction
 
 
 class FinancialLedgerEntryInline(admin.TabularInline):
@@ -44,21 +44,3 @@ class FinancialLedgerEntryAdmin(admin.ModelAdmin):
     raw_id_fields = ("transaction",)
     readonly_fields = ("created_at", "updated_at")
 
-
-@admin.register(Customer)
-class CustomerAdmin(admin.ModelAdmin):
-    list_display = (
-        "name",
-        "organization",
-        "customer_type",
-        "email",
-        "phone",
-        "balance",
-        "status",
-        "created_at",
-    )
-    list_filter = ("customer_type", "status", "organization")
-    search_fields = ("name", "email", "phone", "organization__name")
-    list_select_related = ("organization", "linked_user")
-    raw_id_fields = ("organization", "linked_user")
-    readonly_fields = ("created_at", "updated_at")

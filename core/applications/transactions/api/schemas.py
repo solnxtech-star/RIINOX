@@ -10,14 +10,6 @@ ORGANIZATION_PATH_PARAM = OpenApiParameter(
     description="UUID of the tenant organization owning the resource.",
 )
 
-customer_schema = extend_schema_view(
-    list=extend_schema(tags=["Customers"], summary="List Customers", parameters=[ORGANIZATION_PATH_PARAM]),
-    create=extend_schema(tags=["Customers"], summary="Create Customer", parameters=[ORGANIZATION_PATH_PARAM]),
-    retrieve=extend_schema(tags=["Customers"], summary="Retrieve Customer", parameters=[ORGANIZATION_PATH_PARAM]),
-    update=extend_schema(tags=["Customers"], summary="Update Customer", parameters=[ORGANIZATION_PATH_PARAM]),
-    partial_update=extend_schema(tags=["Customers"], summary="Partial Update Customer", parameters=[ORGANIZATION_PATH_PARAM]),
-    destroy=extend_schema(tags=["Customers"], summary="Delete Customer", parameters=[ORGANIZATION_PATH_PARAM]),
-)
 
 transaction_schema = extend_schema_view(
     list=extend_schema(tags=["Transactions"], summary="List Transactions", parameters=[ORGANIZATION_PATH_PARAM]),

@@ -14,7 +14,7 @@ from core.applications.inventory.services import (
     receive_purchase_order,
 )
 from core.helper.enums import ApprovalStatusChoices, RestockActionChoices
-from core.applications.transactions.models import Customer
+from core.applications.customers.models import Customer
 from core.applications.sales.models import Sale, SaleItem, SaleReturn, SaleReturnItem
 from core.applications.purchase.models import Purchase, PurchaseItem
 from core.applications.vendors.models import Vendor

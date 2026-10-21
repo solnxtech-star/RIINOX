@@ -3,7 +3,7 @@ from decimal import Decimal
 from rest_framework.test import APITestCase
 from rest_framework import status
 from core.applications.sales.models import Sale, SaleItem, SaleReturn
-from core.applications.transactions.models import Customer
+from core.applications.customers.models import Customer
 from core.applications.users.models import Membership
 from core.applications.users.services import seed_default_roles
 from core.applications.inventory.services import create_opening_stock

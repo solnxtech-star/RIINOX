@@ -28,7 +28,7 @@ class Sale(TimeBasedModel):
         "users.Organization", on_delete=models.CASCADE, related_name="sales"
     )
     customer = auto_prefetch.ForeignKey(
-        "transactions.Customer", on_delete=models.PROTECT, related_name="sales"
+        "customers.Customer", on_delete=models.PROTECT, related_name="sales"
     )
     location = auto_prefetch.ForeignKey(
         "warehouse.StockLocation", on_delete=models.PROTECT, related_name="sales"
