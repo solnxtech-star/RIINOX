@@ -3,94 +3,46 @@ from typing import ClassVar
 import auto_prefetch
 from django.conf import settings
 from django.db import models
-from django.utils.timezone import now
 from django.utils.translation import gettext_lazy as _
 
-from core.applications.invoice.queryset import ClientManager
 from core.applications.invoice.queryset import DocumentSequenceManager
 from core.applications.invoice.queryset import DocumentTemplateManager
 from core.applications.invoice.queryset import InvoiceItemManager
 from core.applications.invoice.queryset import InvoiceManager
 from core.helper.enums import TEMPLATE_TYPES
-from core.helper.enums import CustomerStatusChoices
-from core.helper.enums import CustomerTypeChoices
 from core.helper.enums import InvoiceStatusChoices
+from core.helper.enums import UnitOfMeasureChoices
 from core.helper.media import MediaHelper
 from core.helper.models import TimeBasedModel
 from core.helper.storage import RawCloudinaryStorage
 
 
-class Client(TimeBasedModel):
-    """
-    Represents a client/customer who receives invoices from an organization
-    (PRD §21).
-
-    - Belongs to a single organization (multi-tenant isolation).
-    - `current_balance` is a read cache, not editable directly — it's
-      recomputed from `Invoice`/`InvoicePayment` totals by the service
-      layer, same rationale as `Product.current_stock`.
-    """
-
-    organization = auto_prefetch.ForeignKey(
-        "users.Organization",
-        on_delete=models.CASCADE,
-        related_name="clients",
-    )
-    name = models.CharField(_("Client Name"), max_length=255)
-    email = models.EmailField(_("Client Email"), db_index=True)
-    phone = models.CharField(_("Client Phone"), max_length=20, blank=True, null=True)
-    address = models.TextField(_("Address"), blank=True, null=True)
-    client_type = models.CharField(
-        max_length=20,
-        choices=CustomerTypeChoices.choices,
-        default=CustomerTypeChoices.INDIVIDUAL,
-    )
-    credit_limit = models.DecimalField(
-        max_digits=12, decimal_places=2,
-        default=0, help_text=_("Maximum allowed outstanding balance. 0 = no limit.")
-    )
-    current_balance = models.DecimalField(
-        max_digits=12,
-        decimal_places=2,
-        default=0,
-        editable=False,
-        help_text=_("Outstanding balance across all invoices. System-maintained."),
-    )
-    status = models.CharField(
-        max_length=20,
-        choices=CustomerStatusChoices.choices,
-        default=CustomerStatusChoices.ACTIVE,
-    )
-    is_active = models.BooleanField(default=True)
-
-    objects = ClientManager()
-
-    class Meta(auto_prefetch.Model.Meta):
-        verbose_name = _("Client")
-        verbose_name_plural = _("Clients")
-        unique_together = ("organization", "email")
-        ordering = ["name"]
-
-    def __str__(self):
-        return f"{self.name} ({self.email})"
-
-
 class Invoice(TimeBasedModel):
     """
-    Represents an invoice issued to a client by an organization (PRD §22).
+    The legal document for a sale (PRD §22, §24).
 
-    `sales_rep` is who created it (typically Staff); `confirmed_by` is who
-    confirmed/authorized the sale (typically Admin, or Staff under a
-    business rule that allows self-confirmation) — kept as two distinct
-    fields because the PRD's security model (§5, §14, §16) depends on
-    Staff being the ones who create day-to-day invoices while sensitive
-    actions stay attributable to whoever actually approved them.
+    An invoice has one of two origins:
+
+    - Sale-origin: issued from a `sales.Sale` through
+      `issue_invoice_for_sale`. The sale owns the order and the stock
+      movement; the invoice owns the number, issue date and status. These
+      invoices are born confirmed, never move stock themselves, and are
+      voided through the sale.
+    - Standalone: created as a Draft with `create_invoice` and confirmed with
+      `confirm_invoice` (sale is NULL).
+
+    `sales_rep` is who sold; `confirmed_by` is who authorized the issue, kept
+    as two fields so sensitive actions stay attributable (PRD §5, §14, §16).
+
+    `amount_paid` is a system-maintained cache written only by the invoice
+    services and the payments service. The payment records stay the source of
+    truth; `ports.has_payments` is the authoritative check before a void.
 
     Business-specific fields can still be stored in `extra_data` as JSON.
     """
 
-    client = auto_prefetch.ForeignKey(
-        "invoice.Client",
+    customer = auto_prefetch.ForeignKey(
+        "transactions.Customer",
         on_delete=models.PROTECT,
         related_name="invoices",
     )
@@ -98,12 +50,22 @@ class Invoice(TimeBasedModel):
         "users.Organization",
         on_delete=models.CASCADE,
         related_name="invoices",
+    )
+    sale = auto_prefetch.ForeignKey(
+        "sales.Sale",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="invoices",
+        help_text=_(
+            "The sale this invoice was issued for. NULL for standalone invoices."
+        ),
     )
     warehouse = auto_prefetch.ForeignKey(
         "warehouse.Warehouse",
         on_delete=models.PROTECT,
         related_name="invoices",
-        help_text=_("Warehouse stock is deducted from on confirmation."),
+        help_text=_("Warehouse the goods are supplied from."),
     )
     sales_rep = auto_prefetch.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -118,7 +80,7 @@ class Invoice(TimeBasedModel):
         blank=True,
         related_name="confirmed_invoices",
     )
-    invoice_number = models.CharField(max_length=50, db_index=True)
+    invoice_number = models.CharField(max_length=50)
     due_date = models.DateField(_("Due Date"))
     status = models.CharField(
         max_length=20,
@@ -133,7 +95,14 @@ class Invoice(TimeBasedModel):
         max_digits=12,
         decimal_places=2,
         default=0,
-        help_text=_("Frozen at confirm-time: subtotal - discount + tax."),
+        help_text=_("Frozen at issue/confirm time: subtotal - discount + tax."),
+    )
+    amount_paid = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        editable=False,
+        help_text=_("Total received against this invoice. System-maintained."),
     )
 
     voided_by = auto_prefetch.ForeignKey(
@@ -151,83 +120,121 @@ class Invoice(TimeBasedModel):
         null=True,
         blank=True,
         related_name="corrections",
-        help_text=_("Set on the corrected invoice, pointing back at the voided original (PRD §14)."),
+        help_text=_(
+            "Set on the corrected invoice, pointing back at the voided original (PRD §24)."
+        ),
     )
     issued_at = models.DateTimeField(
         null=True,
         blank=True,
         editable=False,
-        help_text=_("Set when the invoice is confirmed. Null for Draft and Pending."),
+        help_text=_(
+            "Set when the invoice is issued or confirmed. NULL for Draft and Pending."
+        ),
     )
     notes = models.TextField(blank=True, null=True)
     extra_data = models.JSONField(default=dict, blank=True, null=True)
 
     objects = InvoiceManager()
+
     class Meta(auto_prefetch.Model.Meta):
         verbose_name = _("Invoice")
         verbose_name_plural = _("Invoices")
         ordering = ["-created_at"]
+        indexes: ClassVar = [
+            models.Index(fields=["organization", "-created_at"], name="inv_org_created_idx"),
+            models.Index(
+                fields=["organization", "status", "due_date"],
+                name="inv_org_status_due_idx",
+            ),
+            models.Index(fields=["organization", "customer"], name="inv_org_customer_idx"),
+            models.Index(fields=["organization", "issued_at"], name="inv_org_issued_idx"),
+        ]
         constraints: ClassVar = [
             models.UniqueConstraint(
-                        fields=["organization", "invoice_number"],
-                        name="unique_invoice_number_per_org",
-                    ),
+                fields=["organization", "invoice_number"],
+                name="unique_invoice_number_per_org",
+            ),
+            # One live (non-cancelled) invoice per sale. A voided invoice frees
+            # the sale for a new one.
+            models.UniqueConstraint(
+                fields=["sale"],
+                condition=models.Q(sale__isnull=False)
+                & ~models.Q(status=InvoiceStatusChoices.CANCELLED),
+                name="unique_live_invoice_per_sale",
+            ),
+            models.CheckConstraint(
+                check=models.Q(
+                    subtotal__gte=0,
+                    discount_amount__gte=0,
+                    tax_amount__gte=0,
+                    total__gte=0,
+                    amount_paid__gte=0,
+                ),
+                name="invoice_amounts_non_negative",
+            ),
+            models.CheckConstraint(
+                check=models.Q(discount_amount__lte=models.F("subtotal")),
+                name="invoice_discount_within_subtotal",
+            ),
+            models.CheckConstraint(
+                check=models.Q(
+                    total=models.F("subtotal")
+                    - models.F("discount_amount")
+                    + models.F("tax_amount")
+                ),
+                name="invoice_total_matches_components",
+            ),
+            models.CheckConstraint(
+                check=models.Q(amount_paid__lte=models.F("total")),
+                name="invoice_paid_within_total",
+            ),
+            # Cancelled <=> voided metadata present: the database enforces the
+            # single source of truth for voided state.
+            models.CheckConstraint(
+                check=(
+                    models.Q(status=InvoiceStatusChoices.CANCELLED, voided_at__isnull=False)
+                    | (
+                        ~models.Q(status=InvoiceStatusChoices.CANCELLED)
+                        & models.Q(voided_at__isnull=True)
+                    )
+                ),
+                name="invoice_cancelled_iff_voided",
+            ),
         ]
-        indexes: ClassVar = [
-        models.Index(fields=["organization", "-created_at"], name="inv_org_created_idx"),
-        models.Index(
-            fields=["organization", "status", "due_date"], name="inv_org_status_due_idx"
-            ),
-        models.Index(fields=["organization", "client"], name="inv_org_client_idx"),
-        models.Index(fields=["organization", "issued_at"], name="inv_org_issued_idx"),
-    ]
-    constraints: ClassVar = [
-        models.UniqueConstraint(
-            fields=["organization", "invoice_number"], name="unique_invoice_number_per_org"
-        ),
-        models.CheckConstraint(
-            check=models.Q(subtotal__gte=0, discount_amount__gte=0, tax_amount__gte=0, total__gte=0),
-            name="invoice_amounts_non_negative",
-        ),
-        models.CheckConstraint(
-            check=models.Q(discount_amount__lte=models.F("subtotal")),
-            name="invoice_discount_within_subtotal",
-        ),
-        models.CheckConstraint(
-            check=models.Q(
-                total=models.F("subtotal") - models.F("discount_amount") + models.F("tax_amount")
-            ),
-            name="invoice_total_matches_components",
-        ),
-        # Cancelled <=> voided metadata present: the DB enforces Fix 3's single truth.
-        models.CheckConstraint(
-            check=(
-                models.Q(status=InvoiceStatusChoices.CANCELLED, voided_at__isnull=False)
-                | (~models.Q(status=InvoiceStatusChoices.CANCELLED) & models.Q(voided_at__isnull=True))
-            ),
-            name="invoice_cancelled_iff_voided",
-        ),
-    ]
 
     def __str__(self):
-        return f"Invoice {self.invoice_number} for {self.client}"
-
-    @property
-    def computed_subtotal(self):
-        """Live sum of line items — useful while the invoice is still a Draft."""
-        return sum(item.total for item in self.items.all())
+        return f"Invoice {self.invoice_number} for {self.customer.name}"
 
     @property
     def is_voided(self) -> bool:
         return self.status == InvoiceStatusChoices.CANCELLED
 
+    @property
+    def is_sale_origin(self) -> bool:
+        return self.sale_id is not None
+
+    @property
+    def balance_due(self):
+        return self.total - self.amount_paid
+
+    @property
+    def computed_subtotal(self):
+        """
+        Live sum of line amounts before discount and tax,
+        useful while still a Draft.
+        """
+        return sum(item.line_subtotal for item in self.items.all())
+
 
 class InvoiceItem(TimeBasedModel):
     """
-    Line item in an invoice, now tied to an actual Product (PRD §16, §39)
-    so a sale can drive an InventoryLedgerEntry deduction. `unit_price` is
-    still snapshotted at sale time so later price changes on Product don't
-    rewrite historical invoices.
+    A line on an invoice (PRD §16, §39). Everything here is a snapshot taken
+    when the line was created, so later changes to the product, its price or
+    its unit conversions never rewrite a historical invoice.
+
+    `quantity` is in the line's own unit (`unit_name`); `unit_multiplier` is
+    how many base units one such unit represents.
     """
 
     invoice = auto_prefetch.ForeignKey(
@@ -240,31 +247,70 @@ class InvoiceItem(TimeBasedModel):
         on_delete=models.PROTECT,
         related_name="invoice_items",
     )
-    description = models.CharField(max_length=255, blank=True, null=True)
+    variant = auto_prefetch.ForeignKey(
+        "products.ProductVariant",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="invoice_items",
+    )
+    description = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text=_("Snapshot of the product name at sale time."),
+    )
     quantity = models.PositiveIntegerField(default=1)
+    unit_name = models.CharField(
+        max_length=10,
+        choices=UnitOfMeasureChoices.choices,
+        default=UnitOfMeasureChoices.PIECE,
+    )
+    unit_multiplier = models.DecimalField(max_digits=10, decimal_places=3, default=1)
     unit_price = models.DecimalField(
         max_digits=12,
         decimal_places=2,
-        help_text=_("Snapshot of Product.customer_sale_price at sale time."),
+        help_text=_("Price per line unit at sale time."),
     )
+    discount_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    tax_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    tax_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0)
     extra_data = models.JSONField(default=dict, blank=True, null=True)
 
     objects = InvoiceItemManager()
+
     class Meta(auto_prefetch.Model.Meta):
         verbose_name = _("Invoice Item")
         verbose_name_plural = _("Invoice Items")
         constraints: ClassVar = [
-        models.CheckConstraint(check=models.Q(quantity__gt=0), name="invoice_item_quantity_positive"),
-        models.CheckConstraint(check=models.Q(unit_price__gte=0), name="invoice_item_unit_price_non_negative"),
-    ]
+            models.CheckConstraint(
+                check=models.Q(quantity__gt=0),
+                name="invoice_item_quantity_positive",
+            ),
+            models.CheckConstraint(
+                check=models.Q(unit_multiplier__gt=0),
+                name="invoice_item_multiplier_positive",
+            ),
+            models.CheckConstraint(
+                check=models.Q(unit_price__gte=0, discount_amount__gte=0, tax_amount__gte=0),
+                name="invoice_item_amounts_non_negative",
+            ),
+            models.CheckConstraint(
+                check=models.Q(tax_rate__gte=0, tax_rate__lte=100),
+                name="invoice_item_tax_rate_in_range",
+            ),
+        ]
+
+    @property
+    def line_subtotal(self):
+        return self.quantity * self.unit_price
 
     @property
     def total(self):
-        return self.quantity * self.unit_price
+        return self.line_subtotal - self.discount_amount + self.tax_amount
 
     def __str__(self):
         return f"{self.product} (x{self.quantity})"
-
 
 
 class DocumentTemplate(TimeBasedModel):
@@ -295,11 +341,15 @@ class DocumentTemplate(TimeBasedModel):
         related_name="document_templates",
         null=True,
         blank=True,
-        help_text=_("Owning organization for a Custom template. Null for Default/System templates."),
+        help_text=_(
+            "Owning organization for a Custom template. Null for Default/System templates."
+        ),
     )
     is_default = models.BooleanField(
         default=False,
-        help_text=_("The shared default for its type. Only valid when organization is null."),
+        help_text=_(
+            "The shared default for its type. Only valid when organization is null."
+        ),
     )
     is_active = models.BooleanField(default=True)
     objects = DocumentTemplateManager()
@@ -310,7 +360,9 @@ class DocumentTemplate(TimeBasedModel):
         ordering = ["name"]
         constraints: ClassVar = [
             models.UniqueConstraint(
-                fields=["organization", "name"], name="unique_template_name_per_org"),
+                fields=["organization", "name"],
+                name="unique_template_name_per_org",
+            ),
             models.UniqueConstraint(
                 fields=["template_type"],
                 condition=models.Q(organization__isnull=True, is_default=True),

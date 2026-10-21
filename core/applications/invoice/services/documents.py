@@ -122,7 +122,9 @@ def get_default_templates() -> dict[str, DocumentTemplate]:
     Raises DefaultTemplateMissingError if a required type is not seeded, so a
     misconfigured deployment fails loudly instead of creating broken tenants.
     """
-    templates = {t.template_type: t for t in DocumentTemplate.objects.active().defaults()}
+    templates = {
+        t.template_type: t for t in DocumentTemplate.objects.active().defaults()
+    }
     missing = sorted(REQUIRED_DEFAULT_TEMPLATE_TYPES - templates.keys())
     if missing:
         msg = f"No default template for {missing}. Run `manage.py seed_default_templates`."
@@ -256,15 +258,18 @@ def assign_template(organization: Organization, template: DocumentTemplate) -> D
 def _validate_template_file(file: UploadedFile) -> None:
     extension = PurePath(file.name or "").suffix.lower()
     if extension not in ALLOWED_TEMPLATE_EXTENSIONS:
+        msg = f"Unsupported file type '{extension}'."
         raise InvalidTemplateFileError(
-            f"Unsupported file type '{extension}'.",
+            msg,
             detail={"allowed": sorted(ALLOWED_TEMPLATE_EXTENSIONS)},
         )
     if file.size is None or file.size <= 0:
-        raise InvalidTemplateFileError("The template file is empty.")
+        msg = "The template file is empty."
+        raise InvalidTemplateFileError(msg)
     if file.size > MAX_TEMPLATE_FILE_BYTES:
+        msg = "The template file is too large."
         raise InvalidTemplateFileError(
-            "The template file is too large.",
+            msg,
             detail={"max_bytes": MAX_TEMPLATE_FILE_BYTES},
         )
 
@@ -290,7 +295,8 @@ def create_custom_template(
 
     name = name.strip()
     if not name:
-        raise InvalidTemplateFileError("A template name is required.")
+        msg = "A template name is required."
+        raise InvalidTemplateFileError(msg)
 
     with transaction.atomic():
         try:
@@ -317,7 +323,8 @@ def create_custom_template(
 
 
 @transaction.atomic
-def archive_custom_template(organization: Organization, template: DocumentTemplate) -> DocumentTemplate:
+def archive_custom_template(
+    organization: Organization, template: DocumentTemplate) -> DocumentTemplate:
     """
     Retire a Custom template without deleting it (PRD §44).
 
@@ -379,7 +386,8 @@ def _lock_sequence(organization: Organization, document_type: str) -> DocumentSe
         return locked.get(organization=organization, document_type=document_type)
 
 
-def allocate_document_number(organization: Organization, document_type: str) -> AllocatedNumber:
+def allocate_document_number(
+    organization: Organization, document_type: str) -> AllocatedNumber:
     """
     Reserve the next number for a document type.
 
@@ -391,7 +399,8 @@ def allocate_document_number(organization: Organization, document_type: str) -> 
     _validate_document_type(document_type)
     sequence = _lock_sequence(organization, document_type)
     if sequence.next_number >= MAX_NUMBER_VALUE:
-        raise InvalidSequenceSettingError("The document number range is exhausted.")
+        msg = "The document number range is exhausted."
+        raise InvalidSequenceSettingError(msg, detail={"max": MAX_NUMBER_VALUE})
 
     number = sequence.next_number
     sequence.next_number = number + 1
@@ -425,8 +434,9 @@ def update_sequence_settings(
     if prefix is not None:
         prefix = prefix.strip().upper()
         if prefix and not _PREFIX_PATTERN.match(prefix):
+            msg = "Prefix may contain A-Z, 0-9, '-' and '/' (max 20 characters)."
             raise InvalidSequenceSettingError(
-                "Prefix may contain A-Z, 0-9, '-' and '/' (max 20 characters).",
+                msg,
                 detail={"prefix": prefix},
             )
         sequence.prefix = prefix
@@ -434,8 +444,9 @@ def update_sequence_settings(
 
     if padding is not None:
         if not MIN_NUMBER_PADDING <= padding <= MAX_NUMBER_PADDING:
+            msg = f"Padding must be between {MIN_NUMBER_PADDING} and {MAX_NUMBER_PADDING}."
             raise InvalidSequenceSettingError(
-                f"Padding must be between {MIN_NUMBER_PADDING} and {MAX_NUMBER_PADDING}.",
+                msg,
                 detail={"padding": padding},
             )
         sequence.padding = padding
@@ -443,12 +454,14 @@ def update_sequence_settings(
 
     if next_number is not None:
         if next_number < sequence.next_number:
+            msg = "The next number cannot be lower than the current counter."
             raise InvalidSequenceSettingError(
-                "The next number cannot be lower than the current counter.",
+                msg,
                 detail={"current": sequence.next_number, "requested": next_number},
             )
         if next_number > MAX_NUMBER_VALUE:
-            raise InvalidSequenceSettingError("The next number is too large.")
+            msg = "The next number is too large."
+            raise InvalidSequenceSettingError(msg, detail={"max": MAX_NUMBER_VALUE})
         sequence.next_number = next_number
         changed.append("next_number")
 
@@ -456,6 +469,9 @@ def update_sequence_settings(
         sequence.save(update_fields=[*changed, "updated_at"])
         logger.info(
             "documents.sequence_updated",
-            extra={"organization_id": str(organization.pk), "document_type": document_type, "fields": changed},
+            extra={
+                "organization_id": str(organization.pk),
+                "document_type": document_type, "fields": changed
+                },
         )
     return sequence

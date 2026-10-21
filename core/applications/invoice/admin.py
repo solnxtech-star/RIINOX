@@ -134,13 +134,11 @@ class InvoiceAdmin(admin.ModelAdmin):
         "status",
         "total",
         "due_date",
-        "is_voided",
         "created_at",
     )
 
     list_filter = (
         "status",
-        "is_voided",
         "organization",
         "warehouse",
         "due_date",
@@ -234,7 +232,6 @@ class InvoiceAdmin(admin.ModelAdmin):
             _("Void / Correction"),
             {
                 "fields": (
-                    "is_voided",
                     "voided_by",
                     "voided_at",
                     "void_reason",

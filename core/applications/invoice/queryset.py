@@ -26,8 +26,6 @@ if TYPE_CHECKING:
 __all__ = [
     "OUTSTANDING_STATUSES",
     "SALE_STATUSES",
-    "ClientManager",
-    "ClientQuerySet",
     "DocumentSequenceManager",
     "DocumentSequenceQuerySet",
     "DocumentTemplateManager",
@@ -131,11 +129,25 @@ class InvoiceQuerySet(auto_prefetch.QuerySet):
     def for_organization(self, organization: Organization | None):
         return self.filter(organization=_require_organization(organization))
 
-    def for_client(self, client):
-        return self.filter(client=client)
+    def for_customer(self, customer):
+        return self.filter(customer=customer)
 
     def by_sales_rep(self, user):
         return self.filter(sales_rep=user)
+
+    # -- origin ------------------------------------------------------------- #
+
+    def for_sale(self, sale_id):
+        """Every invoice, live or voided, ever issued for one sale."""
+        return self.filter(sale_id=sale_id)
+
+    def sale_origin(self):
+        """Invoices issued from a sale. The sale owns their stock movement."""
+        return self.filter(sale__isnull=False)
+
+    def standalone(self):
+        """Invoices created without a sale."""
+        return self.filter(sale__isnull=True)
 
     # -- lifecycle groupings ------------------------------------------------ #
 
@@ -174,11 +186,12 @@ class InvoiceQuerySet(auto_prefetch.QuerySet):
     # -- filtering ---------------------------------------------------------- #
 
     def issued_between(self, start: date | None = None, end: date | None = None):
+        """Filter on the issue date. Drafts and Pending invoices have none, so they drop out."""
         qs = self
         if start is not None:
-            qs = qs.filter(created_at__date__gte=start)
+            qs = qs.filter(issued_at__date__gte=start)
         if end is not None:
-            qs = qs.filter(created_at__date__lte=end)
+            qs = qs.filter(issued_at__date__lte=end)
         return qs
 
     def due_between(self, start: date | None = None, end: date | None = None):
@@ -191,34 +204,35 @@ class InvoiceQuerySet(auto_prefetch.QuerySet):
 
     def search(self, term: str):
         """
-        Prefix match on number and client email (index-friendly) plus client name.
-        For very large tenants, back client-name search with a trigram index.
+        Prefix match on number and customer email (index-friendly) plus customer name.
+        For very large tenants, back customer-name search with a trigram index.
         """
         term = (term or "").strip()
         if not term:
             return self
         return self.filter(
             Q(invoice_number__istartswith=term)
-            | Q(client__name__icontains=term)
-            | Q(client__email__istartswith=term)
+            | Q(customer__name__icontains=term)
+            | Q(customer__email__istartswith=term)
         )
 
     # -- loading strategies (avoid N+1) ------------------------------------- #
 
     def for_list(self):
         """List pages: one query, no items, no N+1 on the columns the table shows."""
-        return self.select_related("client", "sales_rep", "confirmed_by", "warehouse")
+        return self.select_related("customer", "sales_rep", "confirmed_by", "warehouse")
 
     def for_detail(self):
         """
         Detail/PDF pages: parties, the voiding user and the replaced invoice in
-        the main query; line items (with their products, in a stable order) and
-        any corrected replacements in two more. Three queries however many lines.
+        the main query; line items (with their products and variants, in a
+        stable order) and any corrected replacements in two more. Three queries
+        however many lines.
         """
         items = Prefetch(
             "items",
             queryset=apps.get_model("invoice", "InvoiceItem")
-            .objects.select_related("product")
+            .objects.select_related("product", "variant")
             .order_by("pk"),
         )
         return (
@@ -229,8 +243,9 @@ class InvoiceQuerySet(auto_prefetch.QuerySet):
 
     def with_computed_subtotal(self):
         """
-        Live sum of line items computed in the database (for Drafts, PRD §24).
-        Prefer this over `Invoice.computed_subtotal` when listing many invoices.
+        Live sum of line amounts before discount and tax, computed in the
+        database (for Drafts, PRD §24). Prefer this over
+        `Invoice.computed_subtotal` when listing many invoices.
         """
         return self.annotate(
             live_subtotal=Coalesce(
@@ -238,6 +253,12 @@ class InvoiceQuerySet(auto_prefetch.QuerySet):
                 0,
                 output_field=MONEY,
             )
+        )
+
+    def with_balance_due(self):
+        """Adds `balance_due` (total minus amount paid) computed in the database."""
+        return self.annotate(
+            balance_due=ExpressionWrapper(F("total") - F("amount_paid"), output_field=MONEY)
         )
 
     # -- pagination --------------------------------------------------------- #
@@ -265,6 +286,12 @@ class InvoiceQuerySet(auto_prefetch.QuerySet):
             discount=Coalesce(Sum("discount_amount"), 0, output_field=MONEY),
             tax=Coalesce(Sum("tax_amount"), 0, output_field=MONEY),
             total=Coalesce(Sum("total"), 0, output_field=MONEY),
+            paid=Coalesce(Sum("amount_paid"), 0, output_field=MONEY),
+            balance_due=Coalesce(
+                Sum(ExpressionWrapper(F("total") - F("amount_paid"), output_field=MONEY)),
+                0,
+                output_field=MONEY,
+            ),
         )
 
     def sales_by_rep(self):
@@ -305,16 +332,25 @@ class InvoiceItemQuerySet(auto_prefetch.QuerySet):
         return self.filter(invoice__status__in=SALE_STATUSES)
 
     def with_product(self):
-        return self.select_related("product")
+        return self.select_related("product", "variant")
 
     def with_line_total(self):
-        """Adds `line_total` (quantity x unit_price) computed in the database."""
-        return self.annotate(line_total=ExpressionWrapper(F("quantity") * F("unit_price"), output_field=MONEY))
+        """
+        Adds `line_total` computed in the database, matching `InvoiceItem.total`:
+        quantity x unit_price, minus the line discount, plus the line tax.
+        """
+        return self.annotate(
+            line_total=ExpressionWrapper(
+                F("quantity") * F("unit_price") - F("discount_amount") + F("tax_amount"),
+                output_field=MONEY,
+            )
+        )
 
     def top_selling_products(self, limit: int = 10):
         """
         Dashboard metric 'top-selling products' (PRD §12): units and revenue
-        per product in one grouped query. Scope with `for_organization` first.
+        per product in one grouped query. Revenue is net of line discounts and
+        excludes tax. Scope with `for_organization` first.
         """
         return (
             self.on_confirmed_sales()
@@ -322,7 +358,12 @@ class InvoiceItemQuerySet(auto_prefetch.QuerySet):
             .annotate(
                 units_sold=Coalesce(Sum("quantity"), 0),
                 revenue=Coalesce(
-                    Sum(ExpressionWrapper(F("quantity") * F("unit_price"), output_field=MONEY)),
+                    Sum(
+                        ExpressionWrapper(
+                            F("quantity") * F("unit_price") - F("discount_amount"),
+                            output_field=MONEY,
+                        )
+                    ),
                     0,
                     output_field=MONEY,
                 ),
@@ -332,41 +373,3 @@ class InvoiceItemQuerySet(auto_prefetch.QuerySet):
 
 
 InvoiceItemManager = auto_prefetch.Manager.from_queryset(InvoiceItemQuerySet)
-
-
-# --------------------------------------------------------------------------- #
-# Client
-# --------------------------------------------------------------------------- #
-
-
-class ClientQuerySet(auto_prefetch.QuerySet):
-    def for_organization(self, organization: Organization | None):
-        return self.filter(organization=_require_organization(organization))
-
-    def active(self):
-        return self.filter(is_active=True)
-
-    def with_balance(self):
-        """Clients who currently owe money (system-maintained cache, PRD §20)."""
-        return self.filter(current_balance__gt=0)
-
-    def over_credit_limit(self):
-        """Balance exceeds a positive credit limit. A limit of 0 means no credit was granted."""
-        return self.filter(credit_limit__gt=0, current_balance__gt=F("credit_limit"))
-
-    def search(self, term: str):
-        term = (term or "").strip()
-        if not term:
-            return self
-        return self.filter(Q(name__icontains=term) | Q(email__istartswith=term) | Q(phone__startswith=term))
-
-    def page_after(self, cursor: tuple[str, Any] | None = None, limit: int = DEFAULT_PAGE_SIZE):
-        """Keyset page ordered by (name, pk). `cursor` is the last row's (name, pk)."""
-        qs = self.order_by("name", "pk")
-        if cursor is not None:
-            name, pk = cursor
-            qs = qs.filter(Q(name__gt=name) | Q(name=name, pk__gt=pk))
-        return qs[: _clamp_page_size(limit)]
-
-
-ClientManager = auto_prefetch.Manager.from_queryset(ClientQuerySet)
