@@ -52,7 +52,7 @@ def get_or_create_client_for_customer(customer) -> Client:
             defaults={
                 "name": customer.name or "Walk-in Customer",
                 "phone": customer.phone or "",
-                "address": customer.address or "",
+                "address": customer.formatted_address,
                 "status": CustomerStatusChoices.ACTIVE,
                 "is_active": True,
             },

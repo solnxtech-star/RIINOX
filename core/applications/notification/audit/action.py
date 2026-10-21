@@ -36,3 +36,10 @@ class AuditAction:
     SALES_ORDER_FULFILLED = "sales_order.fulfilled"
     SALES_RETURN_CREATED = "sales_return.created"
 
+    # Customer Events
+    CUSTOMER_CREATED = "customer.created"
+    CUSTOMER_UPDATED = "customer.updated"
+    CUSTOMER_DEACTIVATED = "customer.deactivated"
+    CUSTOMER_DELETED = "customer.deleted"
+    CUSTOMER_CREDIT_ADJUSTED = "customer.credit_adjusted"
+

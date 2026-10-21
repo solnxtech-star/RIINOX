@@ -80,6 +80,13 @@ urlpatterns += [
     path(
         "api/",
         include(
+            "core.applications.customers.api.routers",
+            namespace="customers",
+        ),
+    ),
+    path(
+        "api/",
+        include(
             "core.applications.transactions.api.routers",
             namespace="transactions",
         ),

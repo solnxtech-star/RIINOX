@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import auto_prefetch
 from core.applications.users.models import Organization
-from core.helper.enums import CustomerStatus
 
 
 class TransactionQuerySet(auto_prefetch.QuerySet):
@@ -39,21 +38,3 @@ class FinancialLedgerEntryQuerySet(auto_prefetch.QuerySet):
             return self.all()
         return self.filter(transaction__organization__in=Organization.objects.for_user(user))
 
-
-class CustomerQuerySet(auto_prefetch.QuerySet):
-    """Slim, chainable queryset for Customers scoped by organization and user."""
-
-    def for_organization(self, organization: Organization | str) -> CustomerQuerySet:
-        if isinstance(organization, Organization):
-            return self.filter(organization=organization)
-        return self.filter(organization_id=organization)
-
-    def for_user(self, user) -> CustomerQuerySet:
-        if not getattr(user, "is_authenticated", False):
-            return self.none()
-        if getattr(user, "is_superuser", False):
-            return self.all()
-        return self.filter(organization__in=Organization.objects.for_user(user))
-
-    def active(self) -> CustomerQuerySet:
-        return self.filter(status=CustomerStatus.ACTIVE)

@@ -113,6 +113,7 @@ LOCAL_APPS = [
     "core.applications.subscriptions",
     "core.applications.sales",
     "core.applications.notification",
+    "core.applications.customers",
 ]
 # https://docs.djangoproject.com/en/dev/ref/settings/#installed-apps
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS

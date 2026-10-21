@@ -12,18 +12,15 @@ from core.applications.users.services import seed_default_roles
 from core.applications.transactions.models import (
     Transaction,
     FinancialLedgerEntry,
-    Customer,
 )
 from core.helper.enums import (
     TransactionTypeChoices,
     TransactionStatusChoices,
     AccountNameChoices,
-    CustomerType,
-    CustomerStatus,
 )
 
 
-class CustomerAndTransactionAPITest(APITestCase):
+class TransactionAPITest(APITestCase):
     def setUp(self):
         # 1. Organization & Roles
         self.org = OrganizationFactory()
@@ -41,19 +38,10 @@ class CustomerAndTransactionAPITest(APITestCase):
             is_active=True,
         )
 
-        # 3. Sales Representative (has VIEW_CUSTOMERS & MANAGE_CUSTOMERS, lacks VIEW_FINANCIAL_REPORTS)
-        self.sales_rep = UserFactory()
-        self.sales_rep_membership = Membership.objects.create(
-            user=self.sales_rep,
-            organization=self.org,
-            role=self.roles["sales-representative"],
-            is_active=True,
-        )
-
-        # 4. Inventory Staff (lacks VIEW_CUSTOMERS, MANAGE_CUSTOMERS, VIEW_FINANCIAL_REPORTS)
-        self.inventory_staff = UserFactory()
+        # 3. Staff user (lacks VIEW_FINANCIAL_REPORTS)
+        self.staff_user = UserFactory()
         self.staff_membership = Membership.objects.create(
-            user=self.inventory_staff,
+            user=self.staff_user,
             organization=self.org,
             role=self.roles["inventory-staff"],
             is_active=True,
@@ -74,13 +62,6 @@ class CustomerAndTransactionAPITest(APITestCase):
         )
 
         # 5. Base Resources
-        self.customer = Customer.objects.create(
-            organization=self.org,
-            name="Acme Corp",
-            email="acme@example.com",
-            phone="08012345678",
-            customer_type=CustomerType.BUSINESS if hasattr(CustomerType, "BUSINESS") else CustomerType.INDIVIDUAL,
-        )
         self.transaction = Transaction.objects.create(
             organization=self.org,
             transaction_id="TRX-TEST-0001",
@@ -98,59 +79,8 @@ class CustomerAndTransactionAPITest(APITestCase):
 
         # Authenticate as owner
         self.client.force_authenticate(user=self.owner)
-        self.customer_base_url = f"/api/organizations/{self.org.id}/customers/"
-        self.customer_detail_url = f"{self.customer_base_url}{self.customer.id}/"
         self.trx_base_url = f"/api/organizations/{self.org.id}/transactions/"
         self.trx_detail_url = f"{self.trx_base_url}{self.transaction.id}/"
-
-    def test_list_customers(self):
-        """Owner can list customers scoped to their organization."""
-        response = self.client.get(self.customer_base_url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        results = response.data.get("results", []) if isinstance(response.data, dict) else response.data
-        self.assertGreaterEqual(len(results), 1)
-        self.assertEqual(str(results[0]["id"]).replace("-", ""), str(self.customer.id).replace("-", ""))
-
-    def test_retrieve_customer(self):
-        """Owner can retrieve customer detail."""
-        response = self.client.get(self.customer_detail_url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["name"], "Acme Corp")
-        self.assertEqual(response.data["email"], "acme@example.com")
-
-    def test_create_customer(self):
-        """Owner can create a new customer for their organization."""
-        data = {
-            "name": "Global Logistics Ltd",
-            "email": "info@globallogistics.com",
-            "phone": "08098765432",
-        }
-        response = self.client.post(self.customer_base_url, data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        new_cust_id = response.data["id"]
-
-        new_cust = Customer.objects.get(id=new_cust_id)
-        self.assertEqual(str(new_cust.organization_id).replace("-", ""), str(self.org.id).replace("-", ""))
-        self.assertEqual(new_cust.name, "Global Logistics Ltd")
-
-    def test_update_customer(self):
-        """Owner can update customer metadata."""
-        data = {"address": "Suite 404, Port Harcourt"}
-        response = self.client.patch(self.customer_detail_url, data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.customer.refresh_from_db()
-        self.assertEqual(self.customer.address, "Suite 404, Port Harcourt")
-
-    def test_delete_customer(self):
-        """Owner can delete customer."""
-        temp_cust = Customer.objects.create(
-            organization=self.org,
-            name="Temporary Customer",
-        )
-        url = f"{self.customer_base_url}{temp_cust.id}/"
-        response = self.client.delete(url)
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(Customer.objects.filter(id=temp_cust.id).exists())
 
     def test_list_transactions(self):
         """Owner can list transactions scoped to their organization."""
@@ -183,47 +113,15 @@ class CustomerAndTransactionAPITest(APITestCase):
         self.assertEqual(str(new_trx.organization_id).replace("-", ""), str(self.org.id).replace("-", ""))
         self.assertEqual(new_trx.transaction_type, TransactionTypeChoices.PURCHASE)
 
-    # -------------------------------------------------------------------------
-    # Granular Role-Based Permission Tests
-    # -------------------------------------------------------------------------
     def test_role_based_permissions(self):
-        """
-        - Sales Rep has VIEW_CUSTOMERS & MANAGE_CUSTOMERS, lacks VIEW_FINANCIAL_REPORTS.
-        - Inventory Staff lacks VIEW_CUSTOMERS and VIEW_FINANCIAL_REPORTS.
-        """
-        # 1. Sales Rep checks
-        self.client.force_authenticate(user=self.sales_rep)
-        cust_list = self.client.get(self.customer_base_url)
-        self.assertEqual(cust_list.status_code, status.HTTP_200_OK)
+        """Staff user without VIEW_FINANCIAL_REPORTS receives 403 Forbidden."""
+        self.client.force_authenticate(user=self.staff_user)
+        response = self.client.get(self.trx_base_url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-        cust_create = self.client.post(self.customer_base_url, {
-            "name": "Rep Client",
-        }, format="json")
-        self.assertEqual(cust_create.status_code, status.HTTP_201_CREATED)
-
-        trx_list = self.client.get(self.trx_base_url)
-        self.assertEqual(trx_list.status_code, status.HTTP_403_FORBIDDEN)
-
-        # 2. Inventory Staff checks
-        self.client.force_authenticate(user=self.inventory_staff)
-        staff_cust_list = self.client.get(self.customer_base_url)
-        self.assertEqual(staff_cust_list.status_code, status.HTTP_403_FORBIDDEN)
-
-        staff_trx_list = self.client.get(self.trx_base_url)
-        self.assertEqual(staff_trx_list.status_code, status.HTTP_403_FORBIDDEN)
-
-    # -------------------------------------------------------------------------
-    # Multi-Tenant Boundary Isolation Tests
-    # -------------------------------------------------------------------------
     def test_tenant_isolation_non_member_access_returns_404(self):
         """User from Org B accessing Org A endpoints receives 404 Not Found."""
         self.client.force_authenticate(user=self.other_user)
-
-        # Org A Customer endpoints return 404
-        self.assertEqual(self.client.get(self.customer_base_url).status_code, status.HTTP_404_NOT_FOUND)
-        self.assertEqual(self.client.get(self.customer_detail_url).status_code, status.HTTP_404_NOT_FOUND)
-        cust_post = self.client.post(self.customer_base_url, {"name": "Injected Client"}, format="json")
-        self.assertEqual(cust_post.status_code, status.HTTP_404_NOT_FOUND)
 
         # Org A Transaction endpoints return 404
         self.assertEqual(self.client.get(self.trx_base_url).status_code, status.HTTP_404_NOT_FOUND)
@@ -234,13 +132,6 @@ class CustomerAndTransactionAPITest(APITestCase):
         self.assertEqual(trx_post.status_code, status.HTTP_404_NOT_FOUND)
 
         # Accessing own Org B endpoints is allowed and does not expose Org A data
-        other_cust_url = f"/api/organizations/{self.other_org.id}/customers/"
-        own_cust_list = self.client.get(other_cust_url)
-        self.assertEqual(own_cust_list.status_code, status.HTTP_200_OK)
-        results = own_cust_list.data.get("results", []) if isinstance(own_cust_list.data, dict) else own_cust_list.data
-        cust_ids = [str(r["id"]).replace("-", "") for r in results]
-        self.assertNotIn(str(self.customer.id).replace("-", ""), cust_ids)
-
         other_trx_url = f"/api/organizations/{self.other_org.id}/transactions/"
         own_trx_list = self.client.get(other_trx_url)
         self.assertEqual(own_trx_list.status_code, status.HTTP_200_OK)

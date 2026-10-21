@@ -21,7 +21,7 @@ from core.applications.sales.service import (
     record_sale_audit_event,
     record_sale_return_audit_event,
 )
-from core.applications.transactions.models import Customer
+from core.applications.customers.models import Customer, CustomerAddress
 from core.applications.users.models import Membership
 from core.applications.users.services import seed_default_roles
 from core.applications.inventory.services import create_opening_stock
@@ -58,7 +58,12 @@ class SalesServicesTest(TestCase):
             name="Alpha Corp",
             email="purchasing@alphacorp.test",
             phone="+2348011223344",
-            address="15 Commercial Ave, Lagos",
+        )
+        CustomerAddress.objects.create(
+            customer=self.customer,
+            street="15 Commercial Ave",
+            city="Lagos",
+            is_default=True,
         )
 
         # Seed initial inventory
