@@ -16,8 +16,8 @@ if TYPE_CHECKING:
     from datetime import date
     from decimal import Decimal
 
+    from core.applications.customers.models import Customer
     from core.applications.invoice.models import Invoice
-    from core.applications.transactions.models import Customer
     from core.applications.users.models import Organization
 
 # Permission codes passed to `InvoicePorts.authorize`.
@@ -78,8 +78,12 @@ class SaleSnapshot:
     A read-only view of a sale, built by the adapter from the sales app's
     public API so the invoice app never imports sales models.
 
-    `customer_id` is the sale's `transactions.Customer`, the same record the
-    invoice points at.
+    `sale_id` is the Sale's primary key (not its human-readable `sale_id`
+    code): it becomes `Invoice.sale`. `customer_id` is the sale's
+    `customers.Customer`, the same record the invoice points at.
+
+    `billing_address` and `shipping_address` are the addresses chosen on the
+    sale. When empty, the invoice falls back to the customer's saved ones.
     """
 
     sale_id: Any
@@ -96,6 +100,8 @@ class SaleSnapshot:
     tax_amount: Decimal
     total: Decimal
     lines: tuple[SaleLineSnapshot, ...]
+    billing_address: str = ""
+    shipping_address: str = ""
 
 
 @runtime_checkable
@@ -158,7 +164,10 @@ class InvoicePorts(Protocol):
         """Standalone invoices only. Write reversing ledger entries for a voided, previously confirmed invoice."""
 
     def get_sale_snapshot(self, sale: Any) -> SaleSnapshot:
-        """Read `sale` through the sales app's public API into a snapshot."""
+        """
+        Read `sale` through the sales app's public API into a snapshot. The
+        snapshot's `sale_id` must be the Sale's primary key.
+        """
 
     def cancel_sale(self, invoice: Invoice, *, actor: Any, reason: str) -> None:
         """
@@ -173,8 +182,11 @@ class InvoicePorts(Protocol):
     def refresh_customer_balance(self, customer: Customer) -> None:
         """
         Recompute Customer.balance as the sum of (total - amount_paid) over the
-        customer's outstanding invoices. Idempotent. Called with the customer
-        row already locked. This is the only writer of Customer.balance.
+        customer's invoices that are Confirmed, Overdue or Partially Paid.
+        Drafts, Pending, Paid and Cancelled invoices contribute nothing, so an
+        invoice being confirmed is not counted until it has been saved. Idempotent.
+        Called with the customer row already locked, and it must update the
+        passed instance too. This is the only writer of Customer.balance.
         """
 
     def publish(self, event: str, invoice: Invoice) -> None:

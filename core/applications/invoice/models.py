@@ -40,11 +40,18 @@ class Invoice(TimeBasedModel):
 
     Business-specific fields can still be stored in `extra_data` as JSON.
     """
-
+    customer_name = models.CharField(max_length=255, blank=True, default="")
+    customer_company_name = models.CharField(max_length=255, blank=True, default="")
+    customer_tax_id = models.CharField(max_length=50, blank=True, default="")
+    customer_email = models.EmailField(blank=True, default="")
+    customer_phone = models.CharField(max_length=35, blank=True, default="")
+    billing_address = models.TextField(blank=True, default="")
+    shipping_address = models.TextField(blank=True, default="")
     customer = auto_prefetch.ForeignKey(
-        "transactions.Customer",
+        "customers.Customer",
         on_delete=models.PROTECT,
         related_name="invoices",
+        null=True, blank=True,
     )
     organization = auto_prefetch.ForeignKey(
         "users.Organization",
