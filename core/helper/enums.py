@@ -214,6 +214,7 @@ class ActionChoice(TextChoices):
 class PaymentMethod(TextChoices):
     """Available payment providers and methods."""
 
+    CASH = "cash", _("Cash")
     STRIPE = "stripe", _("Stripe")
     PAYSTACK = "paystack", _("Paystack")
     NOWPAYMENTS = "nowpayments", _("NowPayments")

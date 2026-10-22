@@ -24,9 +24,12 @@ from core.applications.invoice.services.invoices import load_active_customer
 from core.applications.invoice.services.ports import get_invoice_ports
 from core.applications.notification.audit.action import AuditAction
 from core.applications.notification.audit.services import record as audit_record
-from core.applications.payment.models import InvoicePayment
-from core.applications.payment.models import Payment
-from core.applications.payment.models import Refund
+from core.applications.payment.services import (
+    parse_payment,
+    payment_status,
+    record_invoice_payment,
+    record_refund_for_return,
+)
 from core.applications.sales.models import Sale
 from core.applications.sales.models import SaleItem
 from core.applications.sales.models import SaleReturn
@@ -35,8 +38,6 @@ from core.applications.subscriptions.services.entitlements import (
     ensure_subscription_active,
 )
 from core.helper.enums import InvoiceStatusChoices
-from core.helper.enums import PaymentMethod
-from core.helper.enums import PaymentStatus
 from core.helper.enums import SalePaymentStatusChoices
 
 logger = logging.getLogger(__name__)
@@ -44,13 +45,6 @@ logger = logging.getLogger(__name__)
 CENT: Final = Decimal("0.01")
 RATE_STEP: Final = Decimal("0.01")
 MAX_MONEY: Final = Decimal("9999999999.99")
-
-# Invoices that can still receive a payment.
-_PAYABLE_STATUSES: Final = (
-    InvoiceStatusChoices.CONFIRMED,
-    InvoiceStatusChoices.OVERDUE,
-    InvoiceStatusChoices.PARTIALLY_PAID,
-)
 
 
 class SaleValidationError(InvoiceValidationError):
@@ -223,106 +217,7 @@ def _build_lines(
     return lines, totals, overrides
 
 
-def _parse_payment(payment: dict[str, Any] | None, total: Decimal) -> tuple[Decimal, str, str | None]:
-    """
-    The payment tendered with the sale (PRD §39: {"amount", "method"}).
-    Returns (amount, method, caller reference). Overpayment is refused: change
-    is given at the till, it is not recorded as received.
-    """
-    if not payment:
-        return Decimal("0.00"), "", None
-    amount = _money(payment.get("amount") or 0, field="payment amount")
-    if not Decimal(0) <= amount <= total:
-        msg = "The payment must be between zero and the sale total."
-        raise SaleValidationError(msg, detail={"amount": str(amount), "total": str(total)})
-    if amount == 0:
-        return amount, "", None
-    try:
-        method = PaymentMethod(payment.get("method"))
-    except ValueError as exc:
-        msg = "A valid payment method is required."
-        raise SaleValidationError(msg, detail={"method": str(payment.get("method"))}) from exc
-    return amount, str(method.value), payment.get("reference") or None
 
-
-def _payment_status(total: Decimal, paid: Decimal) -> str:
-    if paid >= total:
-        return SalePaymentStatusChoices.PAID
-    if paid > 0:
-        return SalePaymentStatusChoices.PARTIALLY_PAID
-    return SalePaymentStatusChoices.UNPAID
-
-
-# --------------------------------------------------------------------------- #
-# Payments and receipts (PRD §25, §26)
-# --------------------------------------------------------------------------- #
-
-
-@transaction.atomic
-def record_invoice_payment(
-    invoice: Invoice,
-    *,
-    amount: Decimal,
-    method: str,
-    actor: Any,
-    currency: str,
-    reference: str | None = None,
-    description: str = "",
-) -> tuple[Payment, InvoicePayment]:
-    """
-    Record money received against an invoice: the Payment, the receipt
-    (InvoicePayment), the invoice's `amount_paid` and status, and the customer's
-    cached balance, all together. This is the only place `amount_paid` is
-    written, so the payment records stay the source of truth.
-
-    It belongs in the payment app; it lives here until that app has its own
-    service. Call it inside the caller's transaction. The invoice row is locked
-    and the customer row is locked after it (invoice -> customer).
-    """
-    amount = _money(amount, field="payment amount")
-    if amount <= 0:
-        msg = "A payment must be greater than zero."
-        raise SaleValidationError(msg, detail={"amount": str(amount)})
-
-    invoice = Invoice.objects.select_for_update().get(pk=invoice.pk)
-    if invoice.status not in _PAYABLE_STATUSES:
-        msg = f"An invoice that is {invoice.status} cannot take a payment."
-        raise SaleValidationError(msg, detail={"invoice_id": str(invoice.pk)})
-    new_paid = invoice.amount_paid + amount
-    if new_paid > invoice.total:
-        msg = "The payment exceeds the invoice balance."
-        raise SaleValidationError(
-            msg,
-            detail={"amount": str(amount), "balance_due": str(invoice.balance_due)},
-        )
-
-    customer = Customer.objects.select_for_update().get(pk=invoice.customer_id)
-
-    payment = Payment.objects.create(
-        user=actor,
-        amount=amount,
-        currency=currency,
-        method=method,
-        status=PaymentStatus.SUCCESS,
-        reference=reference or _reference("PAY", invoice.invoice_number),
-        description=description or f"Payment for invoice {invoice.invoice_number}",
-    )
-
-    invoice.amount_paid = new_paid
-    invoice.status = (
-        InvoiceStatusChoices.PAID if new_paid >= invoice.total else InvoiceStatusChoices.PARTIALLY_PAID
-    )
-    invoice.save(update_fields=["amount_paid", "status", "updated_at"])
-
-    receipt = InvoicePayment.objects.create(
-        invoice=invoice,
-        payment=payment,
-        sales_rep=actor,
-        amount=amount,
-        balance_after=invoice.total - new_paid,
-    )
-    get_invoice_ports().refresh_customer_balance(customer)
-    return payment, receipt
 
 
 # --------------------------------------------------------------------------- #
@@ -420,11 +315,11 @@ def create_sale(data: dict[str, Any], *, actor: Any = None) -> Sale:
         data.pop("discount_amount", 0),
         data.pop("tax_amount", 0),
     )
-    paid_now, method, payment_reference = _parse_payment(payment_data, totals["total"])
+    paid_now, method, payment_reference = parse_payment(payment_data, totals["total"])
 
     data.pop("subtotal", None)
     data.pop("total", None)
-    data["payment_status"] = _payment_status(totals["total"], paid_now)
+    data["payment_status"] = payment_status(totals["total"], paid_now)
     data["currency"] = data.get("currency") or getattr(organization, "currency", None) or "USD"
     if not data.get("sale_id"):
         data["sale_id"] = f"SALE-{uuid.uuid4().hex[:8].upper()}"
@@ -491,48 +386,7 @@ def _returnable_amount(item: SaleItem, quantity: int) -> Decimal:
     return (item.total * quantity / item.quantity).quantize(CENT, rounding=ROUND_HALF_UP)
 
 
-def record_refund_for_return(sale_return: SaleReturn) -> Refund | None:
-    """
-    Record a Refund against a payment of the original sale's invoice (PRD §23,
-    §26). The refund can never exceed what that payment has left after earlier
-    refunds. Returns None when the sale was never paid (a credit sale): that
-    return needs a credit note, not a cash refund.
-    """
-    refund_amount = sale_return.refund_amount
-    receipts = (
-        InvoicePayment.objects.filter(invoice__sale=sale_return.original_sale)
-        .select_related("payment")
-        .order_by("pk")
-    )
-    for receipt in receipts:
-        payment = receipt.payment
-        refunded = (
-            Refund.objects.filter(payment=payment, status=PaymentStatus.SUCCESS).aggregate(
-                total=Sum("amount")
-            )["total"]
-            or Decimal("0.00")
-        )
-        if payment.amount - refunded >= refund_amount:
-            sales_rep = sale_return.original_sale.sales_rep
-            return Refund.objects.create(
-                payment=payment,
-                amount=refund_amount,
-                reason=(sale_return.return_reason or "Sale Return")[:255],
-                reference=_reference("REF", str(sale_return.id)[:8]),
-                status=PaymentStatus.SUCCESS,
-                approved_by=sales_rep if getattr(sales_rep, "is_staff", False) else None,
-                approved_at=timezone.now(),
-            )
-    if receipts:
-        msg = "The refund exceeds what is left on the original payments."
-        raise SaleValidationError(
-            msg,
-            detail={
-                "sale_return_id": str(sale_return.id),
-                "refund_amount": str(refund_amount),
-            },
-        )
-    return None
+
 
 
 @transaction.atomic

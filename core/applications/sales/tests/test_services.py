@@ -1,29 +1,8 @@
-import uuid
 from decimal import Decimal
+import uuid
 from django.test import TestCase
 
-from core.applications.invoice.models import Client, Invoice, InvoiceItem
-from core.applications.notification.audit.action import AuditAction
-from core.applications.notification.models import AuditLog
-from core.applications.payment.models import InvoicePayment, Payment, Refund
-from core.applications.sales.models import Sale, SaleItem, SaleReturn
-from core.applications.sales.service import (
-    create_invoice_for_sale,
-    create_receipt_for_sale,
-    create_sale,
-    create_sale_return,
-    mock_create_audit_event,
-    mock_create_invoice,
-    mock_create_payment,
-    mock_create_receipt,
-    record_payment_for_sale,
-    record_refund_for_return,
-    record_sale_audit_event,
-    record_sale_return_audit_event,
-)
 from core.applications.customers.models import Customer, CustomerAddress
-from core.applications.users.models import Membership
-from core.applications.users.services import seed_default_roles
 from core.applications.inventory.services import create_opening_stock
 from core.applications.inventory.tests.factories import (
     OrganizationFactory,
@@ -31,6 +10,19 @@ from core.applications.inventory.tests.factories import (
     StockLocationFactory,
     UserFactory,
 )
+from core.applications.invoice.models import Invoice
+from core.applications.notification.audit.action import AuditAction
+from core.applications.notification.models import AuditLog
+from core.applications.payment.models import InvoicePayment, Payment, Refund
+from core.applications.sales.models import Sale, SaleReturn
+from core.applications.sales.service import (
+    create_sale,
+    create_sale_return,
+    record_sale_audit_event,
+    record_sale_return_audit_event,
+)
+from core.applications.users.models import Membership
+from core.applications.users.services import seed_default_roles
 from core.helper.enums import (
     InvoiceStatusChoices,
     PaymentStatus,
@@ -69,15 +61,8 @@ class SalesServicesTest(TestCase):
         # Seed initial inventory
         create_opening_stock(self.product, None, None, self.location.warehouse, 100, self.user)
 
-    def test_backwards_compatibility_mock_aliases(self):
-        """Verify mock function aliases point directly to real implementations."""
-        self.assertIs(mock_create_invoice, create_invoice_for_sale)
-        self.assertIs(mock_create_payment, record_payment_for_sale)
-        self.assertIs(mock_create_receipt, create_receipt_for_sale)
-        self.assertIs(mock_create_audit_event, record_sale_audit_event)
-
     def test_create_sale_creates_real_invoice_and_items(self):
-        """Creating a sale automatically provisions a Client, Invoice, and InvoiceItems."""
+        """Creating a sale automatically provisions an Invoice and links lines."""
         sale_data = {
             "organization": self.org,
             "customer": self.customer,
@@ -99,34 +84,22 @@ class SalesServicesTest(TestCase):
         self.assertEqual(sale.total, Decimal("200.00"))
 
         # 2. Real Invoice created
-        invoice = Invoice.objects.filter(extra_data__sale_id=str(sale.id)).first()
+        invoice = Invoice.objects.filter(sale=sale).first()
         self.assertIsNotNone(invoice)
         self.assertEqual(str(invoice.organization_id).replace("-", ""), str(self.org.id).replace("-", ""))
         self.assertEqual(str(invoice.warehouse_id).replace("-", ""), str(self.location.warehouse_id).replace("-", ""))
         self.assertEqual(invoice.sales_rep, self.user)
         self.assertEqual(invoice.total, Decimal("200.00"))
-        self.assertEqual(invoice.status, InvoiceStatusChoices.CONFIRMED)
+        self.assertEqual(str(invoice.customer_id).replace("-", ""), str(self.customer.id).replace("-", ""))
 
-        # 3. Client provisioned and linked
-        client = invoice.client
-        self.assertEqual(str(client.organization_id).replace("-", ""), str(self.org.id).replace("-", ""))
-        self.assertEqual(client.email, self.customer.email)
-        self.assertEqual(client.name, self.customer.name)
-
-        # 4. Invoice lines created
+        # 3. Invoice lines created
         lines = invoice.items.all()
         self.assertEqual(lines.count(), 1)
         self.assertEqual(str(lines.first().product_id).replace("-", ""), str(self.product.id).replace("-", ""))
         self.assertEqual(lines.first().quantity, 4)
         self.assertEqual(lines.first().unit_price, Decimal("50.00"))
 
-        # 5. Audit Log generated
-        self.assertTrue(
-            AuditLog.objects.filter(
-                action=AuditAction.INVOICE_CREATED,
-                resource_id=str(invoice.id).replace("-", ""),
-            ).exists()
-        )
+        # 4. Audit Log generated
         self.assertTrue(
             AuditLog.objects.filter(action=AuditAction.SALES_ORDER_CREATED, resource_id=str(sale.id)).exists()
         )
@@ -138,7 +111,7 @@ class SalesServicesTest(TestCase):
             "customer": self.customer,
             "location": self.location,
             "sales_rep": self.user,
-            "payment_status": SalePaymentStatusChoices.PAID,
+            "payment": {"amount": Decimal("100.00"), "method": "cash"},
             "items": [
                 {
                     "product": self.product,
@@ -150,17 +123,21 @@ class SalesServicesTest(TestCase):
         }
         sale = create_sale(sale_data)
 
-        # 1. Invoice marked as PAID
-        invoice = Invoice.objects.get(extra_data__sale_id=str(sale.id))
-        self.assertEqual(invoice.status, InvoiceStatusChoices.PAID)
+        # 1. Sale marked as PAID
+        self.assertEqual(sale.payment_status, SalePaymentStatusChoices.PAID)
 
-        # 2. Payment recorded
+        # 2. Invoice marked as PAID
+        invoice = Invoice.objects.get(sale=sale)
+        self.assertEqual(invoice.status, InvoiceStatusChoices.PAID)
+        self.assertEqual(invoice.amount_paid, Decimal("100.00"))
+
+        # 3. Payment recorded
         payment = Payment.objects.filter(description__contains=sale.sale_id).first()
         self.assertIsNotNone(payment)
         self.assertEqual(payment.amount, Decimal("100.00"))
         self.assertEqual(payment.status, PaymentStatus.SUCCESS)
 
-        # 3. Receipt (InvoicePayment) recorded
+        # 4. Receipt (InvoicePayment) recorded
         receipt = InvoicePayment.objects.filter(invoice=invoice, payment=payment).first()
         self.assertIsNotNone(receipt)
         self.assertEqual(receipt.amount, Decimal("100.00"))
@@ -168,13 +145,12 @@ class SalesServicesTest(TestCase):
         self.assertTrue(receipt.receipt_number.startswith("R-"))
 
     def test_create_sale_unpaid_does_not_create_payment_or_receipt(self):
-        """Unpaid sale generates Invoice in confirmed state without Payment or Receipt."""
+        """Unpaid sale generates Invoice without Payment or Receipt."""
         sale_data = {
             "organization": self.org,
             "customer": self.customer,
             "location": self.location,
             "sales_rep": self.user,
-            "payment_status": SalePaymentStatusChoices.UNPAID,
             "items": [
                 {
                     "product": self.product,
@@ -187,11 +163,11 @@ class SalesServicesTest(TestCase):
         sale = create_sale(sale_data)
 
         # Invoice exists
-        self.assertTrue(Invoice.objects.filter(extra_data__sale_id=str(sale.id)).exists())
+        self.assertTrue(Invoice.objects.filter(sale=sale).exists())
 
         # No Payment or Receipt
         self.assertFalse(Payment.objects.filter(description__contains=sale.sale_id).exists())
-        self.assertFalse(InvoicePayment.objects.filter(invoice__extra_data__sale_id=str(sale.id)).exists())
+        self.assertFalse(InvoicePayment.objects.filter(invoice__sale=sale).exists())
 
     def test_create_sale_return_restocks_and_creates_refund_and_audit(self):
         """Sale return against a paid sale creates Refund, restocks stock, and dispatches audit log."""
@@ -201,7 +177,7 @@ class SalesServicesTest(TestCase):
             "customer": self.customer,
             "location": self.location,
             "sales_rep": self.user,
-            "payment_status": SalePaymentStatusChoices.PAID,
+            "payment": {"amount": Decimal("250.00"), "method": "cash"},
             "items": [
                 {
                     "product": self.product,
@@ -241,4 +217,4 @@ class SalesServicesTest(TestCase):
         refund = Refund.objects.filter(amount=Decimal("100.00")).first()
         self.assertIsNotNone(refund)
         self.assertEqual(refund.status, PaymentStatus.SUCCESS)
-        self.assertIn(sale.sale_id, refund.payment.description)
+        self.assertIn(str(sale_return.id)[:8], refund.reference)

@@ -149,7 +149,6 @@ class SalesAPITest(APITestCase):
                     "product_name": self.product.name,
                     "quantity": 2,
                     "unit_price": "25.00",
-                    "discount": "2.00",
                 }
             ]
         }

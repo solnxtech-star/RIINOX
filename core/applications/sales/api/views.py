@@ -38,7 +38,10 @@ class SaleViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer_class()(data=request.data, context={'request': request, 'view': self})
         serializer.is_valid(raise_exception=True)
-        sale = create_sale(serializer.validated_data)
+        data = dict(serializer.validated_data)
+        if "organization" not in data and self.organization:
+            data["organization"] = self.organization
+        sale = create_sale(data, actor=request.user)
         response_serializer = SaleSerializer(sale, context={'request': request, 'view': self})
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
