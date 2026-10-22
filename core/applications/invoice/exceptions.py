@@ -68,6 +68,11 @@ class InvalidInvoiceTransitionError(DocumentError):
 
 
 class InsufficientStockError(DocumentError):
+    """
+    Part of the standalone-invoice stock contract. The adapter translates the
+    inventory app's own typed error into this one.
+    """
+
     code = "INSUFFICIENT_STOCK"
     default_message = "There is not enough stock to confirm this sale."
 
@@ -75,3 +80,18 @@ class InsufficientStockError(DocumentError):
 class InvoiceHasPaymentsError(DocumentError):
     code = "INVOICE_HAS_PAYMENTS"
     default_message = "An invoice with payments cannot be voided. Reverse the payments first."
+
+
+class InvoiceAlreadyIssuedForSaleError(DocumentError):
+    code = "INVOICE_ALREADY_ISSUED_FOR_SALE"
+    default_message = "A live invoice has already been issued for this sale."
+
+
+class ApprovalRequiredError(DocumentError):
+    code = "APPROVAL_REQUIRED"
+    default_message = "This action requires approval from a user with the appropriate permissions."
+
+
+class CreditLimitExceededError(DocumentError):
+    code = "CREDIT_LIMIT_EXCEEDED"
+    default_message = "This sale would take the customer over their credit limit and needs an approved override."

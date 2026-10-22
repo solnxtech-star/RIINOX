@@ -1,181 +1,337 @@
-from decimal import Decimal
+from __future__ import annotations
+
+import logging
 import uuid
+from decimal import ROUND_HALF_UP
+from decimal import Decimal
+from decimal import InvalidOperation
+from typing import Any
+from typing import Final
+
 from django.db import transaction
+from django.db.models import Sum
 from django.utils import timezone
 
-from core.applications.invoice.models import Client, Invoice, InvoiceItem
-from core.applications.invoice.services.documents import allocate_document_number
+from core.applications.customers.models import Customer
+from core.applications.inventory.services import process_return_inventory_and_ledger
+from core.applications.inventory.services import process_sale_inventory_and_ledger
+from core.applications.invoice.exceptions import InvoiceValidationError
+from core.applications.invoice.models import Invoice
+from core.applications.invoice.services.invoices import allocate_amount
+from core.applications.invoice.services.invoices import customer_snapshot
+from core.applications.invoice.services.invoices import issue_invoice_for_sale
+from core.applications.invoice.services.invoices import load_active_customer
+from core.applications.invoice.services.ports import get_invoice_ports
 from core.applications.notification.audit.action import AuditAction
 from core.applications.notification.audit.services import record as audit_record
-from core.applications.payment.models import InvoicePayment, Payment, Refund
-from core.applications.sales.models import Sale, SaleItem, SaleReturn, SaleReturnItem
-from core.helper.enums import (
-    CustomerStatusChoices,
-    InvoiceStatusChoices,
-    PaymentMethod,
-    PaymentStatus,
-    SalePaymentStatusChoices,
-    TEMPLATE_TYPES,
-)
-from core.applications.inventory.services import (
-    process_sale_inventory_and_ledger,
-    process_return_inventory_and_ledger,
-)
+from core.applications.payment.models import InvoicePayment
+from core.applications.payment.models import Payment
+from core.applications.payment.models import Refund
+from core.applications.sales.models import Sale
+from core.applications.sales.models import SaleItem
+from core.applications.sales.models import SaleReturn
+from core.applications.sales.models import SaleReturnItem
 from core.applications.subscriptions.services.entitlements import (
     ensure_subscription_active,
 )
+from core.helper.enums import InvoiceStatusChoices
+from core.helper.enums import PaymentMethod
+from core.helper.enums import PaymentStatus
+from core.helper.enums import SalePaymentStatusChoices
+
+logger = logging.getLogger(__name__)
+
+CENT: Final = Decimal("0.01")
+RATE_STEP: Final = Decimal("0.01")
+MAX_MONEY: Final = Decimal("9999999999.99")
+
+# Invoices that can still receive a payment.
+_PAYABLE_STATUSES: Final = (
+    InvoiceStatusChoices.CONFIRMED,
+    InvoiceStatusChoices.OVERDUE,
+    InvoiceStatusChoices.PARTIALLY_PAID,
+)
 
 
-def get_or_create_client_for_customer(customer) -> Client:
-    """
-    Resolves or provisions an Invoice Client for the corresponding transactions Customer (PRD §20, §21).
-    Ensures multi-tenant scoping and unique_together (organization, email) rules are preserved.
-    """
-    client = None
-    if customer.email:
-        client = Client.objects.filter(
-            organization=customer.organization,
-            email=customer.email,
-        ).first()
-
-    if not client and customer.name:
-        client = Client.objects.filter(
-            organization=customer.organization,
-            name=customer.name,
-        ).first()
-
-    if not client:
-        fallback_email = customer.email or f"customer-{str(customer.id)[:12]}@riinox.internal"
-        client, _ = Client.objects.get_or_create(
-            organization=customer.organization,
-            email=fallback_email,
-            defaults={
-                "name": customer.name or "Walk-in Customer",
-                "phone": customer.phone or "",
-                "address": customer.formatted_address,
-                "status": CustomerStatusChoices.ACTIVE,
-                "is_active": True,
-            },
-        )
-    return client
+class SaleValidationError(InvoiceValidationError):
+    """A sale or return request that breaks a business rule. Shares the invoice
+    error contract, so the API layer maps it to the same structured response."""
 
 
-def create_invoice_for_sale(sale: Sale) -> Invoice:
-    """
-    Creates an Invoice and its line items for a confirmed Sale (PRD §21, §22, §24).
-    Snapshots prices, links the customer client, and dispatches invoice audit events.
-    """
-    client = get_or_create_client_for_customer(sale.customer)
+# --------------------------------------------------------------------------- #
+# Helpers
+# --------------------------------------------------------------------------- #
 
-    # Determine invoice status based on sale payment status
-    if sale.payment_status == SalePaymentStatusChoices.PAID:
-        inv_status = InvoiceStatusChoices.PAID
-    elif sale.payment_status == SalePaymentStatusChoices.PARTIALLY_PAID:
-        inv_status = InvoiceStatusChoices.PARTIALLY_PAID
-    else:
-        inv_status = InvoiceStatusChoices.CONFIRMED
 
-    # Allocate a document number using DocumentSequence or fallback to formatted sale ID
+def _money(value: Any, *, field: str = "amount") -> Decimal:
     try:
-        doc_num = allocate_document_number(sale.organization, TEMPLATE_TYPES.INVOICE)
-        invoice_number = doc_num.formatted
-    except Exception:
-        invoice_number = f"INV-{sale.sale_id}"
+        return Decimal(str(value)).quantize(CENT, rounding=ROUND_HALF_UP)
+    except (InvalidOperation, ValueError) as exc:
+        msg = f"Invalid {field}."
+        raise SaleValidationError(msg, detail={field: str(value)}) from exc
 
-    if Invoice.objects.filter(invoice_number=invoice_number).exists():
-        invoice_number = f"INV-{sale.sale_id}-{uuid.uuid4().hex[:4].upper()}"
 
-    due_date = sale.due_date or timezone.localdate()
+def _reference(prefix: str, key: str) -> str:
+    return f"{prefix}-{key}-{uuid.uuid4().hex[:6].upper()}"
 
-    invoice = Invoice.objects.create(
-        organization=sale.organization,
-        client=client,
-        warehouse=sale.location.warehouse,
-        sales_rep=sale.sales_rep,
-        confirmed_by=sale.sales_rep,
-        invoice_number=invoice_number,
-        due_date=due_date,
-        status=inv_status,
-        subtotal=sale.subtotal,
-        discount_amount=sale.discount_amount,
-        tax_amount=sale.tax_amount,
-        total=sale.total,
-        notes=sale.notes,
-        extra_data={"sale_id": str(sale.id), "sale_number": sale.sale_id},
-    )
 
-    invoice_items = [
-        InvoiceItem(
-            invoice=invoice,
-            product=item.product,
-            description=item.product_name or item.product.name,
-            quantity=item.quantity,
-            unit_price=item.unit_price,
+def _unit_multiplier(product: Any, unit_name: str) -> Decimal:
+    """
+    How many base units one `unit_name` is. The product's own unit is 1; any
+    other unit must have a configured conversion, otherwise the stock movement
+    would be wrong, so the sale is refused instead of guessing 1.
+    """
+    if unit_name == product.unit_of_measurement:
+        return Decimal("1.000")
+    conversion = product.unit_conversions.filter(unit_name=unit_name).first()
+    if conversion is None:
+        msg = "This product has no conversion for the selected unit."
+        raise SaleValidationError(
+            msg,
+            detail={"product_id": str(product.pk), "unit_name": unit_name},
         )
-        for item in sale.items.all()
-    ]
-    if invoice_items:
-        InvoiceItem.objects.bulk_create(invoice_items)
-
-    audit_record(
-        action=AuditAction.INVOICE_CREATED,
-        organization=sale.organization,
-        actor=sale.sales_rep,
-        resource=invoice,
-        metadata={
-            "sale_id": str(sale.id),
-            "invoice_number": invoice.invoice_number,
-            "total": str(invoice.total),
-        },
-    )
-
-    return invoice
+    return Decimal(str(conversion.multiplier))
 
 
-def record_payment_for_sale(sale: Sale, invoice: Invoice | None = None) -> Payment | None:
+# --------------------------------------------------------------------------- #
+# Building the sale lines (PRD §39: the backend calculates, never the caller)
+# --------------------------------------------------------------------------- #
+
+
+def _build_lines(
+    organization: Any,
+    items_data: list[dict[str, Any]],
+    header_discount: Any,
+    header_tax: Any,
+) -> tuple[list[dict[str, Any]], dict[str, Decimal], int]:
     """
-    Records a Payment for the sale if payment has been tendered (PRD §21, §26).
-    Returns None if the sale remains unpaid.
+    Turn the request lines into SaleItem values and the sale totals.
+
+    - Unit prices default to the product's sale price. An explicit price is
+      kept (customer pricing) and counted so the audit shows price overrides.
+    - A sale-level discount or tax is shared across the lines in whole cents, so
+      every line carries its own amounts and the lines add up exactly to the
+      header, which is what the invoice services verify. Per-line discount/tax
+      on the request are honoured instead, but not both for the same amount.
+    - `subtotal` and `total` from the caller are ignored and recomputed.
+
+    Returns (item kwargs, totals, number of price overrides).
     """
-    if sale.payment_status not in [SalePaymentStatusChoices.PAID, SalePaymentStatusChoices.PARTIALLY_PAID]:
-        return None
+    if not items_data:
+        msg = "A sale needs at least one line."
+        raise SaleValidationError(msg, detail={"items": []})
+
+    lines: list[dict[str, Any]] = []
+    overrides = 0
+    for raw in items_data:
+        product = raw["product"]
+        variant = raw.get("variant")
+        if product.organization_id != organization.pk:
+            msg = "A product belongs to another organization."
+            raise SaleValidationError(msg, detail={"product_id": str(product.pk)})
+        if variant is not None and variant.product_id != product.pk:
+            msg = "The variant does not belong to the product."
+            raise SaleValidationError(msg, detail={"variant_id": str(variant.pk)})
+
+        quantity = raw["quantity"]
+        if isinstance(quantity, bool) or not isinstance(quantity, int) or quantity < 1:
+            msg = "Quantity must be a whole number of at least 1."
+            raise SaleValidationError(
+                msg, detail={"product_id": str(product.pk), "quantity": str(quantity)}
+            )
+
+        catalog_price = product.customer_sale_price
+        price_given = raw.get("unit_price")
+        unit_price = _money(catalog_price if price_given is None else price_given, field="unit price")
+        if unit_price < 0:
+            msg = "A unit price cannot be negative."
+            raise SaleValidationError(msg, detail={"product_id": str(product.pk)})
+        if catalog_price is not None and unit_price != _money(catalog_price):
+            overrides += 1
+
+        unit_name = raw.get("unit_name") or product.unit_of_measurement
+        lines.append(
+            {
+                "product": product,
+                "variant": variant,
+                "product_name": raw.get("product_name") or product.name,
+                "product_sku": getattr(product, "sku", None),
+                "quantity": quantity,
+                "unit_name": unit_name,
+                "unit_multiplier": _unit_multiplier(product, unit_name),
+                "unit_price": unit_price,
+                "discount": _money(raw.get("discount") or 0, field="discount"),
+                "tax": _money(raw.get("tax") or 0, field="tax"),
+                "tax_rate": _money(raw.get("tax_rate") or 0, field="tax rate"),
+            }
+        )
+
+    gross = [line["unit_price"] * line["quantity"] for line in lines]
+    discount = _money(header_discount or 0, field="discount")
+    tax = _money(header_tax or 0, field="tax")
+    if discount < 0 or tax < 0:
+        msg = "Discount and tax cannot be negative."
+        raise SaleValidationError(msg, detail={"discount": str(discount), "tax": str(tax)})
+
+    if discount:
+        if any(line["discount"] for line in lines):
+            msg = "Give the discount on the sale or on its lines, not both."
+            raise SaleValidationError(msg, detail={"discount": str(discount)})
+        if discount > sum(gross, Decimal(0)):
+            msg = "The discount cannot exceed the subtotal."
+            raise SaleValidationError(msg, detail={"discount": str(discount)})
+        for line, share in zip(lines, allocate_amount(discount, gross), strict=True):
+            line["discount"] = share
+
+    for line, line_gross in zip(lines, gross, strict=True):
+        if line["discount"] > line_gross:
+            msg = "A line discount cannot exceed the line value."
+            raise SaleValidationError(msg, detail={"product_id": str(line["product"].pk)})
+
+    taxable = [g - line["discount"] for line, g in zip(lines, gross, strict=True)]
+    if tax:
+        if any(line["tax"] for line in lines):
+            msg = "Give the tax on the sale or on its lines, not both."
+            raise SaleValidationError(msg, detail={"tax": str(tax)})
+        for line, share in zip(lines, allocate_amount(tax, taxable), strict=True):
+            line["tax"] = share
+
+    for line, base in zip(lines, taxable, strict=True):
+        if tax and base > 0:
+            # Effective rate of the share this line received.
+            line["tax_rate"] = min(
+                (line["tax"] / base * 100).quantize(RATE_STEP, rounding=ROUND_HALF_UP),
+                Decimal(100),
+            )
+        if not Decimal(0) <= line["tax_rate"] <= Decimal(100):
+            msg = "A line has an invalid tax rate."
+            raise SaleValidationError(msg, detail={"product_id": str(line["product"].pk)})
+
+    subtotal = sum(gross, Decimal(0))
+    total_discount = sum((line["discount"] for line in lines), Decimal(0))
+    total_tax = sum((line["tax"] for line in lines), Decimal(0))
+    total = subtotal - total_discount + total_tax
+    if subtotal > MAX_MONEY or total > MAX_MONEY:
+        msg = "The sale total is too large."
+        raise SaleValidationError(msg, detail={"subtotal": str(subtotal), "total": str(total)})
+    totals = {
+        "subtotal": subtotal,
+        "discount_amount": total_discount,
+        "tax_amount": total_tax,
+        "total": total,
+    }
+    return lines, totals, overrides
+
+
+def _parse_payment(payment: dict[str, Any] | None, total: Decimal) -> tuple[Decimal, str, str | None]:
+    """
+    The payment tendered with the sale (PRD §39: {"amount", "method"}).
+    Returns (amount, method, caller reference). Overpayment is refused: change
+    is given at the till, it is not recorded as received.
+    """
+    if not payment:
+        return Decimal("0.00"), "", None
+    amount = _money(payment.get("amount") or 0, field="payment amount")
+    if not Decimal(0) <= amount <= total:
+        msg = "The payment must be between zero and the sale total."
+        raise SaleValidationError(msg, detail={"amount": str(amount), "total": str(total)})
+    if amount == 0:
+        return amount, "", None
+    try:
+        method = PaymentMethod(payment.get("method"))
+    except ValueError as exc:
+        msg = "A valid payment method is required."
+        raise SaleValidationError(msg, detail={"method": str(payment.get("method"))}) from exc
+    return amount, str(method.value), payment.get("reference") or None
+
+
+def _payment_status(total: Decimal, paid: Decimal) -> str:
+    if paid >= total:
+        return SalePaymentStatusChoices.PAID
+    if paid > 0:
+        return SalePaymentStatusChoices.PARTIALLY_PAID
+    return SalePaymentStatusChoices.UNPAID
+
+
+# --------------------------------------------------------------------------- #
+# Payments and receipts (PRD §25, §26)
+# --------------------------------------------------------------------------- #
+
+
+@transaction.atomic
+def record_invoice_payment(
+    invoice: Invoice,
+    *,
+    amount: Decimal,
+    method: str,
+    actor: Any,
+    currency: str,
+    reference: str | None = None,
+    description: str = "",
+) -> tuple[Payment, InvoicePayment]:
+    """
+    Record money received against an invoice: the Payment, the receipt
+    (InvoicePayment), the invoice's `amount_paid` and status, and the customer's
+    cached balance, all together. This is the only place `amount_paid` is
+    written, so the payment records stay the source of truth.
+
+    It belongs in the payment app; it lives here until that app has its own
+    service. Call it inside the caller's transaction. The invoice row is locked
+    and the customer row is locked after it (invoice -> customer).
+    """
+    amount = _money(amount, field="payment amount")
+    if amount <= 0:
+        msg = "A payment must be greater than zero."
+        raise SaleValidationError(msg, detail={"amount": str(amount)})
+
+    invoice = Invoice.objects.select_for_update().get(pk=invoice.pk)
+    if invoice.status not in _PAYABLE_STATUSES:
+        msg = f"An invoice that is {invoice.status} cannot take a payment."
+        raise SaleValidationError(msg, detail={"invoice_id": str(invoice.pk)})
+    new_paid = invoice.amount_paid + amount
+    if new_paid > invoice.total:
+        msg = "The payment exceeds the invoice balance."
+        raise SaleValidationError(
+            msg,
+            detail={"amount": str(amount), "balance_due": str(invoice.balance_due)},
+        )
+
+    customer = Customer.objects.select_for_update().get(pk=invoice.customer_id)
 
     payment = Payment.objects.create(
-        user=sale.sales_rep,
-        amount=sale.total,
-        currency=sale.currency or "USD",
-        method=PaymentMethod.BANK_TRANSFER,
+        user=actor,
+        amount=amount,
+        currency=currency,
+        method=method,
         status=PaymentStatus.SUCCESS,
-        reference=f"PAY-{sale.sale_id}-{uuid.uuid4().hex[:6].upper()}",
-        description=f"Payment for Sale {sale.sale_id}",
+        reference=reference or _reference("PAY", invoice.invoice_number),
+        description=description or f"Payment for invoice {invoice.invoice_number}",
     )
-    return payment
 
+    invoice.amount_paid = new_paid
+    invoice.status = (
+        InvoiceStatusChoices.PAID if new_paid >= invoice.total else InvoiceStatusChoices.PARTIALLY_PAID
+    )
+    invoice.save(update_fields=["amount_paid", "status", "updated_at"])
 
-def create_receipt_for_sale(
-    sale: Sale, invoice: Invoice | None = None, payment: Payment | None = None
-) -> InvoicePayment | None:
-    """
-    Generates a Receipt (InvoicePayment) linking the Invoice and Payment (PRD §21, §25).
-    """
-    if not invoice or not payment:
-        return None
-
-    balance_after = max(Decimal("0.00"), invoice.total - payment.amount)
     receipt = InvoicePayment.objects.create(
         invoice=invoice,
         payment=payment,
-        sales_rep=sale.sales_rep,
-        amount=payment.amount,
-        balance_after=balance_after,
+        sales_rep=actor,
+        amount=amount,
+        balance_after=invoice.total - new_paid,
     )
-    return receipt
+    get_invoice_ports().refresh_customer_balance(customer)
+    return payment, receipt
 
 
-def record_sale_audit_event(sale: Sale):
-    """
-    Dispatches immutable audit log event for sale order creation and fulfillment (PRD §31).
-    """
+# --------------------------------------------------------------------------- #
+# Audit
+# --------------------------------------------------------------------------- #
+
+
+def record_sale_audit_event(sale: Sale, **extra: Any) -> None:
+    """Immutable audit event for sale creation (PRD §31)."""
     audit_record(
         action=AuditAction.SALES_ORDER_CREATED,
         organization=sale.organization,
@@ -188,14 +344,13 @@ def record_sale_audit_event(sale: Sale):
             "payment_status": sale.payment_status,
             "fulfillment_status": sale.fulfillment_status,
             "items_count": sale.items.count(),
+            **extra,
         },
     )
 
 
-def record_sale_return_audit_event(sale_return: SaleReturn):
-    """
-    Dispatches immutable audit log event for sale return creation (PRD §23, §31).
-    """
+def record_sale_return_audit_event(sale_return: SaleReturn) -> None:
+    """Immutable audit event for a sale return (PRD §23, §31)."""
     audit_record(
         action=AuditAction.SALES_RETURN_CREATED,
         organization=sale_return.organization,
@@ -212,103 +367,247 @@ def record_sale_return_audit_event(sale_return: SaleReturn):
     )
 
 
-def record_refund_for_return(sale_return: SaleReturn) -> Refund | None:
+# --------------------------------------------------------------------------- #
+# Create sale
+# --------------------------------------------------------------------------- #
+
+
+@transaction.atomic
+def create_sale(data: dict[str, Any], *, actor: Any = None) -> Sale:
     """
-    Records a Refund for returned items against the original sale payment if one exists (PRD §23, §26).
+    Create a sale and run its whole execution atomically (PRD §21, §42).
+
+    `data` carries model instances like before (organization, customer,
+    location, sales_rep, items with `product`), plus optional:
+
+    - `payment`: {"amount", "method", "reference"} tendered now (PRD §39).
+    - `due_date`: otherwise the customer's payment terms apply.
+    - `credit_approval_id`: approval to exceed the customer's credit limit.
+
+    Totals and payment status are computed here; `subtotal`, `total` and
+    `payment_status` in `data` are ignored. Any failure (insufficient stock,
+    credit limit, inactive customer, invalid payment) rolls the whole sale back.
+    The caller's dict is not modified.
     """
-    invoice_payment = InvoicePayment.objects.filter(
-        invoice__extra_data__sale_id=str(sale_return.original_sale.id)
-    ).first()
+    data = dict(data)
+    organization = data.get("organization")
+    if organization is None:
+        msg = "A sale needs an organization."
+        raise SaleValidationError(msg, detail={})
+    ensure_subscription_active(organization)
 
-    if invoice_payment and invoice_payment.payment:
-        refund = Refund.objects.create(
-            payment=invoice_payment.payment,
-            amount=sale_return.refund_amount,
-            reason=sale_return.return_reason[:255] if sale_return.return_reason else "Sale Return",
-            reference=f"REF-{str(sale_return.id)[:8]}-{uuid.uuid4().hex[:6].upper()}",
-            status=PaymentStatus.SUCCESS,
-            approved_by=sale_return.original_sale.sales_rep if getattr(sale_return.original_sale.sales_rep, "is_staff", False) else None,
-            approved_at=timezone.now(),
-        )
-        return refund
-    return None
+    actor = actor or data.get("sales_rep")
+    if actor is None:
+        msg = "A sale must be attributed to a user."
+        raise SaleValidationError(msg, detail={})
+    data["sales_rep"] = data.get("sales_rep") or actor
 
+    items_data = list(data.pop("items", []))
+    payment_data = data.pop("payment", None)
+    credit_approval_id = data.pop("credit_approval_id", None)
 
-# ---------------------------------------------------------------------------
-# Backwards Compatibility Aliases
-# ---------------------------------------------------------------------------
-mock_create_invoice = create_invoice_for_sale
-mock_create_payment = record_payment_for_sale
-mock_create_receipt = create_receipt_for_sale
-mock_create_audit_event = record_sale_audit_event
+    # Customer first: its row lock must be taken before inventory is touched.
+    customer = load_active_customer(organization, data["customer"].pk, lock=True)
+    data["customer"] = customer
+    location = data["location"]
+    if location.warehouse.organization_id != organization.pk:
+        msg = "The location belongs to another organization."
+        raise SaleValidationError(msg, detail={"location_id": str(location.pk)})
 
+    lines, totals, price_overrides = _build_lines(
+        organization,
+        items_data,
+        data.pop("discount_amount", 0),
+        data.pop("tax_amount", 0),
+    )
+    paid_now, method, payment_reference = _parse_payment(payment_data, totals["total"])
 
-def create_sale(data: dict) -> Sale:
-    """Create a Sale and its items, coordinating external side-effects."""
-    if "organization" in data:
-        ensure_subscription_active(data["organization"])
-
+    data.pop("subtotal", None)
+    data.pop("total", None)
+    data["payment_status"] = _payment_status(totals["total"], paid_now)
+    data["currency"] = data.get("currency") or getattr(organization, "currency", None) or "USD"
     if not data.get("sale_id"):
         data["sale_id"] = f"SALE-{uuid.uuid4().hex[:8].upper()}"
+    # Keep the sale's addresses consistent with what the invoice will freeze.
+    details = customer_snapshot(
+        customer,
+        billing_address=data.get("billing_address"),
+        shipping_address=data.get("shipping_address"),
+    )
+    data["billing_address"] = details["billing_address"] or None
+    data["shipping_address"] = details["shipping_address"] or None
 
-    items_data = data.pop("items", [])
+    sale = Sale.objects.create(**data, **totals)
+    SaleItem.objects.bulk_create([SaleItem(sale=sale, **line) for line in lines])
 
-    with transaction.atomic():
-        sale = Sale.objects.create(**data)
+    process_sale_inventory_and_ledger(sale)
+    invoice = issue_invoice_for_sale(
+        organization,
+        sale,
+        actor=actor,
+        upfront_payment=paid_now,
+        due_date=data.get("due_date"),
+        credit_approval_id=credit_approval_id,
+    )
 
-        for item_data in items_data:
-            product = item_data["product"]
-            unit_name = item_data.get("unit_name")
+    payment_ref = None
+    if paid_now > 0:
+        payment, _receipt = record_invoice_payment(
+            invoice,
+            amount=paid_now,
+            method=method,
+            actor=actor,
+            currency=sale.currency,
+            reference=payment_reference or _reference("PAY", sale.sale_id),
+            description=f"Payment for Sale {sale.sale_id}",
+        )
+        payment_ref = payment.reference
 
-            if unit_name and unit_name != product.unit_of_measurement:
-                conversion = product.unit_conversions.filter(unit_name=unit_name).first()
-                if conversion:
-                    item_data["unit_multiplier"] = conversion.multiplier
-                else:
-                    item_data["unit_multiplier"] = 1.0
-            else:
-                item_data["unit_multiplier"] = 1.0
-
-            SaleItem.objects.create(sale=sale, **item_data)
-
-        # Calculate subtotal and total if not set
-        if not sale.subtotal or not sale.total:
-            computed_subtotal = sum(item.quantity * item.unit_price for item in sale.items.all())
-            sale.subtotal = sale.subtotal or computed_subtotal
-            computed_total = max(
-                Decimal("0.00"),
-                sale.subtotal - (sale.discount_amount or Decimal("0.00")) + (sale.tax_amount or Decimal("0.00")),
-            )
-            sale.total = sale.total or computed_total
-            sale.save(update_fields=["subtotal", "total"])
-
-        # Execute external operations
-        process_sale_inventory_and_ledger(sale)
-        invoice = create_invoice_for_sale(sale)
-        payment = record_payment_for_sale(sale, invoice=invoice)
-        if invoice and payment:
-            create_receipt_for_sale(sale, invoice=invoice, payment=payment)
-        record_sale_audit_event(sale)
-
+    record_sale_audit_event(
+        sale,
+        invoice_number=invoice.invoice_number,
+        amount_paid=str(paid_now),
+        payment_reference=payment_ref,
+        price_overrides=price_overrides,
+    )
+    logger.info(
+        "sale.created",
+        extra={
+            "organization_id": str(organization.pk),
+            "sale_id": str(sale.pk),
+            "invoice_id": str(invoice.pk),
+        },
+    )
     return sale
 
 
-def create_sale_return(data: dict) -> SaleReturn:
-    """Create a SaleReturn and its items."""
-    if "organization" in data:
-        ensure_subscription_active(data["organization"])
+# --------------------------------------------------------------------------- #
+# Returns (PRD §23)
+# --------------------------------------------------------------------------- #
 
-    items_data = data.pop("items", [])
 
-    with transaction.atomic():
-        sale_return = SaleReturn.objects.create(**data)
+def _returnable_amount(item: SaleItem, quantity: int) -> Decimal:
+    """The most that can be refunded for `quantity` of this line."""
+    return (item.total * quantity / item.quantity).quantize(CENT, rounding=ROUND_HALF_UP)
 
-        for item_data in items_data:
-            SaleReturnItem.objects.create(sale_return=sale_return, **item_data)
 
-        process_return_inventory_and_ledger(sale_return)
-        record_refund_for_return(sale_return)
-        record_sale_return_audit_event(sale_return)
+def record_refund_for_return(sale_return: SaleReturn) -> Refund | None:
+    """
+    Record a Refund against a payment of the original sale's invoice (PRD §23,
+    §26). The refund can never exceed what that payment has left after earlier
+    refunds. Returns None when the sale was never paid (a credit sale): that
+    return needs a credit note, not a cash refund.
+    """
+    refund_amount = sale_return.refund_amount
+    receipts = (
+        InvoicePayment.objects.filter(invoice__sale=sale_return.original_sale)
+        .select_related("payment")
+        .order_by("pk")
+    )
+    for receipt in receipts:
+        payment = receipt.payment
+        refunded = (
+            Refund.objects.filter(payment=payment, status=PaymentStatus.SUCCESS).aggregate(
+                total=Sum("amount")
+            )["total"]
+            or Decimal("0.00")
+        )
+        if payment.amount - refunded >= refund_amount:
+            sales_rep = sale_return.original_sale.sales_rep
+            return Refund.objects.create(
+                payment=payment,
+                amount=refund_amount,
+                reason=(sale_return.return_reason or "Sale Return")[:255],
+                reference=_reference("REF", str(sale_return.id)[:8]),
+                status=PaymentStatus.SUCCESS,
+                approved_by=sales_rep if getattr(sales_rep, "is_staff", False) else None,
+                approved_at=timezone.now(),
+            )
+    if receipts:
+        msg = "The refund exceeds what is left on the original payments."
+        raise SaleValidationError(
+            msg,
+            detail={
+                "sale_return_id": str(sale_return.id),
+                "refund_amount": str(refund_amount),
+            },
+        )
+    return None
 
+
+@transaction.atomic
+def create_sale_return(data: dict[str, Any]) -> SaleReturn:
+    """
+    Create a SaleReturn and its items, then apply the inventory effect and the
+    refund (PRD §23). Quantities are checked against what the sale still has
+    returnable, on locked sale-item rows, and each refund against its line.
+    The caller's dict is not modified.
+    """
+    data = dict(data)
+    organization = data.get("organization")
+    if organization is not None:
+        ensure_subscription_active(organization)
+
+    original_sale: Sale = data["original_sale"]
+    if organization is not None and original_sale.organization_id != organization.pk:
+        msg = "The sale belongs to another organization."
+        raise SaleValidationError(msg, detail={"sale_id": str(original_sale.pk)})
+
+    items_data = list(data.pop("items", []))
+    if not items_data:
+        msg = "A return needs at least one item."
+        raise SaleValidationError(msg, detail={"items": []})
+
+    sale_items = {
+        item.pk: item for item in SaleItem.objects.select_for_update().filter(sale=original_sale)
+    }
+    requested: dict[Any, int] = {}
+    refund_total = Decimal("0.00")
+    for item_data in items_data:
+        sale_item = sale_items.get(item_data["sale_item"].pk)
+        if sale_item is None:
+            msg = "A returned item is not part of the original sale."
+            raise SaleValidationError(msg, detail={"sale_item_id": str(item_data["sale_item"].pk)})
+        quantity = item_data["quantity"]
+        if isinstance(quantity, bool) or not isinstance(quantity, int) or quantity < 1:
+            msg = "A returned quantity must be a whole number of at least 1."
+            raise SaleValidationError(msg, detail={"sale_item_id": str(sale_item.pk)})
+        requested[sale_item.pk] = requested.get(sale_item.pk, 0) + quantity
+        if requested[sale_item.pk] > sale_item.quantity - sale_item.returned_quantity:
+            msg = "More is being returned than the sale still has returnable."
+            raise SaleValidationError(
+                msg,
+                detail={
+                    "sale_item_id": str(sale_item.pk),
+                    "returnable": sale_item.quantity - sale_item.returned_quantity,
+                },
+            )
+        refund = _money(item_data["refund_amount"], field="refund amount")
+        if not Decimal(0) <= refund <= _returnable_amount(sale_item, quantity):
+            msg = "A refund exceeds the value of the returned quantity."
+            raise SaleValidationError(msg, detail={"sale_item_id": str(sale_item.pk)})
+        refund_total += refund
+
+    declared = data.get("refund_amount")
+    if declared is not None and _money(declared, field="refund amount") != refund_total:
+        msg = "The refund total does not match its items."
+        raise SaleValidationError(
+            msg, detail={"declared": str(declared), "computed": str(refund_total)}
+        )
+    data["refund_amount"] = refund_total
+
+    sale_return = SaleReturn.objects.create(**data)
+    for item_data in items_data:
+        SaleReturnItem.objects.create(sale_return=sale_return, **item_data)
+
+    process_return_inventory_and_ledger(sale_return)
+    record_refund_for_return(sale_return)
+    record_sale_return_audit_event(sale_return)
     return sale_return
 
+
+# ---------------------------------------------------------------------------
+# Backwards compatibility aliases (the invoice alias is gone: invoices are now
+# issued by the invoice services, not built here).
+# ---------------------------------------------------------------------------
+mock_create_audit_event = record_sale_audit_event

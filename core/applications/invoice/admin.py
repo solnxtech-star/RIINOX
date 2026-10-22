@@ -1,7 +1,6 @@
 from django.contrib import admin
 from django.utils.translation import gettext_lazy as _
 
-from .models import Client
 from .models import DocumentSequence
 from .models import DocumentTemplate
 from .models import Invoice
@@ -31,116 +30,26 @@ class InvoiceItemInline(admin.TabularInline):
         return obj.total
 
 
-@admin.register(Client)
-class ClientAdmin(admin.ModelAdmin):
-    list_display = (
-        "id",
-        "name",
-        "email",
-        "organization",
-        "client_type",
-        "credit_limit",
-        "current_balance",
-        "status",
-        "is_active",
-    )
-
-    list_filter = (
-        "status",
-        "client_type",
-        "is_active",
-        "organization",
-    )
-
-    search_fields = (
-        "name",
-        "email",
-        "phone",
-        "organization__name",
-    )
-
-    readonly_fields = (
-        "current_balance",
-        "created_at",
-        "updated_at",
-    )
-
-    autocomplete_fields = (
-        "organization",
-    )
-
-    ordering = (
-        "name",
-    )
-
-    list_select_related = (
-        "organization",
-    )
-
-    fieldsets = (
-        (
-            _("Client Information"),
-            {
-                "fields": (
-                    "organization",
-                    "name",
-                    "email",
-                    "phone",
-                    "address",
-                    "client_type",
-                )
-            },
-        ),
-        (
-            _("Credit & Balance"),
-            {
-                "fields": (
-                    "credit_limit",
-                    "current_balance",
-                )
-            },
-        ),
-        (
-            _("Status"),
-            {
-                "fields": (
-                    "status",
-                    "is_active",
-                )
-            },
-        ),
-        (
-            _("System Information"),
-            {
-                "fields": (
-                    "created_at",
-                    "updated_at",
-                ),
-                "classes": ("collapse",),
-            },
-        ),
-    )
-
 
 @admin.register(Invoice)
 class InvoiceAdmin(admin.ModelAdmin):
     list_display = (
         "id",
         "invoice_number",
-        "client",
+        "customer_name",
+        "customer_company_name",
+        "customer",
         "organization",
         "warehouse",
         "sales_rep",
         "status",
         "total",
         "due_date",
-        "is_voided",
         "created_at",
     )
 
     list_filter = (
         "status",
-        "is_voided",
         "organization",
         "warehouse",
         "due_date",
@@ -149,8 +58,9 @@ class InvoiceAdmin(admin.ModelAdmin):
 
     search_fields = (
         "invoice_number",
-        "client__name",
-        "client__email",
+        "customer_name",
+        "customer_company_name",
+        "customer__email",
         "sales_rep__email",
         "confirmed_by__email",
     )
@@ -162,7 +72,7 @@ class InvoiceAdmin(admin.ModelAdmin):
     )
 
     autocomplete_fields = (
-        "client",
+        "customer",
         "organization",
         "warehouse",
         "sales_rep",
@@ -182,7 +92,7 @@ class InvoiceAdmin(admin.ModelAdmin):
     )
 
     list_select_related = (
-        "client",
+        "customer",
         "organization",
         "warehouse",
         "sales_rep",
@@ -201,7 +111,8 @@ class InvoiceAdmin(admin.ModelAdmin):
             {
                 "fields": (
                     "invoice_number",
-                    "client",
+                    "customer_name",
+                    "customer_company_name",
                     "organization",
                     "warehouse",
                     "due_date",
@@ -234,7 +145,6 @@ class InvoiceAdmin(admin.ModelAdmin):
             _("Void / Correction"),
             {
                 "fields": (
-                    "is_voided",
                     "voided_by",
                     "voided_at",
                     "void_reason",
