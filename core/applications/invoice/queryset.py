@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from datetime import date
+from datetime import datetime
+from datetime import time
+from datetime import timedelta
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import Final
@@ -14,16 +18,18 @@ from django.db.models import Prefetch
 from django.db.models import Q
 from django.db.models import Sum
 from django.db.models.functions import Coalesce
+from django.utils import timezone
 
 from core.helper.enums import InvoiceStatusChoices
 
 if TYPE_CHECKING:
-    from datetime import date
-    from datetime import datetime
+    from datetime import tzinfo
 
     from core.applications.users.models import Organization
 
 __all__ = [
+    "DEFAULT_PAGE_SIZE",
+    "MAX_PAGE_SIZE",
     "OUTSTANDING_STATUSES",
     "SALE_STATUSES",
     "DocumentSequenceManager",
@@ -37,6 +43,7 @@ __all__ = [
 ]
 
 MONEY: Final = DecimalField(max_digits=14, decimal_places=2)
+BASE_UNITS: Final = DecimalField(max_digits=18, decimal_places=3)
 DEFAULT_PAGE_SIZE: Final = 50
 MAX_PAGE_SIZE: Final = 200
 
@@ -45,6 +52,8 @@ _S = InvoiceStatusChoices
 SALE_STATUSES: Final = (_S.CONFIRMED, _S.PARTIALLY_PAID, _S.PAID, _S.OVERDUE)
 # Confirmed but still carrying a balance.
 OUTSTANDING_STATUSES: Final = (_S.CONFIRMED, _S.PARTIALLY_PAID, _S.OVERDUE)
+# Not yet issued: they hold no stock and no receivable.
+PIPELINE_STATUSES: Final = (_S.DRAFT, _S.PENDING)
 
 
 def _require_organization(organization: Organization | None) -> Organization:
@@ -56,6 +65,11 @@ def _require_organization(organization: Organization | None) -> Organization:
 
 def _clamp_page_size(limit: int) -> int:
     return max(1, min(limit, MAX_PAGE_SIZE))
+
+
+def _day_start(day: date, tz: tzinfo | None) -> datetime:
+    """Midnight at the start of `day` in `tz` (the project timezone if None)."""
+    return datetime.combine(day, time.min, tzinfo=tz or timezone.get_current_timezone())
 
 
 class DocumentTemplateQuerySet(auto_prefetch.QuerySet):
@@ -176,7 +190,10 @@ class InvoiceQuerySet(auto_prefetch.QuerySet):
         return self.filter(status__in=OUTSTANDING_STATUSES)
 
     def overdue(self, today: date):
-        """Past due and not settled. `today` is passed in so timezones stay explicit."""
+        """
+        Past due and not settled. `today` is passed in so timezones stay
+        explicit: callers pass the organization's own date (PRD §7).
+        """
         return self.outstanding().filter(due_date__lt=today)
 
     def corrections(self):
@@ -185,13 +202,26 @@ class InvoiceQuerySet(auto_prefetch.QuerySet):
 
     # -- filtering ---------------------------------------------------------- #
 
-    def issued_between(self, start: date | None = None, end: date | None = None):
-        """Filter on the issue date. Drafts and Pending invoices have none, so they drop out."""
+    def issued_between(
+        self,
+        start: date | None = None,
+        end: date | None = None,
+        *,
+        tz: tzinfo | None = None,
+    ):
+        """
+        Filter on the issue date, inclusive on both days, where a day is a
+        calendar day in `tz` (pass the organization's timezone). Drafts and
+        Pending invoices have no issue date, so they drop out.
+
+        Built as a half-open datetime range on `issued_at` rather than a
+        `__date` cast, so the (organization, issued_at) index stays usable.
+        """
         qs = self
         if start is not None:
-            qs = qs.filter(issued_at__date__gte=start)
+            qs = qs.filter(issued_at__gte=_day_start(start, tz))
         if end is not None:
-            qs = qs.filter(issued_at__date__lte=end)
+            qs = qs.filter(issued_at__lt=_day_start(end + timedelta(days=1), tz))
         return qs
 
     def due_between(self, start: date | None = None, end: date | None = None):
@@ -294,6 +324,17 @@ class InvoiceQuerySet(auto_prefetch.QuerySet):
             ),
         )
 
+    def pipeline_counts(self) -> dict[str, int]:
+        """
+        How many invoices are not sales yet (Draft and Pending) and how many are
+        voided, in one query. Reported beside `totals()` so they are visible
+        without ever counting toward revenue.
+        """
+        return self.aggregate(
+            draft_count=Count("pk", filter=Q(status__in=PIPELINE_STATUSES)),
+            voided_count=Count("pk", filter=Q(status=_S.CANCELLED)),
+        )
+
     def sales_by_rep(self):
         """Dashboard metric 'sales by staff' (PRD §12): one grouped query."""
         return (
@@ -346,17 +387,32 @@ class InvoiceItemQuerySet(auto_prefetch.QuerySet):
             )
         )
 
-    def top_selling_products(self, limit: int = 10):
+    def top_selling_products(self, organization: Organization | None, limit: int = 10):
         """
         Dashboard metric 'top-selling products' (PRD §12): units and revenue
-        per product in one grouped query. Revenue is net of line discounts and
-        excludes tax. Scope with `for_organization` first.
+        per product in one grouped query.
+
+        The organization is a required argument and the scoping happens here, so
+        this metric can never be computed across tenants by forgetting a filter.
+        `units_sold` is in base units (quantity x unit multiplier), so cartons
+        and pieces of the same product add up correctly. Revenue is net of line
+        discounts and excludes tax.
         """
         return (
-            self.on_confirmed_sales()
+            self.for_organization(organization)
+            .on_confirmed_sales()
             .values("product")
             .annotate(
-                units_sold=Coalesce(Sum("quantity"), 0),
+                units_sold=Coalesce(
+                    Sum(
+                        ExpressionWrapper(
+                            F("quantity") * F("unit_multiplier"),
+                            output_field=BASE_UNITS,
+                        )
+                    ),
+                    0,
+                    output_field=BASE_UNITS,
+                ),
                 revenue=Coalesce(
                     Sum(
                         ExpressionWrapper(
@@ -368,7 +424,7 @@ class InvoiceItemQuerySet(auto_prefetch.QuerySet):
                     output_field=MONEY,
                 ),
             )
-            .order_by("-units_sold")[: _clamp_page_size(limit)]
+            .order_by("-units_sold", "-revenue")[: _clamp_page_size(limit)]
         )
 
 

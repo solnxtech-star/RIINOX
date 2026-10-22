@@ -47,11 +47,17 @@ class Invoice(TimeBasedModel):
     customer_phone = models.CharField(max_length=35, blank=True, default="")
     billing_address = models.TextField(blank=True, default="")
     shipping_address = models.TextField(blank=True, default="")
+    idempotency_key = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        editable=False,
+        help_text=_("Client-supplied key that makes a retried create request return the same invoice."),
+    )
     customer = auto_prefetch.ForeignKey(
         "customers.Customer",
         on_delete=models.PROTECT,
         related_name="invoices",
-        null=True, blank=True,
     )
     organization = auto_prefetch.ForeignKey(
         "users.Organization",
@@ -162,6 +168,11 @@ class Invoice(TimeBasedModel):
                 fields=["organization", "invoice_number"],
                 name="unique_invoice_number_per_org",
             ),
+            models.UniqueConstraint(
+                fields=["organization", "idempotency_key"],
+                condition=models.Q(idempotency_key__isnull=False),
+                name="unique_invoice_idempotency_key_per_org",
+            ),
             # One live (non-cancelled) invoice per sale. A voided invoice frees
             # the sale for a new one.
             models.UniqueConstraint(
@@ -171,7 +182,7 @@ class Invoice(TimeBasedModel):
                 name="unique_live_invoice_per_sale",
             ),
             models.CheckConstraint(
-                check=models.Q(
+                condition=models.Q(
                     subtotal__gte=0,
                     discount_amount__gte=0,
                     tax_amount__gte=0,
@@ -181,11 +192,11 @@ class Invoice(TimeBasedModel):
                 name="invoice_amounts_non_negative",
             ),
             models.CheckConstraint(
-                check=models.Q(discount_amount__lte=models.F("subtotal")),
+                condition=models.Q(discount_amount__lte=models.F("subtotal")),
                 name="invoice_discount_within_subtotal",
             ),
             models.CheckConstraint(
-                check=models.Q(
+                condition=models.Q(
                     total=models.F("subtotal")
                     - models.F("discount_amount")
                     + models.F("tax_amount")
@@ -193,13 +204,11 @@ class Invoice(TimeBasedModel):
                 name="invoice_total_matches_components",
             ),
             models.CheckConstraint(
-                check=models.Q(amount_paid__lte=models.F("total")),
+                condition=models.Q(amount_paid__lte=models.F("total")),
                 name="invoice_paid_within_total",
             ),
-            # Cancelled <=> voided metadata present: the database enforces the
-            # single source of truth for voided state.
             models.CheckConstraint(
-                check=(
+                condition=(
                     models.Q(status=InvoiceStatusChoices.CANCELLED, voided_at__isnull=False)
                     | (
                         ~models.Q(status=InvoiceStatusChoices.CANCELLED)
@@ -211,7 +220,7 @@ class Invoice(TimeBasedModel):
         ]
 
     def __str__(self):
-        return f"Invoice {self.invoice_number} for {self.customer.name}"
+        return f"Invoice {self.invoice_number} for {self.customer_name}"
 
     @property
     def is_voided(self) -> bool:
@@ -291,20 +300,26 @@ class InvoiceItem(TimeBasedModel):
         verbose_name_plural = _("Invoice Items")
         constraints: ClassVar = [
             models.CheckConstraint(
-                check=models.Q(quantity__gt=0),
+                condition=models.Q(quantity__gt=0),
                 name="invoice_item_quantity_positive",
             ),
             models.CheckConstraint(
-                check=models.Q(unit_multiplier__gt=0),
+                condition=models.Q(unit_multiplier__gt=0),
                 name="invoice_item_multiplier_positive",
             ),
             models.CheckConstraint(
-                check=models.Q(unit_price__gte=0, discount_amount__gte=0, tax_amount__gte=0),
+                condition=models.Q(unit_price__gte=0, discount_amount__gte=0, tax_amount__gte=0),
                 name="invoice_item_amounts_non_negative",
             ),
             models.CheckConstraint(
-                check=models.Q(tax_rate__gte=0, tax_rate__lte=100),
+                condition=models.Q(tax_rate__gte=0, tax_rate__lte=100),
                 name="invoice_item_tax_rate_in_range",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(
+                    discount_amount__lte=models.F("quantity") * models.F("unit_price")
+                ),
+                name="invoice_item_discount_within_line",
             ),
         ]
 
@@ -376,8 +391,13 @@ class DocumentTemplate(TimeBasedModel):
                 name="unique_default_template_per_type",
             ),
             models.CheckConstraint(
-                check=models.Q(is_default=False) | models.Q(organization__isnull=True),
+                condition=models.Q(is_default=False) | models.Q(organization__isnull=True),
                 name="default_template_is_shared",
+            ),
+            models.UniqueConstraint(
+                fields=["name"],
+                condition=models.Q(organization__isnull=True),
+                name="unique_shared_template_name",
             ),
         ]
 
