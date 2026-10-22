@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import timedelta
+from datetime import tzinfo
 from decimal import ROUND_FLOOR
 from decimal import ROUND_HALF_UP
 from decimal import Decimal
@@ -12,6 +13,8 @@ from typing import TYPE_CHECKING
 from typing import Any
 from typing import Final
 from typing import NamedTuple
+from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfoNotFoundError
 
 from django.apps import apps
 from django.core.exceptions import ObjectDoesNotExist
@@ -32,10 +35,12 @@ from core.applications.invoice.exceptions import InvoiceNotFoundError
 from core.applications.invoice.exceptions import InvoiceValidationError
 from core.applications.invoice.models import Invoice
 from core.applications.invoice.models import InvoiceItem
+from core.applications.invoice.queryset import MAX_PAGE_SIZE
 from core.applications.invoice.services.documents import allocate_document_number
 from core.applications.invoice.services.ports import APPROVAL_CREDIT_OVERRIDE
 from core.applications.invoice.services.ports import APPROVAL_INVOICE_VOID
 from core.applications.invoice.services.ports import EVENT_INVOICE_CONFIRMED
+from core.applications.invoice.services.ports import EVENT_INVOICE_OVERDUE
 from core.applications.invoice.services.ports import EVENT_INVOICE_VOIDED
 from core.applications.invoice.services.ports import PERM_AUDIT_VIEW
 from core.applications.invoice.services.ports import PERM_INVOICE_CONFIRM
@@ -51,6 +56,7 @@ from core.applications.notification.models import AuditLog
 from core.helper.enums import TEMPLATE_TYPES
 from core.helper.enums import CustomerStatus
 from core.helper.enums import InvoiceStatusChoices
+from core.helper.enums import UnitOfMeasureChoices
 
 if TYPE_CHECKING:
     from collections.abc import Collection
@@ -80,9 +86,12 @@ MAX_MULTIPLIER: Final = Decimal("9999999.999")
 MAX_INVOICE_LINES: Final = 500
 MAX_LINE_QUANTITY: Final = 1_000_000
 MIN_VOID_REASON_LENGTH: Final = 5
+MAX_IDEMPOTENCY_KEY_LENGTH: Final = 64
 OVERDUE_BATCH_SIZE: Final = 1000
-MAX_PAGE_SIZE: Final = 200
 
+# PENDING is reserved for invoices held for approval before confirmation. No
+# service creates it yet, but it is confirmable and voidable so the approval
+# flow (PRD §30) can adopt it without touching the lifecycle rules.
 CONFIRMABLE_STATUSES: Final = (_S.DRAFT, _S.PENDING)
 # Confirmed invoices with no payments against them: the only ones a void can
 # reverse stock for.
@@ -96,8 +105,15 @@ ACTION_CONFIRM: Final = "confirm"
 ACTION_VOID: Final = "void"
 ACTION_VOID_AND_CORRECT: Final = "void_and_correct"
 
-# Name of the database constraint that allows one live invoice per sale.
+# Names of the database constraints the services translate into domain errors.
 _LIVE_INVOICE_CONSTRAINT: Final = "unique_live_invoice_per_sale"
+_IDEMPOTENCY_CONSTRAINT: Final = "unique_invoice_idempotency_key_per_org"
+
+# Attribute on Organization holding its IANA timezone name (PRD §7), and the
+# attribute on ProductVariant that may override the product's sale price.
+# Adjust these two names to match your models.
+ORGANIZATION_TIMEZONE_ATTR: Final = "timezone"
+VARIANT_PRICE_ATTR: Final = "customer_sale_price"
 
 # Frozen customer details copied onto the invoice (billing/shipping included).
 CUSTOMER_SNAPSHOT_FIELDS: Final = (
@@ -125,12 +141,16 @@ class InvoiceLineInput:
     """
     What a caller sends per line. Prices are never accepted from the caller.
     `description` is optional custom line text; the product name is used when
-    it is empty.
+    it is empty. `variant_id` selects a product variant. `unit_name` sells the
+    line in a unit other than the base one; the multiplier and price for that
+    unit come from the server (the `resolve_unit` port), never from the caller.
     """
 
     product_id: Any
     quantity: int
     description: str = ""
+    variant_id: Any = None
+    unit_name: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,7 +170,10 @@ class InvoiceFilters:
 @dataclass(frozen=True, slots=True)
 class _PricedItem:
     product_id: Any
+    variant_id: Any
     quantity: int
+    unit_name: str
+    unit_multiplier: Decimal
     unit_price: Decimal
     description: str
 
@@ -224,6 +247,40 @@ def _validate_quantity(quantity: Any, product_key: str) -> None:
         )
 
 
+def _organization_tz(organization: Organization) -> tzinfo:
+    """
+    The organization's own timezone (PRD §7), so "today" and day boundaries are
+    the tenant's, not the server's. Falls back to the project timezone when the
+    organization has none or the name is not a valid IANA zone.
+    """
+    raw = getattr(organization, ORGANIZATION_TIMEZONE_ATTR, None)
+    if isinstance(raw, tzinfo):
+        return raw
+    if raw:
+        try:
+            return ZoneInfo(str(raw))
+        except (ZoneInfoNotFoundError, ValueError, OSError):
+            logger.warning(
+                "invoice.invalid_organization_timezone",
+                extra={"organization_id": str(organization.pk), "timezone": str(raw)},
+            )
+    return timezone.get_current_timezone()
+
+
+def _today(organization: Organization) -> date:
+    return timezone.now().astimezone(_organization_tz(organization)).date()
+
+
+def _clean_idempotency_key(key: str | None) -> str | None:
+    cleaned = (key or "").strip()
+    if not cleaned:
+        return None
+    if len(cleaned) > MAX_IDEMPOTENCY_KEY_LENGTH:
+        msg = f"The idempotency key can have at most {MAX_IDEMPOTENCY_KEY_LENGTH} characters."
+        raise InvoiceValidationError(msg, detail={"idempotency_key": cleaned[:MAX_IDEMPOTENCY_KEY_LENGTH]})
+    return cleaned
+
+
 def allocate_amount(amount: Decimal, weights: Sequence[Decimal]) -> list[Decimal]:
     """
     Split `amount` across `weights` in whole cents using the largest-remainder
@@ -258,7 +315,7 @@ def _snapshot(invoice: Invoice) -> dict[str, Any]:
     return {
         "invoice_number": invoice.invoice_number,
         "status": str(invoice.status),
-        "customer_id": str(invoice.customer_id),
+        "customer_id": str(invoice.customer_id) if invoice.customer_id else None,
         "customer_name": invoice.customer_name,
         "subtotal": str(invoice.subtotal),
         "discount_amount": str(invoice.discount_amount),
@@ -397,6 +454,7 @@ def _resolve_due_date(customer: Customer, issue_date: date, requested: date | No
     """
     Due date from the customer's payment terms (net N days) unless a date is
     requested explicitly. A due date can never precede the issue date.
+    `issue_date` is the organization's own today.
     """
     if requested is None:
         return issue_date + timedelta(days=customer.payment_terms_days)
@@ -527,7 +585,7 @@ def _load_lines(invoice: Invoice) -> list[_Row]:
     """The invoice's lines in a stable product order, in one query."""
     rows = (
         InvoiceItem.objects.for_invoice(invoice)
-        .order_by("product_id")
+        .order_by("product_id", "pk")
         .values_list(
             "product_id",
             "quantity",
@@ -576,6 +634,7 @@ def _stock_lines_from(rows: Sequence[_Row]) -> list[StockLine]:
     """
     Base-unit quantities per product (quantity x unit multiplier), in the
     stable product order of `rows` so inventory locks are taken consistently.
+    Lines for the same product in different units are merged.
     """
     base_units: dict[Any, int] = {}
     for row in rows:
@@ -596,8 +655,16 @@ def _stock_lines(invoice: Invoice) -> list[StockLine]:
 # --------------------------------------------------------------------------- #
 
 
-def _validate_lines(lines: Sequence[InvoiceLineInput]) -> set[str]:
-    """Shape checks that need no database. Returns the product ids as strings."""
+def _line_key(line: InvoiceLineInput) -> tuple[str, str, str]:
+    return (
+        str(line.product_id),
+        str(line.variant_id) if line.variant_id else "",
+        (line.unit_name or "").strip().lower(),
+    )
+
+
+def _validate_lines(lines: Sequence[InvoiceLineInput]) -> None:
+    """Shape checks that need no database."""
     if not lines:
         msg = "An invoice needs at least one line."
         raise InvoiceValidationError(msg, detail={"lines": []})
@@ -605,15 +672,46 @@ def _validate_lines(lines: Sequence[InvoiceLineInput]) -> set[str]:
         msg = f"An invoice can have at most {MAX_INVOICE_LINES} lines."
         raise InvoiceValidationError(msg, detail={"lines": len(lines)})
 
-    seen: set[str] = set()
+    seen: set[tuple[str, str, str]] = set()
     for line in lines:
-        key = str(line.product_id)
+        key = _line_key(line)
         if key in seen:
-            msg = "A product can appear only once per invoice."
-            raise InvoiceValidationError(msg, detail={"product_id": key})
+            msg = "A product, variant and unit combination can appear only once per invoice."
+            raise InvoiceValidationError(
+                msg,
+                detail={"product_id": key[0], "variant_id": key[1], "unit_name": key[2]},
+            )
         seen.add(key)
-        _validate_quantity(line.quantity, key)
-    return seen
+        _validate_quantity(line.quantity, key[0])
+
+
+def _resolve_line_unit(
+    organization: Organization,
+    product: Any,
+    variant: Any,
+    line: InvoiceLineInput,
+    base_price: Decimal,
+) -> tuple[str, Decimal, Decimal]:
+    """
+    (unit name, multiplier, price per line unit). Without a requested unit the
+    line is sold in the base unit at the base price. Otherwise the units port
+    decides, so the caller can never choose its own conversion or price.
+    """
+    if not line.unit_name:
+        return UnitOfMeasureChoices.PIECE, Decimal(1), base_price
+
+    resolution = get_invoice_ports().resolve_unit(
+        organization=organization,
+        product=product,
+        variant=variant,
+        unit_name=line.unit_name,
+        base_price=base_price,
+    )
+    multiplier = _decimal(resolution.multiplier, MULTIPLIER_STEP, field="unit multiplier")
+    if not 0 < multiplier <= MAX_MULTIPLIER:
+        msg = "The unit multiplier must be greater than zero."
+        raise InvoiceValidationError(msg, detail={"product_id": str(product.pk)})
+    return resolution.unit_name, multiplier, resolution.unit_price
 
 
 def _price_lines(
@@ -621,44 +719,84 @@ def _price_lines(
     lines: Sequence[InvoiceLineInput],
 ) -> list[_PricedItem]:
     """
-    Validate lines and price them from the organization's own products in one
-    query. The line text is snapshotted now: custom text if given, else the
-    product name, so a later rename never rewrites a historical invoice.
+    Validate lines and price them from the organization's own products (and
+    variants) in at most two queries. The line text is snapshotted now: custom
+    text if given, else the product name, so a later rename never rewrites a
+    historical invoice.
     """
-    seen = _validate_lines(lines)
+    _validate_lines(lines)
+    product_ids = {str(line.product_id) for line in lines}
+    variant_ids = {str(line.variant_id) for line in lines if line.variant_id}
 
     try:
         products = {
             str(p.pk): p
-            for p in _model("products", "Product")
-            .objects.filter(
+            for p in _model("products", "Product").objects.filter(
                 organization=organization,
-                pk__in=[line.product_id for line in lines],
+                pk__in=product_ids,
             )
-            .only("pk", "name", "customer_sale_price")
         }
+        variants = (
+            {
+                str(v.pk): v
+                for v in _model("products", "ProductVariant").objects.filter(
+                    product__organization=organization,
+                    pk__in=variant_ids,
+                )
+            }
+            if variant_ids
+            else {}
+        )
     except _BAD_ID_ERRORS as exc:
-        msg = "One or more product ids are malformed."
-        raise InvoiceValidationError(msg, detail={"product_ids": sorted(seen)}) from exc
+        msg = "One or more product or variant ids are malformed."
+        raise InvoiceValidationError(
+            msg,
+            detail={"product_ids": sorted(product_ids), "variant_ids": sorted(variant_ids)},
+        ) from exc
 
-    missing = sorted(seen - products.keys())
+    missing = sorted(product_ids - products.keys())
     if missing:
         msg = "Some products were not found."
         raise InvoiceValidationError(msg, detail={"product_ids": missing})
+    missing_variants = sorted(variant_ids - variants.keys())
+    if missing_variants:
+        msg = "Some variants were not found."
+        raise InvoiceValidationError(msg, detail={"variant_ids": missing_variants})
 
     priced: list[_PricedItem] = []
     for line in lines:
         product = products[str(line.product_id)]
-        price = product.customer_sale_price
-        if price is None or price < 0:
+        variant = variants[str(line.variant_id)] if line.variant_id else None
+        if variant is not None and str(variant.product_id) != str(product.pk):
+            msg = "The variant does not belong to this product."
+            raise InvoiceValidationError(
+                msg,
+                detail={"product_id": str(product.pk), "variant_id": str(variant.pk)},
+            )
+
+        variant_price = getattr(variant, VARIANT_PRICE_ATTR, None) if variant is not None else None
+        base_price = variant_price if variant_price is not None else product.customer_sale_price
+        if base_price is None or base_price < 0:
             msg = "Product has no valid sale price."
             raise InvoiceValidationError(msg, detail={"product_id": str(product.pk)})
+
+        unit_name, multiplier, unit_price = _resolve_line_unit(
+            organization, product, variant, line, _money(base_price)
+        )
+        unit_price = _money(unit_price)
+        if unit_price < 0:
+            msg = "Product has no valid sale price."
+            raise InvoiceValidationError(msg, detail={"product_id": str(product.pk)})
+
         text = (line.description or "").strip() or (product.name or "").strip()
         priced.append(
             _PricedItem(
                 product_id=product.pk,
+                variant_id=variant.pk if variant is not None else None,
                 quantity=line.quantity,
-                unit_price=_money(price),
+                unit_name=unit_name,
+                unit_multiplier=multiplier,
+                unit_price=unit_price,
                 description=text[:255],
             )
         )
@@ -728,11 +866,15 @@ def _allocate_line_amounts(
 
     The discount is shared in proportion to line value and the tax in
     proportion to each line's taxable value, in whole cents. The rate stored on
-    a line is its effective rate (tax / taxable value).
+    a line is its effective rate (tax / taxable value). Tax on an invoice whose
+    taxable value is zero has no line to sit on and is refused.
     """
     gross = [i.unit_price * i.quantity for i in items]
     discounts = allocate_amount(totals.discount, gross)
     taxable = [g - d for g, d in zip(gross, discounts, strict=True)]
+    if totals.tax > 0 and not any(base > 0 for base in taxable):
+        msg = "Tax cannot be charged on an invoice with no taxable amount."
+        raise InvoiceValidationError(msg, detail={"tax": str(totals.tax)})
     taxes = allocate_amount(totals.tax, taxable)
 
     amounts: list[_LineAmounts] = []
@@ -751,8 +893,11 @@ def _build_items(
         InvoiceItem(
             invoice=invoice,
             product_id=item.product_id,
+            variant_id=item.variant_id,
             description=item.description or None,
             quantity=item.quantity,
+            unit_name=item.unit_name,
+            unit_multiplier=item.unit_multiplier,
             unit_price=item.unit_price,
             discount_amount=share.discount,
             tax_amount=share.tax,
@@ -919,11 +1064,11 @@ def issue_invoice_for_sale(
     payments service moves the invoice to Partially Paid or Paid.
 
     The due date is `due_date`, else the sale's, else the customer's payment
-    terms. A sale can have only one live invoice: a second call raises
-    InvoiceAlreadyIssuedForSaleError, enforced by the database as well as by
-    an up-front check. A customer over their credit limit raises
-    CreditLimitExceededError unless approved; callers must let both propagate
-    so the sale rolls back.
+    terms, counted from the organization's own today. A sale can have only one
+    live invoice: a second call raises InvoiceAlreadyIssuedForSaleError,
+    enforced by the database as well as by an up-front check. A customer over
+    their credit limit raises CreditLimitExceededError unless approved; callers
+    must let both propagate so the sale rolls back.
 
     Lock order is invoice -> customer -> inventory; the sales app is expected to
     have locked the customer before touching inventory.
@@ -949,7 +1094,7 @@ def issue_invoice_for_sale(
     customer = load_active_customer(organization, snapshot.customer_id, lock=True)
     warehouse = _load_warehouse(organization, snapshot.warehouse_id)
 
-    issue_date = timezone.localdate()
+    issue_date = _today(organization)
     due = _resolve_due_date(customer, issue_date, due_date or snapshot.due_date)
     customer_details = customer_snapshot(
         customer,
@@ -1054,6 +1199,10 @@ def issue_invoice_for_sale(
 # --------------------------------------------------------------------------- #
 
 
+def _find_by_idempotency_key(organization: Organization, key: str) -> Invoice | None:
+    return Invoice.objects.for_organization(organization).filter(idempotency_key=key).first()
+
+
 @transaction.atomic
 def create_invoice(
     organization: Organization,
@@ -1068,6 +1217,7 @@ def create_invoice(
     notes: str | None = "",
     extra_data: dict[str, Any] | None = None,
     replaces: Invoice | None = None,
+    idempotency_key: str | None = None,
     audit_context: AuditContext | None = None,
 ) -> Invoice:
     """
@@ -1078,13 +1228,25 @@ def create_invoice(
     failed creation never burns a number. Unit prices and line text are
     snapshotted from the product now and are never re-priced. The discount and
     tax are shared across the lines so every line carries its own amounts. The
-    due date defaults to the customer's payment terms. Customer details are
-    stored for display and refreshed when the invoice is confirmed.
+    due date defaults to the customer's payment terms, counted from the
+    organization's own today. Customer details are stored for display and
+    refreshed when the invoice is confirmed.
+
+    `idempotency_key` makes a retried request safe (PRD §45): the same key in
+    the same organization returns the invoice created the first time instead of
+    a second draft. Keys are not compared against the payload, so a client must
+    use a fresh key for a different request.
 
     `replaces` must be a voided invoice of this organization (PRD §24).
     """
     ports = get_invoice_ports()
     ports.authorize(actor, organization, PERM_INVOICE_CREATE)
+
+    key = _clean_idempotency_key(idempotency_key)
+    if key is not None:
+        existing = _find_by_idempotency_key(organization, key)
+        if existing is not None:
+            return existing
 
     if replaces is not None:
         if replaces.organization_id != organization.pk:
@@ -1096,7 +1258,7 @@ def create_invoice(
 
     customer = load_active_customer(organization, customer_id)
     warehouse = _load_warehouse(organization, warehouse_id)
-    due = _resolve_due_date(customer, timezone.localdate(), due_date)
+    due = _resolve_due_date(customer, _today(organization), due_date)
     items = _price_lines(organization, lines)
     totals = _calculate_totals(
         organization,
@@ -1106,25 +1268,37 @@ def create_invoice(
         discount_approval_id,
     )
     amounts = _allocate_line_amounts(items, totals)
-    number = allocate_document_number(organization, TEMPLATE_TYPES.INVOICE)
 
-    invoice = Invoice.objects.create(
-        organization=organization,
-        customer=customer,
-        warehouse=warehouse,
-        sales_rep=actor,
-        invoice_number=number.formatted,
-        due_date=due,
-        status=_S.DRAFT,
-        subtotal=totals.subtotal,
-        discount_amount=totals.discount,
-        tax_amount=totals.tax,
-        total=totals.total,
-        replaces=replaces,
-        notes=(notes or "").strip() or None,
-        extra_data=extra_data or {},
-        **customer_snapshot(customer),
-    )
+    try:
+        # The number and the invoice share one savepoint: if a concurrent twin
+        # request wins the idempotency race, the number is rolled back too.
+        with transaction.atomic():
+            number = allocate_document_number(organization, TEMPLATE_TYPES.INVOICE)
+            invoice = Invoice.objects.create(
+                organization=organization,
+                customer=customer,
+                warehouse=warehouse,
+                sales_rep=actor,
+                invoice_number=number.formatted,
+                due_date=due,
+                status=_S.DRAFT,
+                subtotal=totals.subtotal,
+                discount_amount=totals.discount,
+                tax_amount=totals.tax,
+                total=totals.total,
+                replaces=replaces,
+                notes=(notes or "").strip() or None,
+                extra_data=extra_data or {},
+                idempotency_key=key,
+                **customer_snapshot(customer),
+            )
+    except IntegrityError as exc:
+        if key is not None and _IDEMPOTENCY_CONSTRAINT in str(exc):
+            existing = _find_by_idempotency_key(organization, key)
+            if existing is not None:
+                return existing
+        raise
+
     InvoiceItem.objects.bulk_create(_build_items(invoice, items, amounts))
     record(
         action=AuditAction.INVOICE_CREATED,
@@ -1187,7 +1361,7 @@ def update_draft_invoice(
     due = (
         invoice.due_date
         if due_date is None
-        else _resolve_due_date(customer, timezone.localdate(), due_date)
+        else _resolve_due_date(customer, _today(organization), due_date)
     )
     items = _price_lines(organization, lines)
     totals = _calculate_totals(
@@ -1265,9 +1439,9 @@ def confirm_invoice(
 
     Confirming an invoice that is already confirmed raises
     InvalidInvoiceTransitionError, so a double submit can never deduct stock
-    twice. A draft whose due date has already passed gets a fresh due date from
-    the customer's payment terms instead of being born overdue; the change is
-    in the audit record.
+    twice. A draft whose due date has already passed (in the organization's own
+    calendar) gets a fresh due date from the customer's payment terms instead
+    of being born overdue; the change is in the audit record.
 
     `upfront_payment` is the amount the caller records against this invoice
     through the payments service in the same transaction. It only reduces the
@@ -1295,7 +1469,7 @@ def confirm_invoice(
     # The status is checked on the locked row, not on the draft-time read.
     customer = load_active_customer(organization, invoice.customer_id, lock=True)
 
-    issue_date = timezone.localdate()
+    issue_date = _today(organization)
     due = (
         invoice.due_date
         if invoice.due_date >= issue_date
@@ -1516,7 +1690,7 @@ def void_and_correct(
         approval_id=approval_id,
         audit_context=audit_context,
     )
-    if due_date is None and original.due_date >= timezone.localdate():
+    if due_date is None and original.due_date >= _today(organization):
         due_date = original.due_date
     return create_invoice(
         organization,
@@ -1541,39 +1715,83 @@ def void_and_correct(
 # --------------------------------------------------------------------------- #
 
 
+def _sweep_organization(organization: Organization, today: date, batch_size: int) -> int:
+    """
+    Mark one tenant's past-due Confirmed invoices Overdue, in short bounded
+    transactions. Rows locked by a concurrent confirm or void are skipped and
+    picked up on the next run instead of making the sweep wait.
+    """
+    ports = get_invoice_ports()
+    swept = 0
+    while True:
+        with transaction.atomic():
+            batch = list(
+                Invoice.objects.filter(
+                    organization=organization,
+                    status=_S.CONFIRMED,
+                    due_date__lt=today,
+                )
+                .order_by("pk")
+                .select_for_update(skip_locked=True)[:batch_size]
+            )
+            if not batch:
+                break
+            Invoice.objects.filter(pk__in=[i.pk for i in batch]).update(
+                status=_S.OVERDUE,
+                updated_at=timezone.now(),
+            )
+            for invoice in batch:
+                invoice.status = _S.OVERDUE
+                transaction.on_commit(partial(ports.publish, EVENT_INVOICE_OVERDUE, invoice))
+            swept += len(batch)
+    return swept
+
+
 def mark_overdue_invoices(
     *,
     today: date | None = None,
     batch_size: int = OVERDUE_BATCH_SIZE,
 ) -> int:
     """
-    Move Confirmed invoices past their due date to Overdue. Run on a schedule.
+    Move Confirmed invoices past their due date to Overdue. Schedule it hourly,
+    because "past due" is decided on each organization's own calendar (PRD §7):
+    a tenant's invoices turn overdue when its own midnight passes, whatever the
+    server's timezone.
 
-    Cross-tenant by design (a system job). Works in short bounded transactions
-    so it never holds long locks or loads the table into memory. Partially paid
-    invoices keep their status; `InvoiceQuerySet.overdue()` still finds them by
-    due date. The update re-checks the status, so an invoice voided between the
-    read and the write is left alone.
+    Cross-tenant by design (a system job), but it works one tenant at a time in
+    short bounded transactions, so it never holds long locks or loads the table
+    into memory. Partially paid invoices keep their status;
+    `InvoiceQuerySet.overdue()` still finds them by due date. Each invoice
+    moved publishes EVENT_INVOICE_OVERDUE after commit, which is where payment
+    reminders (PRD §33, §51) hook in.
+
+    Pass `today` to force one date for every tenant (tests, backfills).
     """
-    today = today or timezone.localdate()
+    # Nobody's calendar is more than a day away from UTC's, so an invoice due
+    # after this horizon cannot be overdue anywhere yet.
+    horizon = timezone.now().date() + timedelta(days=2)
+    organization_ids = list(
+        Invoice.objects.filter(status=_S.CONFIRMED, due_date__lt=horizon)
+        .order_by()
+        .values_list("organization_id", flat=True)
+        .distinct()
+    )
     updated = 0
-    while True:
-        ids = list(
-            Invoice.objects.not_voided()
-            .filter(status=_S.CONFIRMED, due_date__lt=today)
-            .order_by()
-            .values_list("pk", flat=True)[:batch_size]
-        )
-        if not ids:
-            break
-        with transaction.atomic():
-            updated += Invoice.objects.filter(pk__in=ids, status=_S.CONFIRMED).update(
-                status=_S.OVERDUE,
-                updated_at=timezone.now(),
+    if organization_ids:
+        organizations = _model("users", "Organization").objects.filter(pk__in=organization_ids)
+        for organization in organizations.iterator():
+            updated += _sweep_organization(
+                organization,
+                today or _today(organization),
+                batch_size,
             )
     logger.info(
         "invoice.overdue_sweep",
-        extra={"updated": updated, "as_of": today.isoformat()},
+        extra={
+            "updated": updated,
+            "organizations": len(organization_ids),
+            "as_of": today.isoformat() if today else None,
+        },
     )
     return updated
 
@@ -1619,14 +1837,16 @@ def get_invoice_summary(
     filters: InvoiceFilters | None = None,
 ) -> dict[str, Any]:
     """
-    The Summary block of the invoice list page (PRD §38): count and money totals
-    for the filtered invoices, excluding voided ones so cancelled paper never
-    inflates sales, plus how many voided invoices matched. Two queries.
+    The Summary block of the invoice list page (PRD §38). The money totals
+    (count, subtotal, discount, tax, total, paid, balance due) cover only
+    invoices that count as real sales: confirmed and beyond. Drafts, pending
+    and voided invoices never inflate them. They are reported separately as
+    `draft_count` (drafts and pending) and `voided_count`. Two queries.
     """
     get_invoice_ports().authorize(actor, organization, PERM_INVOICE_VIEW)
     matching = _filtered_invoices(organization, filters or InvoiceFilters())
-    summary = matching.not_voided().totals()
-    summary["voided_count"] = matching.voided().count()
+    summary = matching.confirmed_sales().totals()
+    summary.update(matching.pipeline_counts())
     return summary
 
 
@@ -1659,7 +1879,10 @@ def available_actions(invoice: Invoice, permissions: Collection[str]) -> list[st
 
 
 def _filtered_invoices(organization: Organization, f: InvoiceFilters):
-    """The tenant's invoices narrowed by `f`. A malformed id matches nothing."""
+    """
+    The tenant's invoices narrowed by `f`. A malformed id matches nothing.
+    Issue-date filters and "overdue" use the organization's own calendar.
+    """
     qs = Invoice.objects.for_organization(organization)
     try:
         if f.customer_id is not None:
@@ -1674,9 +1897,13 @@ def _filtered_invoices(organization: Organization, f: InvoiceFilters):
         qs = qs.with_status(*f.statuses)
     if f.search:
         qs = qs.search(f.search)
-    qs = qs.issued_between(f.issued_from, f.issued_to).due_between(f.due_from, f.due_to)
+    qs = qs.issued_between(
+        f.issued_from,
+        f.issued_to,
+        tz=_organization_tz(organization),
+    ).due_between(f.due_from, f.due_to)
     if f.overdue_only:
-        qs = qs.overdue(timezone.localdate())
+        qs = qs.overdue(_today(organization))
     return qs
 
 

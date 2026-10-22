@@ -34,7 +34,7 @@ APPROVAL_CREDIT_OVERRIDE: Final = "invoice.credit_override"
 # Domain events passed to `InvoicePorts.publish` after the transaction commits.
 EVENT_INVOICE_CONFIRMED: Final = "invoice.confirmed"
 EVENT_INVOICE_VOIDED: Final = "invoice.voided"
-
+EVENT_INVOICE_OVERDUE: Final = "invoice.overdue"
 
 @dataclass(frozen=True, slots=True)
 class PricedLine:
@@ -47,6 +47,12 @@ class PricedLine:
     quantity: int
     unit_price: Decimal
 
+
+@dataclass(frozen=True, slots=True)
+class UnitResolution:
+    unit_name: str          # a UnitOfMeasureChoices value
+    multiplier: Decimal     # base units in one of this unit
+    unit_price: Decimal     # price per ONE of this unit
 
 @dataclass(frozen=True, slots=True)
 class StockLine:
@@ -195,6 +201,21 @@ class InvoicePorts(Protocol):
         to a background worker here; never do slow work inline (PRD §51).
         """
 
+    def resolve_unit(
+        self,
+        *,
+        organization: Organization,
+        product: Any,
+        variant: Any,
+        unit_name: str,
+        base_price: Decimal,
+    ) -> UnitResolution:
+        """
+        Look the unit up in the product's unit conversions and return its
+        multiplier and price. Raise InvoiceValidationError if the product has
+        no such unit. `base_price` is the variant's or product's price per
+        base unit; a conversion with its own price should return that instead.
+        """
 
 _registry: dict[str, InvoicePorts] = {}
 
