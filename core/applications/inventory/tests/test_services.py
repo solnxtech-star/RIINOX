@@ -328,3 +328,15 @@ class InventoryServicesTest(TestCase):
         inv = Inventory.objects.get(product=self.product, warehouse=self.warehouse)
         self.assertEqual(inv.quantity, 45)
         self.assertTrue(InventoryLedgerEntry.objects.filter(product=self.product, quantity_moved=-5).exists())
+
+    def test_inventory_updated_at_updates_with_update_fields(self):
+        """Saving with update_fields must update updated_at."""
+        import time
+        inv = InventoryFactory(product=self.product, warehouse=self.warehouse, quantity=50)
+        initial_updated_at = inv.updated_at
+        time.sleep(0.01)
+        inv.quantity += 5
+        inv.save(update_fields=["quantity"])
+        inv.refresh_from_db()
+        self.assertGreater(inv.updated_at, initial_updated_at)
+
