@@ -546,3 +546,74 @@ class SalesAPITest(APITestCase):
         resp_foreign = self.client.get(f"/api/organizations/{foreign_org.id}/sales/")
         self.assertEqual(resp_foreign.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_cancel_sale_endpoint(self):
+        """Owner can cancel an order via POST /sales/{id}/cancel/."""
+        url = f"{self.sales_url}{self.sale.id}/cancel/"
+        response = self.client.post(url, {"reason": "Customer changed mind"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNotNone(response.data["cancelled_at"])
+        self.assertEqual(response.data["fulfillment_status"], "canceled")
+        self.assertEqual(response.data["cancel_reason"], "Customer changed mind")
+
+    def test_cancel_already_cancelled_sale_fails(self):
+        """Cancelling an already-cancelled sale returns HTTP 400 Bad Request."""
+        url = f"{self.sales_url}{self.sale.id}/cancel/"
+        self.client.post(url, {"reason": "First cancel"}, format="json")
+        response = self.client.post(url, {"reason": "Duplicate cancel"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_delete_sale_blocked_by_immutability(self):
+        """Hard deleting a sale returns HTTP 400 Bad Request per PRD §44."""
+        url = f"{self.sales_url}{self.sale.id}/"
+        response = self.client.delete(url)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("cannot be hard-deleted", response.data["detail"])
+
+    def test_delete_sale_return_blocked_by_immutability(self):
+        """Hard deleting a sale return returns HTTP 400 Bad Request."""
+        sale_return = SaleReturn.objects.create(
+            original_sale=self.sale,
+            organization=self.org,
+            return_reason="Damaged item",
+            refund_amount=Decimal("15.00"),
+        )
+        url = f"{self.returns_url}{sale_return.id}/"
+        response = self.client.delete(url)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("cannot be deleted", response.data["detail"])
+
+    def test_sales_filtering_and_searching(self):
+        """Sales can be filtered by status and searched by keyword."""
+        # Query with match
+        resp_match = self.client.get(f"{self.sales_url}?search={self.sale.sale_id}")
+        self.assertEqual(resp_match.status_code, status.HTTP_200_OK)
+        results = resp_match.data.get("results", resp_match.data)
+        self.assertEqual(len(results), 1)
+
+        # Query with non-match
+        resp_no_match = self.client.get(f"{self.sales_url}?search=NONEXISTENT_KEYWORD")
+        self.assertEqual(resp_no_match.status_code, status.HTTP_200_OK)
+        results_empty = resp_no_match.data.get("results", resp_no_match.data)
+        self.assertEqual(len(results_empty), 0)
+
+    def test_create_sale_without_location_via_api(self):
+        """Client does not provide location in payload; backend auto-resolves active warehouse."""
+        url = self.sales_url
+        data = {
+            "customer": str(self.customer.id),
+            "items": [
+                {
+                    "product": str(self.product.id),
+                    "quantity": 2,
+                    "unit_price": "20.00",
+                }
+            ],
+        }
+        response = self.client.post(url, data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIn("id", response.data)
+        created = Sale.objects.get(id=response.data["id"])
+        self.assertEqual(str(created.warehouse_id).replace("-", ""), str(self.location.warehouse_id).replace("-", ""))
+
+
+

@@ -24,6 +24,7 @@ class SalePermission(BaseTenantPermission):
         "update": PermissionCode.CREATE_SALE,
         "partial_update": PermissionCode.CREATE_SALE,
         "destroy": PermissionCode.CREATE_SALE,
+        "cancel": PermissionCode.CREATE_SALE,
     }
     default_permission: str = PermissionCode.VIEW_SALES
 

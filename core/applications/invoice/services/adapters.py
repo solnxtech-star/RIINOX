@@ -38,7 +38,10 @@ def build_sale_snapshot(sale: Sale) -> SaleSnapshot:
         sale_id=sale.pk,
         organization_id=sale.organization_id,
         customer_id=sale.customer_id,
-        warehouse_id=sale.location.warehouse_id,
+        warehouse_id=(
+            sale.warehouse_id
+            or (sale.location.warehouse_id if sale.location else None)
+        ),
         sales_rep_id=sale.sales_rep_id,
         currency=sale.currency,
         due_date=sale.due_date,

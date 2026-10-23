@@ -15,10 +15,17 @@ class SaleItemCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = SaleItem
         fields = [
-            'product', 'variant', 'product_name', 'product_sku', 
-            'quantity', 'unit_name', 'unit_price', 'discount', 'discount_type', 
-            'tax', 'tax_rate'
+            'product', 'variant', 'quantity', 
+            'unit_name', 'unit_price', 'discount', 'discount_type', 'tax_rate'
         ]
+        extra_kwargs = {
+            'variant': {'required': False, 'allow_null': True},
+            'unit_name': {'required': False},
+            'unit_price': {'required': False},
+            'discount': {'required': False},
+            'discount_type': {'required': False},
+            'tax_rate': {'required': False},
+        }
 
 class SaleSerializer(serializers.ModelSerializer):
     items = SaleItemSerializer(many=True, read_only=True)
@@ -26,28 +33,48 @@ class SaleSerializer(serializers.ModelSerializer):
     class Meta:
         model = Sale
         fields = [
-            'id', 'sale_id', 'organization', 'customer', 'location', 
+            'id', 'sale_id', 'organization', 'customer', 'warehouse', 'location', 
             'sales_rep', 'payment_status', 'fulfillment_status', 'currency',
             'reference_number', 'due_date', 'billing_address', 'shipping_address',
             'subtotal', 'discount_amount', 'tax_amount', 'total', 'notes', 
+            'cancelled_at', 'cancelled_by', 'cancel_reason',
             'items', 'created_at'
         ]
-        read_only_fields = ['sale_id', 'total', 'created_at']
+        read_only_fields = [
+            'sale_id', 'total', 'created_at',
+            'cancelled_at', 'cancelled_by', 'cancel_reason'
+        ]
+
+
+class SaleCancelSerializer(serializers.Serializer):
+    reason = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class SalePaymentTenderSerializer(serializers.Serializer):
+    amount = serializers.DecimalField(max_digits=12, decimal_places=2)
+    method = serializers.CharField(max_length=50)
+    reference = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")
+
 
 class SaleCreateSerializer(serializers.ModelSerializer):
     items = SaleItemCreateSerializer(many=True)
+    payment = SalePaymentTenderSerializer(required=False, allow_null=True)
 
     class Meta:
         model = Sale
         fields = [
-            'organization', 'customer', 'location', 
-            'sales_rep', 'payment_status', 'fulfillment_status', 'currency',
+            'organization', 'customer', 'warehouse', 'location', 
+            'sales_rep', 'currency',
             'reference_number', 'due_date', 'billing_address', 'shipping_address',
-            'subtotal', 'discount_amount', 'tax_amount', 'notes', 'items'
+            'discount_amount', 'tax_amount', 'notes', 'items', 'payment'
         ]
         extra_kwargs = {
             'organization': {'required': False},
+            'sales_rep': {'required': False},
+            'warehouse': {'required': False, 'allow_null': True},
+            'location': {'required': False, 'allow_null': True},
         }
+
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
@@ -67,6 +94,10 @@ class SaleCreateSerializer(serializers.ModelSerializer):
             customer = attrs.get("customer")
             if customer and customer.organization_id != org.id:
                 raise serializers.ValidationError({"customer": "Customer does not belong to this organization."})
+
+            warehouse = attrs.get("warehouse")
+            if warehouse and warehouse.organization_id != org.id:
+                raise serializers.ValidationError({"warehouse": "Warehouse does not belong to this organization."})
 
             location = attrs.get("location")
             if location and hasattr(location, "warehouse") and location.warehouse.organization_id != org.id:

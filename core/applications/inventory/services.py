@@ -38,6 +38,13 @@ def process_sale_inventory_and_ledger(sale):
         created_by=sale.sales_rep
     ))
 
+    warehouse = sale.warehouse or (sale.location.warehouse if sale.location else None)
+    if not warehouse:
+        for item in sale.items.all():
+            if item.product.track_inventory:
+                raise ValidationError(f"No warehouse assigned to sale to deduct stock for {item.product.name}.")
+        return
+
     ledger_entries = []
 
     for item in sale.items.all():
@@ -47,7 +54,7 @@ def process_sale_inventory_and_ledger(sale):
         inventory_records = Inventory.objects.select_for_update(of=('self',)).filter(
             product=item.product,
             variant=item.variant,
-            warehouse=sale.location.warehouse
+            warehouse=warehouse,
         ).order_by(F('batch__expiry_date').asc(nulls_last=True), 'created_at')
 
         # Calculate total available stock across all batches
@@ -68,7 +75,7 @@ def process_sale_inventory_and_ledger(sale):
                 product=item.product,
                 variant=item.variant,
                 batch=None,
-                warehouse=sale.location.warehouse
+                warehouse=warehouse,
             )
             inv.quantity -= remaining_qty
             inv.save(update_fields=['quantity'])
@@ -78,7 +85,7 @@ def process_sale_inventory_and_ledger(sale):
                 product=item.product,
                 variant=item.variant,
                 batch=None,
-                warehouse=sale.location.warehouse,
+                warehouse=warehouse,
                 quantity_moved=-remaining_qty,
                 unit_cost=item.product.purchase_cost
             ))
@@ -100,7 +107,7 @@ def process_sale_inventory_and_ledger(sale):
                     product=item.product,
                     variant=item.variant,
                     batch=inv.batch,
-                    warehouse=sale.location.warehouse,
+                    warehouse=warehouse,
                     quantity_moved=-qty_to_deduct,
                     unit_cost=item.product.purchase_cost
                 ))
@@ -158,6 +165,54 @@ def process_return_inventory_and_ledger(sale_return):
 
     if entries:
         InventoryLedgerEntry.objects.bulk_create(entries)
+
+@transaction.atomic
+def reverse_sale_inventory_and_ledger(sale, *, actor=None, reason: str = ""):
+    """
+    Reverse the stock movement of a cancelled sale and record ledger transactions (PRD §44).
+    Restocks to warehouse inventory and logs positive movement.
+    """
+    transaction_record = create_transaction(TransactionData(
+        transaction_id=f"CNL-{sale.sale_id}"[:50],
+        organization=sale.organization,
+        transaction_type=TransactionTypeChoices.RETURN,
+        status=TransactionStatusChoices.COMPLETED,
+        content_type=ContentType.objects.get_for_model(sale),
+        object_id=sale.id,
+        created_by=actor or sale.sales_rep,
+    ))
+
+    warehouse = sale.warehouse or (sale.location.warehouse if sale.location else None)
+    if not warehouse:
+        return
+
+    entries = []
+    for item in sale.items.all():
+        qty_to_restore = item.quantity * item.unit_multiplier
+        inventory, _ = Inventory.objects.select_for_update().get_or_create(
+            product=item.product,
+            variant=item.variant,
+            warehouse=warehouse,
+            batch=None,
+            defaults={"quantity": 0},
+        )
+        inventory.quantity += qty_to_restore
+        inventory.save(update_fields=["quantity"])
+
+        entries.append(InventoryLedgerEntry(
+            transaction=transaction_record,
+            product=item.product,
+            variant=item.variant,
+            batch=None,
+            warehouse=warehouse,
+            quantity_moved=qty_to_restore,
+            unit_cost=item.product.purchase_cost,
+        ))
+
+    if entries:
+        InventoryLedgerEntry.objects.bulk_create(entries)
+
+
 
 @transaction.atomic
 def create_opening_stock(product, variant, batch, warehouse, quantity, user):

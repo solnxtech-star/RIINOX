@@ -412,6 +412,8 @@ class SaleFulfillmentStatusChoices(TextChoices):
     PARTIALLY_FULFILLED = "partially_fulfilled", _("Partially Fulfilled")
     FULFILLED = "fulfilled", _("Fulfilled")
     CANCELED = "canceled", _("Canceled")
+    RETURNED = "returned", _("Returned")
+
 
 class DiscountTypeChoices(TextChoices):
     PERCENTAGE = "percentage", _("Percentage")
