@@ -1,4 +1,6 @@
+from decimal import Decimal
 from rest_framework import serializers
+from drf_spectacular.utils import extend_schema_field
 from core.applications.sales.models import Sale, SaleItem, SaleReturn, SaleReturnItem
 
 class SaleItemSerializer(serializers.ModelSerializer):
@@ -46,6 +48,7 @@ class SaleSerializer(serializers.ModelSerializer):
             'cancelled_at', 'cancelled_by', 'cancel_reason'
         ]
 
+    @extend_schema_field(serializers.CharField())
     def get_change_due(self, obj) -> str:
         val = getattr(obj, "change_due", Decimal("0.00"))
         return f"{Decimal(str(val)):.2f}"
