@@ -93,7 +93,7 @@
 | :--- | :--- | :--- | :--- | :--- |
 | **`original_sale`** | `UUID` | **Required** | `GET /api/organizations/{org_id}/sales/` | Sale order being returned. |
 | **`return_reason`** | `String` | **Required** | Cashier / Customer statement | Explanation for return (e.g. `"Damaged in transit"`). |
-| **`refund_amount`** | `Decimal` (String) | Optional | Auto-computed from items | Must match the exact sum of line refund amounts. |
+| **`refund_amount`** | `Decimal` (String) | **Read-Only** | Auto-computed by server | Computed automatically by backend from return items. |
 | **`refund_method`** | `String` | Optional | Choice: `"cash"`, `"store_credit"`, `"original_payment"` | Refund settlement method. |
 | **`items`** | `Array` | **Required** | Array of Return Line Item objects | Must contain at least 1 return line. |
 
@@ -105,7 +105,7 @@
 | :--- | :--- | :--- | :--- | :--- |
 | **`sale_item`** | `UUID` | **Required** | Line UUID from `original_sale.items` | Original line being returned. |
 | **`quantity`** | `Integer` | **Required** | `1` | Units returned. Cannot exceed `sale_item.quantity - sale_item.returned_quantity`. |
-| **`refund_amount`**| `Decimal` (String) | **Required** | Line return value | Refund allocated to this line. Cannot exceed proportional line value. |
+| **`refund_amount`**| `Decimal` (String) | **Read-Only** | Auto-computed by server | Computed automatically by backend from proportional item value. |
 | **`condition`** | `String` | Optional | `"new"` | Item condition: `"new"`, `"open_box"`, `"damaged"`, `"defective"`. |
 | **`restock_action`**| `String` | Optional | `"return_to_stock"` | `"return_to_stock"` (restocks warehouse) or `"write_off"` / `"quarantine"`. |
 
@@ -145,8 +145,8 @@ flowchart TD
 * **Request Payload**:
 ```json
 {
-  "customer": "{{customer_id}}",
-  "location": "{{location_id}}",
+  "customer": "834b529a-1a69-4d28-b278-8dfbdf7b2d70",
+  "location": "5994f421-ae3f-4cd2-b522-6fdaf1ccaa22",
   "currency": "USD",
   "payment": {
     "amount": "100.00",
@@ -155,7 +155,7 @@ flowchart TD
   },
   "items": [
     {
-      "product": "{{product_id}}",
+      "product": "1e5339e4-f1f9-4259-b849-70cf2c242e4c",
       "quantity": 2,
       "unit_price": "50.00"
     }
@@ -172,7 +172,7 @@ flowchart TD
   "total": "100.00",
   "items": [
     {
-      "product": "{{product_id}}",
+      "product": "1e5339e4-f1f9-4259-b849-70cf2c242e4c",
       "quantity": 2,
       "returned_quantity": 0,
       "unit_price": "50.00",
@@ -190,12 +190,12 @@ flowchart TD
 * **Request Payload**:
 ```json
 {
-  "customer": "{{customer_id}}",
-  "location": "{{location_id}}",
+  "customer": "834b529a-1a69-4d28-b278-8dfbdf7b2d70",
+  "location": "5994f421-ae3f-4cd2-b522-6fdaf1ccaa22",
   "due_date": "2026-11-30",
   "items": [
     {
-      "product": "{{product_id}}",
+      "product": "1e5339e4-f1f9-4259-b849-70cf2c242e4c",
       "quantity": 4,
       "unit_price": "50.00"
     }
@@ -215,8 +215,8 @@ flowchart TD
 * **Request Payload**:
 ```json
 {
-  "customer": "{{customer_id}}",
-  "location": "{{location_id}}",
+  "customer": "834b529a-1a69-4d28-b278-8dfbdf7b2d70",
+  "location": "5994f421-ae3f-4cd2-b522-6fdaf1ccaa22",
   "payment": {
     "amount": "50.00",
     "method": "card",
@@ -224,7 +224,7 @@ flowchart TD
   },
   "items": [
     {
-      "product": "{{product_id}}",
+      "product": "1e5339e4-f1f9-4259-b849-70cf2c242e4c",
       "quantity": 3,
       "unit_price": "50.00"
     }
@@ -244,10 +244,10 @@ flowchart TD
 * **Request Payload**:
 ```json
 {
-  "customer": "{{customer_id}}",
+  "customer": "834b529a-1a69-4d28-b278-8dfbdf7b2d70",
   "items": [
     {
-      "product": "{{product_id}}",
+      "product": "1e5339e4-f1f9-4259-b849-70cf2c242e4c",
       "quantity": 2,
       "unit_price": "50.00"
     }
@@ -268,12 +268,12 @@ flowchart TD
 * **Request Payload**:
 ```json
 {
-  "customer": "{{customer_id}}",
-  "location": "{{location_id}}",
+  "customer": "834b529a-1a69-4d28-b278-8dfbdf7b2d70",
+  "location": "5994f421-ae3f-4cd2-b522-6fdaf1ccaa22",
   "discount_amount": "20.00",
   "items": [
     {
-      "product": "{{product_id}}",
+      "product": "1e5339e4-f1f9-4259-b849-70cf2c242e4c",
       "quantity": 2,
       "unit_price": "50.00"
     }
@@ -292,20 +292,18 @@ flowchart TD
 ---
 
 ### Scenario 6: Customer Sales Return with Restocking & Cash Refund
-* **Goal**: Customer returns 1 item from Scenario 1 for full refund and restocking.
+* **Goal**: Customer returns 1 item from Scenario 1 for full refund and restocking. Backend automatically calculates `refund_amount`.
 * **Method & URL**: `POST /api/organizations/{{org_id}}/sales/returns/`
 * **Request Payload**:
 ```json
 {
   "original_sale": "{{sale_id}}",
   "return_reason": "Customer ordered incorrect color",
-  "refund_amount": "50.00",
   "refund_method": "cash",
   "items": [
     {
       "sale_item": "{{sale_item_id}}",
       "quantity": 1,
-      "refund_amount": "50.00",
       "restock_action": "return_to_stock"
     }
   ]
@@ -313,6 +311,7 @@ flowchart TD
 ```
 * **Expected Response (`HTTP 201 Created`)**:
   * `status`: `"completed"`
+  * `refund_amount`: `"50.00"` (automatically calculated by backend)
   * `sale_item.returned_quantity` is atomically incremented to `1`.
   * Warehouse stock is increased by `1` and compensatory `InventoryLedgerEntry` is created.
   * A `Refund` record is generated against the original payment.
@@ -330,8 +329,7 @@ flowchart TD
   "items": [
     {
       "sale_item": "{{sale_item_id}}",
-      "quantity": 5,
-      "refund_amount": "250.00"
+      "quantity": 5
     }
   ]
 }

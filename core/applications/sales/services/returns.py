@@ -98,14 +98,18 @@ def create_sale_return(data: dict[str, Any], *, actor: Any = None) -> SaleReturn
                 },
             )
 
-        refund = _money(item_data["refund_amount"], field="refund amount")
         max_allowed = _returnable_amount(sale_item, quantity)
-        if not Decimal(0) <= refund <= max_allowed:
-            msg = "A refund exceeds the value of the returned quantity."
-            raise SaleValidationError(
-                msg,
-                detail={"sale_item_id": str(sale_item.pk), "max_allowed": str(max_allowed)},
-            )
+        if item_data.get("refund_amount") is None:
+            refund = max_allowed
+        else:
+            refund = _money(item_data["refund_amount"], field="refund amount")
+            if not Decimal(0) <= refund <= max_allowed:
+                msg = "A refund exceeds the value of the returned quantity."
+                raise SaleValidationError(
+                    msg,
+                    detail={"sale_item_id": str(sale_item.pk), "max_allowed": str(max_allowed)},
+                )
+        item_data["refund_amount"] = refund
         refund_total += refund
 
     declared = data.get("refund_amount")
