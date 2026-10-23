@@ -36,6 +36,7 @@ EVENT_INVOICE_CONFIRMED: Final = "invoice.confirmed"
 EVENT_INVOICE_VOIDED: Final = "invoice.voided"
 EVENT_INVOICE_OVERDUE: Final = "invoice.overdue"
 
+
 @dataclass(frozen=True, slots=True)
 class PricedLine:
     """
