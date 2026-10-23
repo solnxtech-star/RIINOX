@@ -1,24 +1,26 @@
 from __future__ import annotations
 
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
-from typing import TYPE_CHECKING, Any, Final
 import uuid
+from decimal import ROUND_HALF_UP
+from decimal import Decimal
+from decimal import InvalidOperation
+from typing import TYPE_CHECKING
+from typing import Any
+from typing import Final
 
 from django.db import transaction
-from django.db.models import F, Sum
 
+from core.applications.invoice.services.balance import recalculate_customer_balance
 from core.applications.payment.exceptions import PaymentValidationError
-from core.applications.payment.models import InvoicePayment, Payment
+from core.applications.payment.models import InvoicePayment
+from core.applications.payment.models import Payment
+from core.helper.enums import InvoiceStatusChoices
+from core.helper.enums import PaymentMethod
+from core.helper.enums import PaymentStatus
+from core.helper.enums import SalePaymentStatusChoices
 
 if TYPE_CHECKING:
-    from core.applications.customers.models import Customer
     from core.applications.invoice.models import Invoice
-from core.helper.enums import (
-    InvoiceStatusChoices,
-    PaymentMethod,
-    PaymentStatus,
-    SalePaymentStatusChoices,
-)
 
 CENT: Final = Decimal("0.01")
 
@@ -41,25 +43,6 @@ def _money(value: Any, *, field: str = "amount") -> Decimal:
 def _reference(prefix: str, key: str) -> str:
     return f"{prefix}-{key}-{uuid.uuid4().hex[:6].upper()}"
 
-
-def _sync_customer_balance(customer: Any) -> None:
-    """
-    Recompute Customer.balance as total - amount_paid over the customer's
-    Confirmed, Overdue and Partially Paid invoices.
-    """
-    outstanding_statuses = (
-        InvoiceStatusChoices.CONFIRMED,
-        InvoiceStatusChoices.OVERDUE,
-        InvoiceStatusChoices.PARTIALLY_PAID,
-    )
-    owed = (
-        customer.invoices.filter(status__in=outstanding_statuses).aggregate(
-            owed=Sum(F("total") - F("amount_paid"))
-        )["owed"]
-        or Decimal("0.00")
-    )
-    customer.__class__.objects.filter(pk=customer.pk).update(balance=owed)
-    customer.balance = owed
 
 
 def parse_payment(payment: dict[str, Any] | None, total: Decimal) -> tuple[Decimal, str, str | None]:
@@ -159,5 +142,5 @@ def record_invoice_payment(
         amount=amount,
         balance_after=invoice.total - new_paid,
     )
-    _sync_customer_balance(customer)
+    recalculate_customer_balance(customer)
     return payment, receipt

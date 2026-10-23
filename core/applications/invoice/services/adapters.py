@@ -16,6 +16,7 @@ from core.applications.customers.models import Customer
 from core.applications.invoice.exceptions import InvoiceValidationError
 from core.applications.invoice.models import Invoice
 from core.applications.invoice.queryset import OUTSTANDING_STATUSES
+from core.applications.invoice.services.balance import recalculate_customer_balance
 from core.applications.invoice.services.ports import SaleLineSnapshot
 from core.applications.invoice.services.ports import SaleSnapshot
 from core.applications.payment.models import InvoicePayment
@@ -139,20 +140,4 @@ def refresh_customer_balance(customer: Customer) -> None:
     invoice querysets, so the balance and the "outstanding" reports can never
     disagree about what is owed.
     """
-    owed = Invoice.objects.filter(
-        organization_id=customer.organization_id,
-        customer_id=customer.pk,
-        status__in=OUTSTANDING_STATUSES,
-    ).aggregate(
-        owed=Coalesce(
-            Sum(ExpressionWrapper(F("total") - F("amount_paid"), output_field=MONEY)),
-            Decimal("0.00"),
-            output_field=MONEY,
-        )
-    )["owed"].quantize(CENT)
-
-    Customer.objects.filter(
-        pk=customer.pk,
-        organization_id=customer.organization_id,
-    ).update(balance=owed)
-    customer.balance = owed
+    recalculate_customer_balance(customer)
