@@ -4,7 +4,13 @@ from django.utils import timezone
 from django.contrib.contenttypes.models import ContentType
 from core.applications.inventory.models import Inventory, InventoryLedgerEntry, StockAdjustmentRequest
 from core.applications.subscriptions.services.entitlements import ensure_subscription_active
-from core.applications.transactions.services import create_transaction, TransactionData
+from core.applications.transactions.services import (
+    create_transaction,
+    TransactionData,
+    record_sale_financial_entries,
+    record_sale_return_financial_entries,
+    record_sale_cancellation_financial_entries,
+)
 from core.applications.notification.audit.services import record as audit_record
 from core.applications.notification.audit.action import AuditAction
 from core.helper.enums import (
@@ -43,7 +49,8 @@ def process_sale_inventory_and_ledger(sale):
         for item in sale.items.all():
             if item.product.track_inventory:
                 raise ValidationError(f"No warehouse assigned to sale to deduct stock for {item.product.name}.")
-        return
+        record_sale_financial_entries(sale, transaction_record)
+        return transaction_record
 
     ledger_entries = []
 
@@ -115,6 +122,8 @@ def process_sale_inventory_and_ledger(sale):
     if ledger_entries:
         InventoryLedgerEntry.objects.bulk_create(ledger_entries)
 
+    record_sale_financial_entries(sale, transaction_record)
+
     audit_record(
         action=AuditAction.SALES_ORDER_FULFILLED,
         organization=sale.organization,
@@ -122,6 +131,7 @@ def process_sale_inventory_and_ledger(sale):
         resource=sale,
         metadata={"total_items": len(ledger_entries)}
     )
+    return transaction_record
 
 @transaction.atomic
 def process_return_inventory_and_ledger(sale_return):
@@ -166,6 +176,9 @@ def process_return_inventory_and_ledger(sale_return):
     if entries:
         InventoryLedgerEntry.objects.bulk_create(entries)
 
+    record_sale_return_financial_entries(sale_return, transaction_record)
+    return transaction_record
+
 @transaction.atomic
 def reverse_sale_inventory_and_ledger(sale, *, actor=None, reason: str = ""):
     """
@@ -184,7 +197,8 @@ def reverse_sale_inventory_and_ledger(sale, *, actor=None, reason: str = ""):
 
     warehouse = sale.warehouse or (sale.location.warehouse if sale.location else None)
     if not warehouse:
-        return
+        record_sale_cancellation_financial_entries(sale, transaction_record)
+        return transaction_record
 
     entries = []
     for item in sale.items.all():
@@ -211,6 +225,9 @@ def reverse_sale_inventory_and_ledger(sale, *, actor=None, reason: str = ""):
 
     if entries:
         InventoryLedgerEntry.objects.bulk_create(entries)
+
+    record_sale_cancellation_financial_entries(sale, transaction_record)
+    return transaction_record
 
 
 

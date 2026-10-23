@@ -35,8 +35,13 @@ def build_sale_snapshot(sale: Sale) -> SaleSnapshot:
     The warehouse comes from the sale's location. A sale without one has
     nowhere to supply goods from, so it cannot be invoiced.
     """
-    if sale.location_id is None:
-        msg = "The sale has no location, so it has no warehouse to supply it from."
+    warehouse_id = (
+        sale.warehouse_id
+        or (sale.location.warehouse_id if sale.location else None)
+    )
+    has_tracked = any(getattr(item.product, "track_inventory", False) for item in sale.items.all())
+    if warehouse_id is None and has_tracked:
+        msg = "The sale has no warehouse to supply goods from."
         raise InvoiceValidationError(msg, detail={"sale_id": str(sale.pk)})
 
     items = sale.items.all().order_by("pk")
@@ -44,10 +49,7 @@ def build_sale_snapshot(sale: Sale) -> SaleSnapshot:
         sale_id=sale.pk,
         organization_id=sale.organization_id,
         customer_id=sale.customer_id,
-        warehouse_id=(
-            sale.warehouse_id
-            or (sale.location.warehouse_id if sale.location else None)
-        ),
+        warehouse_id=warehouse_id,
         sales_rep_id=sale.sales_rep_id,
         currency=sale.currency,
         due_date=sale.due_date,

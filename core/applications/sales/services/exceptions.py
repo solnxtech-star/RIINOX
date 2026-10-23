@@ -22,7 +22,8 @@ class SaleError(BusinessRuleError):
     ) -> None:
         msg = message or self.default_message
         c = code or self.code
-        super().__init__(
+        BusinessRuleError.__init__(
+            self,
             code=c,
             message=msg,
             status_code=status_code,
