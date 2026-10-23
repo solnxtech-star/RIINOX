@@ -1,25 +1,31 @@
 from __future__ import annotations
 
+import uuid
+from decimal import ROUND_HALF_UP
+from decimal import Decimal
+from decimal import InvalidOperation
+from typing import TYPE_CHECKING
+from typing import Any
+from typing import Final
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Final
 
 from django.db import transaction
-from django.db.models import F, Sum
 
+from core.applications.invoice.services.balance import recalculate_customer_balance
 from core.applications.payment.exceptions import PaymentValidationError
+from core.applications.payment.models import InvoicePayment
+from core.applications.payment.models import Payment
+from core.helper.enums import InvoiceStatusChoices
+from core.helper.enums import PaymentMethod
+from core.helper.enums import PaymentStatus
+from core.helper.enums import SalePaymentStatusChoices
 from core.applications.payment.models import InvoicePayment, Payment
 from core.helper.money import CENT, quantize_money
 from core.helper.utils import generate_reference
 
 if TYPE_CHECKING:
-    from core.applications.customers.models import Customer
     from core.applications.invoice.models import Invoice
-from core.helper.enums import (
-    InvoiceStatusChoices,
-    PaymentMethod,
-    PaymentStatus,
-    SalePaymentStatusChoices,
-)
 
 # Invoices that can still receive a payment.
 PAYABLE_STATUSES: Final = (
@@ -40,25 +46,6 @@ def _money(value: Any, *, field: str = "amount") -> Decimal:
 _reference = generate_reference
 
 
-
-def _sync_customer_balance(customer: Any) -> None:
-    """
-    Recompute Customer.balance as total - amount_paid over the customer's
-    Confirmed, Overdue and Partially Paid invoices.
-    """
-    outstanding_statuses = (
-        InvoiceStatusChoices.CONFIRMED,
-        InvoiceStatusChoices.OVERDUE,
-        InvoiceStatusChoices.PARTIALLY_PAID,
-    )
-    owed = (
-        customer.invoices.filter(status__in=outstanding_statuses).aggregate(
-            owed=Sum(F("total") - F("amount_paid"))
-        )["owed"]
-        or Decimal("0.00")
-    )
-    customer.__class__.objects.filter(pk=customer.pk).update(balance=owed)
-    customer.balance = owed
 
 
 class PaymentParseResult:
