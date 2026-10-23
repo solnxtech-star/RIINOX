@@ -30,6 +30,17 @@ def send_invitation_email(membership):
         fail_silently=False,
     )
 
+import uuid
+
+
 def default_invite_expiry():
     """Default expiry for invitations (7 days from now)."""
     return timezone.now() + timedelta(days=7)
+
+
+def generate_reference(prefix: str, key: str, length: int = 6) -> str:
+    """
+    Generate a formatted unique reference string: {PREFIX}-{KEY}-{UUID_HEX}.
+    """
+    return f"{prefix}-{key}-{uuid.uuid4().hex[:length].upper()}"
+

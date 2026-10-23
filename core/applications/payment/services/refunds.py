@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from decimal import Decimal
-import uuid
 from typing import TYPE_CHECKING
 
 from django.db.models import Sum
@@ -10,13 +9,14 @@ from django.utils import timezone
 from core.applications.payment.exceptions import PaymentValidationError
 from core.applications.payment.models import InvoicePayment, Refund
 from core.helper.enums import PaymentStatus
+from core.helper.utils import generate_reference
 
 if TYPE_CHECKING:
     from core.applications.sales.models import SaleReturn
 
 
-def _reference(prefix: str, key: str) -> str:
-    return f"{prefix}-{key}-{uuid.uuid4().hex[:6].upper()}"
+_reference = generate_reference
+
 
 
 def record_refund_for_return(sale_return: SaleReturn) -> Refund | None:

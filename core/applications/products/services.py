@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 from django.core.exceptions import ValidationError
@@ -40,6 +41,7 @@ __all__ = [
     "delete_product",
     "create_category",
     "create_brand",
+    "get_unit_multiplier",
 ]
 @transaction.atomic
 def create_product(
@@ -339,3 +341,21 @@ def create_brand(*, organization: Organization, name: str) -> Brand:
     """
     ensure_subscription_active(organization)
     return Brand.objects.create(organization=organization, name=name)
+
+
+def get_unit_multiplier(product: Any, unit_name: str) -> Decimal:
+    """
+    Calculate how many base units one `unit_name` represents.
+    If unit_name matches the product's base unit_of_measurement, returns 1.000.
+    Otherwise queries product.unit_conversions.
+    Raises ValueError if no conversion exists for the specified unit.
+    """
+    if unit_name == getattr(product, "unit_of_measurement", None):
+        return Decimal("1.000")
+    conversion = product.unit_conversions.filter(unit_name=unit_name).first()
+    if conversion is None:
+        raise ValueError(
+            f"Product '{getattr(product, 'name', product)}' has no unit conversion for '{unit_name}'."
+        )
+    return Decimal(str(conversion.multiplier))
+

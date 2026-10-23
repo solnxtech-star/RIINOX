@@ -20,7 +20,7 @@ from core.applications.inventory.models import PhysicalStockCountItem
 from core.applications.invoice.models import Invoice
 from core.applications.invoice.models import InvoiceItem
 from core.applications.products.models import Product
-from core.helper.enums import UsersRole
+from core.helper.enums import InvoiceStatusChoices, UsersRole
 
 
 def _organization(request):
@@ -167,8 +167,7 @@ def dashboard_callback(request, context):
 
     todays_invoices = invoice_qs.filter(
         created_at__date=today,
-        is_voided=False,
-    )
+    ).not_voided()
 
     # ------------------------------------------------------------------
     # Today's sales
@@ -190,8 +189,8 @@ def dashboard_callback(request, context):
 
     outstanding_payments = (
         invoice_qs
-        .filter(is_voided=False)
-        .exclude(status="paid")
+        .not_voided()
+        .exclude(status=InvoiceStatusChoices.PAID)
         .aggregate(
             total=Coalesce(
                 Sum("total"),
@@ -221,7 +220,8 @@ def dashboard_callback(request, context):
 
     top_products_qs = InvoiceItem.objects.filter(
         invoice__created_at__date__gte=thirty_days_ago,
-        invoice__is_voided=False,
+    ).exclude(
+        invoice__status=InvoiceStatusChoices.CANCELLED,
     )
 
     # Important: keep dashboard data within the current organization.

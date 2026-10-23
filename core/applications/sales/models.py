@@ -30,8 +30,21 @@ class Sale(TimeBasedModel):
     customer = auto_prefetch.ForeignKey(
         "customers.Customer", on_delete=models.PROTECT, related_name="sales"
     )
+    warehouse = auto_prefetch.ForeignKey(
+        "warehouse.Warehouse",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="sales",
+        help_text=_("Warehouse the goods are supplied from."),
+    )
     location = auto_prefetch.ForeignKey(
-        "warehouse.StockLocation", on_delete=models.PROTECT, related_name="sales"
+        "warehouse.StockLocation",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="sales",
+        help_text=_("Optional specific shelf/bin/dock inside the warehouse."),
     )
     sales_rep = auto_prefetch.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="sales"
@@ -55,10 +68,30 @@ class Sale(TimeBasedModel):
     total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     notes = models.TextField(blank=True, null=True)
 
+    # Cancellation tracking (PRD §44)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    cancelled_by = auto_prefetch.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="cancelled_sales",
+    )
+    cancel_reason = models.TextField(blank=True, null=True)
+
     class Meta(auto_prefetch.Model.Meta):
         verbose_name = _("Sale")
         verbose_name_plural = _("Sales")
         ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["organization", "-created_at"], name="sale_org_created_idx"),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(total__gte=0),
+                name="sale_total_non_negative",
+            ),
+        ]
 
     def __str__(self):
         return f"Sale {self.sale_id}"
@@ -95,6 +128,12 @@ class SaleItem(TimeBasedModel):
     class Meta(auto_prefetch.Model.Meta):
         verbose_name = _("Sale Item")
         verbose_name_plural = _("Sale Items")
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(returned_quantity__lte=models.F("quantity")),
+                name="sale_item_returned_lte_quantity",
+            ),
+        ]
 
     @property
     def total(self):
