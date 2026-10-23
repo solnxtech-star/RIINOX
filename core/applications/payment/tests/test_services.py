@@ -70,7 +70,7 @@ class PaymentServicesTest(TestCase):
         self.assertEqual(res.change_due, Decimal("50.00"))
 
     def test_parse_payment_card_overpayment_rejected(self):
-        data = {"amount": "150.00", "method": PaymentMethod.CREDIT_CARD}
+        data = {"amount": "150.00", "method": PaymentMethod.BANK_TRANSFER}
         with self.assertRaises(PaymentValidationError):
             parse_payment(data, Decimal("100.00"))
 
@@ -131,7 +131,7 @@ class PaymentServicesTest(TestCase):
             record_invoice_payment(
                 self.invoice,
                 amount=Decimal("150.00"),
-                method=PaymentMethod.CREDIT_CARD,
+                method=PaymentMethod.BANK_TRANSFER,
                 actor=self.user,
                 currency="USD",
             )

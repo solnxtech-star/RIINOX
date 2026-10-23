@@ -1,23 +1,28 @@
 from __future__ import annotations
 
 import uuid
-from decimal import ROUND_HALF_UP
 from decimal import Decimal
-from decimal import InvalidOperation
-from typing import TYPE_CHECKING
-from typing import Any
-from typing import Final
+from typing import TYPE_CHECKING, Any, Final
 
+from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 
 from core.applications.invoice.services.balance import recalculate_customer_balance
 from core.applications.payment.exceptions import PaymentValidationError
-from core.applications.payment.models import InvoicePayment
-from core.applications.payment.models import Payment
-from core.helper.enums import InvoiceStatusChoices
-from core.helper.enums import PaymentMethod
-from core.helper.enums import PaymentStatus
-from core.helper.enums import SalePaymentStatusChoices
+from core.applications.payment.models import InvoicePayment, Payment
+from core.applications.transactions.services import (
+    TransactionData,
+    create_transaction,
+    record_payment_financial_entries,
+)
+from core.helper.enums import (
+    InvoiceStatusChoices,
+    PaymentMethod,
+    PaymentStatus,
+    SalePaymentStatusChoices,
+    TransactionStatusChoices,
+    TransactionTypeChoices,
+)
 from core.helper.money import quantize_money
 from core.helper.utils import generate_reference
 
@@ -255,6 +260,20 @@ def record_invoice_payment(
         balance_after=invoice.total - new_paid,
     )
     recalculate_customer_balance(customer)
+    trx = create_transaction(
+        TransactionData(
+            transaction_id=f"PAY-{str(payment.id)[:8]}-{uuid.uuid4().hex[:6]}".upper(),
+            organization=invoice.organization,
+            transaction_type=TransactionTypeChoices.PAYMENT_RECEIVED,
+            status=TransactionStatusChoices.COMPLETED,
+            content_type=ContentType.objects.get_for_model(payment),
+            object_id=payment.id,
+            created_by=actor,
+            notes=description or f"Payment for invoice {invoice.invoice_number}",
+        )
+    )
+    record_payment_financial_entries(payment, trx)
+
     return RecordPaymentResult(
         payment=payment,
         receipt=receipt,
