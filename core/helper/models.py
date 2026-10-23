@@ -59,6 +59,14 @@ class TimeBasedModel(auto_prefetch.Model):
     objects = auto_prefetch.Manager()
     items: models.QuerySet = VisibleManager()
 
+    def save(self, *args, **kwargs):
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None:
+            update_fields = set(update_fields)
+            update_fields.add("updated_at")
+            kwargs["update_fields"] = list(update_fields)
+        super().save(*args, **kwargs)
+
 
 class TitleTimeBasedModel(TimeBasedModel):
     title = models.CharField(max_length=100, blank=True)
