@@ -241,6 +241,28 @@ class SalesAPITest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertTrue(SaleReturn.objects.filter(original_sale=self.sale).exists())
 
+    def test_create_sale_return_without_refund_amounts_auto_computes(self):
+        """refund_amount is read-only and automatically determined by backend."""
+        self.client.force_authenticate(user=self.manager)
+        url = self.returns_url
+        data = {
+            "original_sale": str(self.sale.id),
+            "return_reason": "Customer returned without refund amounts",
+            "refund_method": "cash",
+            "items": [
+                {
+                    "sale_item": str(self.sale_item.id),
+                    "quantity": 1,
+                    "restock_action": "return_to_stock",
+                }
+            ],
+        }
+        response = self.client.post(url, data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Decimal(str(response.data["refund_amount"])), Decimal("15.00"))
+        self.assertEqual(len(response.data["items"]), 1)
+        self.assertEqual(Decimal(str(response.data["items"][0]["refund_amount"])), Decimal("15.00"))
+
     # -------------------------------------------------------------------------
     # Multi-Tenant Boundary Isolation Tests
     # -------------------------------------------------------------------------
