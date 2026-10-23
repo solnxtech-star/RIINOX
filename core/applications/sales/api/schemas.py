@@ -10,6 +10,7 @@ from drf_spectacular.utils import (
 from rest_framework import serializers
 
 from core.applications.sales.api.serializers import (
+    SaleCancelSerializer,
     SaleCreateSerializer,
     SaleReturnCreateSerializer,
     SaleReturnSerializer,
@@ -100,12 +101,13 @@ _sale_create_example = OpenApiExample(
     "Standard Sale Order Request",
     summary="Create sale with line items and FIFO inventory deduction",
     description=(
-        "Standard sales order creation payload. Links organization, customer, location warehouse, and sales rep. "
+        "Standard sales order creation payload. Links customer, optional warehouse/location, and sales rep. "
+        "If location/warehouse is omitted, the backend automatically defaults to the organization's active warehouse. "
         "Line items reference catalog products. Deducts inventory using FIFO and creates ledger entries."
     ),
     value={
-        "organization": "a1b2c3d4-e5f6-4789-b1c2-d3e4f5a6b7c8",
         "customer": "b2c3d4e5-f6a7-4789-b1c2-d3e4f5a6b7c9",
+        "warehouse": "c3d4e5f6-a7b8-4789-b1c2-d3e4f5a6b7cb",
         "location": "c3d4e5f6-a7b8-4789-b1c2-d3e4f5a6b7ca",
         "sales_rep": "11111111-2222-3333-4444-555555555555",
         "currency": "NGN",
@@ -115,11 +117,14 @@ _sale_create_example = OpenApiExample(
         "shipping_address": "45 Commercial Avenue, Ikeja, Lagos",
         "discount_amount": "5000.00",
         "notes": "Corporate order for regional branch supply.",
+        "payment": {
+            "method": "cash",
+            "amount": "50000.00",
+            "reference": "POS-CASH-001",
+        },
         "items": [
             {
                 "product": "d1e2f3a4-b5c6-4789-b1c2-d3e4f5a6b7c8",
-                "product_name": "Premium Industrial Solvent",
-                "product_sku": "SOLV-IND-01",
                 "quantity": 10,
                 "unit_name": "drum_20l",
                 "unit_price": "5000.00",
@@ -139,9 +144,10 @@ _sale_response_example = OpenApiExample(
         "sale_id": "SALE-2026-0089",
         "organization": "a1b2c3d4-e5f6-4789-b1c2-d3e4f5a6b7c8",
         "customer": "b2c3d4e5-f6a7-4789-b1c2-d3e4f5a6b7c9",
+        "warehouse": "c3d4e5f6-a7b8-4789-b1c2-d3e4f5a6b7cb",
         "location": "c3d4e5f6-a7b8-4789-b1c2-d3e4f5a6b7ca",
         "sales_rep": "11111111-2222-3333-4444-555555555555",
-        "payment_status": "unpaid",
+        "payment_status": "paid",
         "fulfillment_status": "fulfilled",
         "currency": "NGN",
         "reference_number": "SO-2026-1042",
@@ -152,6 +158,7 @@ _sale_response_example = OpenApiExample(
         "discount_amount": "5000.00",
         "tax_amount": "3375.00",
         "total": "48375.00",
+        "change_due": "1625.00",
         "notes": "Corporate order for regional branch supply.",
         "items": [
             {
@@ -293,6 +300,18 @@ sale_viewset_schema = extend_schema_view(
             "### Overview\n"
             "Creates a new sale record along with its line items. Triggers atomic inventory deduction across batches, "
             "creates immutable ledger entries, and records unified business transactions (PRD §16, §26, §42).\n\n"
+            "### Warehouse & Stock Location Resolution\n"
+            "- **`warehouse`** (UUID, optional): Target warehouse fulfilling the order.\n"
+            "- **`location`** (UUID, optional): Specific shelf/bin stock location within the warehouse.\n"
+            "- **Smart Automatic Fallback**: Both fields are optional in the request payload. "
+            "If omitted, the backend automatically resolves and defaults to the organization's primary active warehouse "
+            "(and its default stock location if one exists). For orders containing strictly service or non-inventory items, "
+            "neither warehouse nor location is required.\n\n"
+            "### Payment Tender & Cash Change Due (PRD §39)\n"
+            "- **Auto 'Pay in Full' (Omitted `amount`)**: If `payment.amount` is omitted or null, the backend automatically records the full outstanding net total as paid without requiring frontend calculation.\n"
+            "- **Cash Overpayment & Change Due**: When paying via `cash`, if tendered `amount > total`, the backend records the exact net sale total as received revenue and returns the remaining customer change in `change_due` (e.g. ₦1,000 tendered on a ₦950 sale records ₦950 and returns `change_due: \"50.00\"`).\n"
+            "- **Partial Payments**: If tendered `amount < total`, the payment records the partial amount and sets `payment_status: \"partially_paid\"`.\n"
+            "- **Non-Cash Overpayment Guard**: Non-cash payment methods (`card`, `bank_transfer`, `pos`) strictly reject overpayments exceeding the payable total with HTTP 400.\n\n"
             "### Required Permissions & Access Control (PRD §28, §55)\n"
             "- **`CREATE_SALE`**: Required to create sales orders.\n"
             "- **`APPLY_DISCOUNT`**: If `discount_amount > 0` or any line item specifies `discount > 0`, the caller "
@@ -403,6 +422,29 @@ sale_viewset_schema = extend_schema_view(
         ),
         responses={
             204: OpenApiResponse(description="Sale deleted successfully."),
+            401: UNAUTHENTICATED_RESPONSE,
+            403: FORBIDDEN_RESPONSE,
+            404: NOT_FOUND_RESPONSE,
+        },
+    ),
+    cancel=extend_schema(
+        tags=["Sales"],
+        summary="Cancel Sale Order",
+        description=(
+            "### Overview\n"
+            "Cancels an existing sale order per PRD §44 (Cancellations & Immutability).\n\n"
+            "### Business Workflow\n"
+            "- Validates active organization subscription.\n"
+            "- Verifies the sale is not already cancelled.\n"
+            "- Reverses all deducted stock movements back to warehouse inventory.\n"
+            "- Records compensating ledger entries (`InventoryLedgerEntry`).\n"
+            "- Updates `cancelled_at`, `cancelled_by`, `cancel_reason`, and sets `fulfillment_status = CANCELED`.\n"
+            "- Records centralized audit log event (`sales_order.cancelled`)."
+        ),
+        request=SaleCancelSerializer,
+        responses={
+            200: OpenApiResponse(response=SaleSerializer, description="Sale cancelled successfully and stock reversed."),
+            400: OpenApiResponse(response=DetailErrorSerializer, description="Sale cannot be cancelled (already cancelled or has returns)."),
             401: UNAUTHENTICATED_RESPONSE,
             403: FORBIDDEN_RESPONSE,
             404: NOT_FOUND_RESPONSE,

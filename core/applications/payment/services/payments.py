@@ -7,6 +7,8 @@ from decimal import InvalidOperation
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import Final
+from decimal import Decimal
+from typing import TYPE_CHECKING, Any, Final
 
 from django.db import transaction
 
@@ -18,11 +20,12 @@ from core.helper.enums import InvoiceStatusChoices
 from core.helper.enums import PaymentMethod
 from core.helper.enums import PaymentStatus
 from core.helper.enums import SalePaymentStatusChoices
+from core.applications.payment.models import InvoicePayment, Payment
+from core.helper.money import CENT, quantize_money
+from core.helper.utils import generate_reference
 
 if TYPE_CHECKING:
     from core.applications.invoice.models import Invoice
-
-CENT: Final = Decimal("0.01")
 
 # Invoices that can still receive a payment.
 PAYABLE_STATUSES: Final = (
@@ -34,31 +37,60 @@ PAYABLE_STATUSES: Final = (
 
 def _money(value: Any, *, field: str = "amount") -> Decimal:
     try:
-        return Decimal(str(value)).quantize(CENT, rounding=ROUND_HALF_UP)
-    except (InvalidOperation, ValueError) as exc:
+        return quantize_money(value, field=field)
+    except ValueError as exc:
         msg = f"Invalid {field}."
         raise PaymentValidationError(msg, detail={field: str(value)}) from exc
 
 
-def _reference(prefix: str, key: str) -> str:
-    return f"{prefix}-{key}-{uuid.uuid4().hex[:6].upper()}"
+_reference = generate_reference
 
 
 
-def parse_payment(payment: dict[str, Any] | None, total: Decimal) -> tuple[Decimal, str, str | None]:
+
+class PaymentParseResult:
+    """Result of parsing and validating payment tendered with a sale."""
+
+    def __init__(
+        self,
+        amount: Decimal,
+        method: str,
+        reference: str | None,
+        change_due: Decimal = Decimal("0.00"),
+    ):
+        self.amount = amount
+        self.method = method
+        self.reference = reference
+        self.change_due = change_due
+
+    def __iter__(self):
+        yield self.amount
+        yield self.method
+        yield self.reference
+
+    def __getitem__(self, index):
+        return (self.amount, self.method, self.reference, self.change_due)[index]
+
+    def __repr__(self) -> str:
+        return (
+            f"PaymentParseResult(amount={self.amount}, change_due={self.change_due}, "
+            f"method='{self.method}', reference={self.reference!r})"
+        )
+
+
+def parse_payment(payment: dict[str, Any] | None, total: Decimal) -> PaymentParseResult:
     """
     Parse and validate payment tendered with a sale (PRD §39: {"amount", "method", "reference"}).
-    Returns (amount, method, caller reference). Overpayment is refused: change
-    is given at the till, it is not recorded as received.
+
+    Rules:
+    - Amount omitted: automatically defaults to the full outstanding balance (`total`).
+    - Cash payment > total: records `total` as received and calculates `change_due = amount - total`.
+    - Partial payment (< total): records partial amount received (`change_due = 0.00`).
+    - Card/non-cash payment > total: strictly rejected with PaymentValidationError.
     """
     if not payment:
-        return Decimal("0.00"), "", None
-    amount = _money(payment.get("amount") or 0, field="payment amount")
-    if not Decimal(0) <= amount <= total:
-        msg = "The payment must be between zero and the sale total."
-        raise PaymentValidationError(msg, detail={"amount": str(amount), "total": str(total)})
-    if amount == 0:
-        return amount, "", None
+        return PaymentParseResult(Decimal("0.00"), "", None, Decimal("0.00"))
+
     raw_method = payment.get("method")
     if isinstance(raw_method, PaymentMethod):
         method = raw_method
@@ -68,7 +100,38 @@ def parse_payment(payment: dict[str, Any] | None, total: Decimal) -> tuple[Decim
         except ValueError as exc:
             msg = "A valid payment method is required."
             raise PaymentValidationError(msg, detail={"method": str(raw_method)}) from exc
-    return amount, str(method.value), payment.get("reference") or None
+
+    raw_amount = payment.get("amount")
+    if raw_amount is None or raw_amount == "":
+        amount = total
+    else:
+        amount = _money(raw_amount, field="payment amount")
+
+    if amount < Decimal("0.00"):
+        msg = "The payment amount cannot be negative."
+        raise PaymentValidationError(msg, detail={"amount": str(amount)})
+
+    if amount == Decimal("0.00"):
+        return PaymentParseResult(
+            Decimal("0.00"), str(method.value), payment.get("reference") or None, Decimal("0.00")
+        )
+
+    norm_method = str(method.value).lower()
+    change_due = Decimal("0.00")
+    if amount > total:
+        if norm_method == "cash":
+            change_due = amount - total
+            paid_now = total
+        else:
+            msg = f"Overpayment is not allowed for {method.value} payments. Tendered {amount} exceeds sale total {total}."
+            raise PaymentValidationError(
+                msg,
+                detail={"amount": str(amount), "total": str(total), "method": str(method.value)},
+            )
+    else:
+        paid_now = amount
+
+    return PaymentParseResult(paid_now, str(method.value), payment.get("reference") or None, change_due)
 
 
 def payment_status(total: Decimal, paid: Decimal) -> str:
@@ -80,48 +143,100 @@ def payment_status(total: Decimal, paid: Decimal) -> str:
     return SalePaymentStatusChoices.UNPAID
 
 
+class RecordPaymentResult:
+    """Result of recording a payment against an invoice."""
+
+    def __init__(
+        self,
+        payment: Payment,
+        receipt: InvoicePayment,
+        change_due: Decimal = Decimal("0.00"),
+    ):
+        self.payment = payment
+        self.receipt = receipt
+        self.change_due = change_due
+
+    def __iter__(self):
+        yield self.payment
+        yield self.receipt
+
+    def __getitem__(self, index):
+        return (self.payment, self.receipt, self.change_due)[index]
+
+    def __repr__(self) -> str:
+        return (
+            f"RecordPaymentResult(payment={self.payment}, receipt={self.receipt}, "
+            f"change_due={self.change_due})"
+        )
+
+
 @transaction.atomic
 def record_invoice_payment(
     invoice: Invoice,
     *,
-    amount: Decimal,
+    amount: Decimal | None = None,
     method: str,
     actor: Any,
     currency: str,
     reference: str | None = None,
     description: str = "",
-) -> tuple[Payment, InvoicePayment]:
+) -> RecordPaymentResult:
     """
     Record money received against an invoice: the Payment, the receipt
     (InvoicePayment), the invoice's `amount_paid` and status, and the customer's
     cached balance, all together. This is the only place `amount_paid` is
     written, so the payment records stay the source of truth.
 
-    Call inside the caller's transaction. The invoice row is locked and the
-    customer row is locked after it (invoice -> customer).
+    Rules:
+    - If invoice is already fully paid: raises PaymentValidationError.
+    - If amount is omitted (None): defaults to the remaining invoice balance (`total - amount_paid`).
+    - If cash payment > balance_due: records balance_due received and calculates change_due.
+    - If card/non-cash payment > balance_due: rejected with PaymentValidationError.
     """
-    amount = _money(amount, field="payment amount")
-    if amount <= 0:
-        msg = "A payment must be greater than zero."
-        raise PaymentValidationError(msg, detail={"amount": str(amount)})
-
     invoice = invoice.__class__.objects.select_for_update().get(pk=invoice.pk)
+    if invoice.status == InvoiceStatusChoices.PAID or invoice.amount_paid >= invoice.total:
+        msg = "The invoice is already fully paid."
+        raise PaymentValidationError(
+            msg, detail={"invoice_id": str(invoice.pk), "status": str(invoice.status)}
+        )
+
     if invoice.status not in PAYABLE_STATUSES:
         msg = f"An invoice that is {invoice.status} cannot take a payment."
         raise PaymentValidationError(msg, detail={"invoice_id": str(invoice.pk)})
-    new_paid = invoice.amount_paid + amount
-    if new_paid > invoice.total:
-        msg = "The payment exceeds the invoice balance."
-        raise PaymentValidationError(
-            msg,
-            detail={"amount": str(amount), "balance_due": str(invoice.balance_due)},
-        )
+
+    balance_due = invoice.total - invoice.amount_paid
+
+    if amount is None or amount == "":
+        amount_val = balance_due
+    else:
+        amount_val = _money(amount, field="payment amount")
+
+    if amount_val <= Decimal("0.00"):
+        msg = "A payment must be greater than zero."
+        raise PaymentValidationError(msg, detail={"amount": str(amount_val)})
+
+    norm_method = str(method).lower()
+    change_due = Decimal("0.00")
+    if amount_val > balance_due:
+        if norm_method == "cash":
+            change_due = amount_val - balance_due
+            paid_amount = balance_due
+        else:
+            msg = f"Overpayment is not allowed for {method} payments. Tendered {amount_val} exceeds balance due {balance_due}."
+            raise PaymentValidationError(
+                msg,
+                detail={"amount": str(amount_val), "balance_due": str(balance_due), "method": str(method)},
+            )
+    else:
+        paid_amount = amount_val
+
+    new_paid = invoice.amount_paid + paid_amount
 
     customer = invoice.customer.__class__.objects.select_for_update().get(pk=invoice.customer_id)
 
     payment = Payment.objects.create(
         user=actor,
-        amount=amount,
+        amount=paid_amount,
         currency=currency,
         method=method,
         status=PaymentStatus.SUCCESS,
@@ -139,8 +254,8 @@ def record_invoice_payment(
         invoice=invoice,
         payment=payment,
         sales_rep=actor,
-        amount=amount,
+        amount=paid_amount,
         balance_after=invoice.total - new_paid,
     )
-    recalculate_customer_balance(customer)
-    return payment, receipt
+    _sync_customer_balance(customer)
+    return RecordPaymentResult(payment, receipt, change_due)

@@ -23,7 +23,7 @@ class SaleQuerySet(auto_prefetch.QuerySet):
 
     def with_details(self) -> SaleQuerySet:
         return self.select_related(
-            "organization", "customer", "location", "sales_rep"
+            "organization", "customer", "warehouse", "location", "sales_rep"
         ).prefetch_related("items__product", "items__variant")
 
 
