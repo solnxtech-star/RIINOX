@@ -34,6 +34,7 @@ class AuditAction:
     # Sales Events
     SALES_ORDER_CREATED = "sales_order.created"
     SALES_ORDER_FULFILLED = "sales_order.fulfilled"
+    SALES_ORDER_CANCELLED = "sales_order.cancelled"
     SALES_RETURN_CREATED = "sales_return.created"
 
     # Customer Events
