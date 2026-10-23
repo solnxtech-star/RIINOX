@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Final
-import uuid
 
 from django.db import transaction
 from django.db.models import F, Sum
 
 from core.applications.payment.exceptions import PaymentValidationError
 from core.applications.payment.models import InvoicePayment, Payment
+from core.helper.money import CENT, quantize_money
+from core.helper.utils import generate_reference
 
 if TYPE_CHECKING:
     from core.applications.customers.models import Customer
@@ -20,8 +21,6 @@ from core.helper.enums import (
     SalePaymentStatusChoices,
 )
 
-CENT: Final = Decimal("0.01")
-
 # Invoices that can still receive a payment.
 PAYABLE_STATUSES: Final = (
     InvoiceStatusChoices.CONFIRMED,
@@ -32,14 +31,14 @@ PAYABLE_STATUSES: Final = (
 
 def _money(value: Any, *, field: str = "amount") -> Decimal:
     try:
-        return Decimal(str(value)).quantize(CENT, rounding=ROUND_HALF_UP)
-    except (InvalidOperation, ValueError) as exc:
+        return quantize_money(value, field=field)
+    except ValueError as exc:
         msg = f"Invalid {field}."
         raise PaymentValidationError(msg, detail={field: str(value)}) from exc
 
 
-def _reference(prefix: str, key: str) -> str:
-    return f"{prefix}-{key}-{uuid.uuid4().hex[:6].upper()}"
+_reference = generate_reference
+
 
 
 def _sync_customer_balance(customer: Any) -> None:
