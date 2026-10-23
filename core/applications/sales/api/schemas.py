@@ -117,6 +117,11 @@ _sale_create_example = OpenApiExample(
         "shipping_address": "45 Commercial Avenue, Ikeja, Lagos",
         "discount_amount": "5000.00",
         "notes": "Corporate order for regional branch supply.",
+        "payment": {
+            "method": "cash",
+            "amount": "50000.00",
+            "reference": "POS-CASH-001",
+        },
         "items": [
             {
                 "product": "d1e2f3a4-b5c6-4789-b1c2-d3e4f5a6b7c8",
@@ -142,7 +147,7 @@ _sale_response_example = OpenApiExample(
         "warehouse": "c3d4e5f6-a7b8-4789-b1c2-d3e4f5a6b7cb",
         "location": "c3d4e5f6-a7b8-4789-b1c2-d3e4f5a6b7ca",
         "sales_rep": "11111111-2222-3333-4444-555555555555",
-        "payment_status": "unpaid",
+        "payment_status": "paid",
         "fulfillment_status": "fulfilled",
         "currency": "NGN",
         "reference_number": "SO-2026-1042",
@@ -153,6 +158,7 @@ _sale_response_example = OpenApiExample(
         "discount_amount": "5000.00",
         "tax_amount": "3375.00",
         "total": "48375.00",
+        "change_due": "1625.00",
         "notes": "Corporate order for regional branch supply.",
         "items": [
             {
@@ -301,6 +307,11 @@ sale_viewset_schema = extend_schema_view(
             "If omitted, the backend automatically resolves and defaults to the organization's primary active warehouse "
             "(and its default stock location if one exists). For orders containing strictly service or non-inventory items, "
             "neither warehouse nor location is required.\n\n"
+            "### Payment Tender & Cash Change Due (PRD §39)\n"
+            "- **Auto 'Pay in Full' (Omitted `amount`)**: If `payment.amount` is omitted or null, the backend automatically records the full outstanding net total as paid without requiring frontend calculation.\n"
+            "- **Cash Overpayment & Change Due**: When paying via `cash`, if tendered `amount > total`, the backend records the exact net sale total as received revenue and returns the remaining customer change in `change_due` (e.g. ₦1,000 tendered on a ₦950 sale records ₦950 and returns `change_due: \"50.00\"`).\n"
+            "- **Partial Payments**: If tendered `amount < total`, the payment records the partial amount and sets `payment_status: \"partially_paid\"`.\n"
+            "- **Non-Cash Overpayment Guard**: Non-cash payment methods (`card`, `bank_transfer`, `pos`) strictly reject overpayments exceeding the payable total with HTTP 400.\n\n"
             "### Required Permissions & Access Control (PRD §28, §55)\n"
             "- **`CREATE_SALE`**: Required to create sales orders.\n"
             "- **`APPLY_DISCOUNT`**: If `discount_amount > 0` or any line item specifies `discount > 0`, the caller "

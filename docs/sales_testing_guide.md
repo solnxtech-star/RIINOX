@@ -73,11 +73,17 @@
 
 ### 2.3 Tendered Payment Object (`payment: { ... }`)
 
-| Field Name | Type | Required? | Purpose & Business Rules |
-| :--- | :--- | :--- | :--- |
-| **`amount`** | `Decimal` (String) | **Required** | Amount tendered now. Must be `> 0` and `<= total`. |
-| **`method`** | `String` | **Required** | Payment tender: `"cash"`, `"card"`, `"bank_transfer"`, `"pos"`. |
-| **`reference`**| `String` | Optional | External transaction / POS terminal authorization reference. |
+| Field Name | Type | Required? | Default | Purpose & Business Rules |
+| :--- | :--- | :--- | :--- | :--- |
+| **`amount`** | `Decimal` (String) | Optional | Order total balance | Amount tendered now. If omitted or null, backend automatically defaults to full outstanding balance. |
+| **`method`** | `String` | **Required** | None | Payment tender: `"cash"`, `"card"`, `"bank_transfer"`, `"pos"`. |
+| **`reference`**| `String` | Optional | `null` | External transaction / POS terminal authorization reference. |
+
+> [!TIP]
+> **Cash Overpayment & Change Calculation**:
+> * **Cash Tender**: If `method == "cash"` and `amount > total` (e.g. ₦1,000 tendered for a ₦950 bill), the server records ₦950 as official revenue and returns `"change_due": "50.00"` in the response.
+> * **Auto Pay-in-Full**: Simply pass `{"payment": {"method": "cash"}}` without `"amount"` to pay the full net total without needing frontend arithmetic.
+> * **Non-Cash Protection**: For card/bank transfer, overpayment exceeding the invoice balance is strictly rejected with HTTP 400.
 
 ---
 

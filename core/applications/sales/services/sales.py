@@ -267,7 +267,11 @@ def create_sale(data: dict[str, Any], *, actor: Any = None) -> Sale:
         data.pop("discount_amount", 0),
         data.pop("tax_amount", 0),
     )
-    paid_now, method, payment_reference = parse_payment(payment_data, totals["total"])
+    payment_result = parse_payment(payment_data, totals["total"])
+    paid_now = payment_result.amount
+    method = payment_result.method
+    payment_reference = payment_result.reference
+    change_due = payment_result.change_due
 
     data.pop("subtotal", None)
     data.pop("total", None)
@@ -285,6 +289,7 @@ def create_sale(data: dict[str, Any], *, actor: Any = None) -> Sale:
     data["shipping_address"] = details["shipping_address"] or None
 
     sale = Sale.objects.create(**data, **totals)
+    sale.change_due = change_due
     SaleItem.objects.bulk_create([SaleItem(sale=sale, **line) for line in lines])
 
     process_sale_inventory_and_ledger(sale)

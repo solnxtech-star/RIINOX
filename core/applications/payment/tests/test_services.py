@@ -63,10 +63,22 @@ class PaymentServicesTest(TestCase):
         self.assertEqual(method, "")
         self.assertIsNone(ref)
 
-    def test_parse_payment_overpayment_rejected(self):
+    def test_parse_payment_cash_overpayment_calculates_change(self):
         data = {"amount": "150.00", "method": PaymentMethod.CASH}
+        res = parse_payment(data, Decimal("100.00"))
+        self.assertEqual(res.amount, Decimal("100.00"))
+        self.assertEqual(res.change_due, Decimal("50.00"))
+
+    def test_parse_payment_card_overpayment_rejected(self):
+        data = {"amount": "150.00", "method": PaymentMethod.CREDIT_CARD}
         with self.assertRaises(PaymentValidationError):
             parse_payment(data, Decimal("100.00"))
+
+    def test_parse_payment_amount_omitted_defaults_to_full_balance(self):
+        data = {"method": PaymentMethod.CASH}
+        res = parse_payment(data, Decimal("100.00"))
+        self.assertEqual(res.amount, Decimal("100.00"))
+        self.assertEqual(res.change_due, Decimal("0.00"))
 
     def test_parse_payment_invalid_method(self):
         data = {"amount": "50.00", "method": "invalid_method"}
@@ -114,15 +126,27 @@ class PaymentServicesTest(TestCase):
         self.assertEqual(receipt2.balance_after, Decimal("0.00"))
         self.assertEqual(self.customer.balance, Decimal("0.00"))
 
-    def test_record_invoice_payment_exceeding_balance_fails(self):
+    def test_record_invoice_payment_non_cash_exceeding_balance_fails(self):
         with self.assertRaises(PaymentValidationError):
             record_invoice_payment(
                 self.invoice,
                 amount=Decimal("150.00"),
-                method=PaymentMethod.CASH,
+                method=PaymentMethod.CREDIT_CARD,
                 actor=self.user,
                 currency="USD",
             )
+
+    def test_record_invoice_payment_cash_overpayment_returns_change(self):
+        res = record_invoice_payment(
+            self.invoice,
+            amount=Decimal("150.00"),
+            method=PaymentMethod.CASH,
+            actor=self.user,
+            currency="USD",
+        )
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.amount_paid, Decimal("100.00"))
+        self.assertEqual(res.change_due, Decimal("50.00"))
 
     def test_record_invoice_payment_invalid_status_fails(self):
         self.invoice.status = InvoiceStatusChoices.DRAFT

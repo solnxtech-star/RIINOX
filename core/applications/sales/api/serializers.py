@@ -29,6 +29,7 @@ class SaleItemCreateSerializer(serializers.ModelSerializer):
 
 class SaleSerializer(serializers.ModelSerializer):
     items = SaleItemSerializer(many=True, read_only=True)
+    change_due = serializers.SerializerMethodField()
 
     class Meta:
         model = Sale
@@ -36,14 +37,18 @@ class SaleSerializer(serializers.ModelSerializer):
             'id', 'sale_id', 'organization', 'customer', 'warehouse', 'location', 
             'sales_rep', 'payment_status', 'fulfillment_status', 'currency',
             'reference_number', 'due_date', 'billing_address', 'shipping_address',
-            'subtotal', 'discount_amount', 'tax_amount', 'total', 'notes', 
+            'subtotal', 'discount_amount', 'tax_amount', 'total', 'change_due', 'notes', 
             'cancelled_at', 'cancelled_by', 'cancel_reason',
             'items', 'created_at'
         ]
         read_only_fields = [
-            'sale_id', 'total', 'created_at',
+            'sale_id', 'total', 'change_due', 'created_at',
             'cancelled_at', 'cancelled_by', 'cancel_reason'
         ]
+
+    def get_change_due(self, obj) -> str:
+        val = getattr(obj, "change_due", Decimal("0.00"))
+        return f"{Decimal(str(val)):.2f}"
 
 
 class SaleCancelSerializer(serializers.Serializer):
@@ -51,7 +56,9 @@ class SaleCancelSerializer(serializers.Serializer):
 
 
 class SalePaymentTenderSerializer(serializers.Serializer):
-    amount = serializers.DecimalField(max_digits=12, decimal_places=2)
+    amount = serializers.DecimalField(
+        max_digits=12, decimal_places=2, required=False, allow_null=True
+    )
     method = serializers.CharField(max_length=50)
     reference = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")
 

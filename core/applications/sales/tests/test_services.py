@@ -149,6 +149,55 @@ class SalesServicesTest(TestCase):
         self.assertEqual(receipt.balance_after, Decimal("0.00"))
         self.assertTrue(receipt.receipt_number.startswith("R-"))
 
+    def test_create_sale_cash_overpayment_records_total_and_change_due(self):
+        """Cash overpayment records net total as paid and computes change_due."""
+        sale_data = {
+            "organization": self.org,
+            "customer": self.customer,
+            "location": self.location,
+            "discount_amount": Decimal("50.00"),
+            "payment": {"amount": Decimal("1000.00"), "method": "cash"},
+            "items": [
+                {
+                    "product": self.product,
+                    "quantity": 10,
+                    "unit_price": Decimal("100.00"),
+                }
+            ],
+        }
+        sale = create_sale(sale_data, actor=self.user)
+        self.assertEqual(sale.total, Decimal("950.00"))
+        self.assertEqual(sale.change_due, Decimal("50.00"))
+        self.assertEqual(sale.payment_status, SalePaymentStatusChoices.PAID)
+
+        invoice = Invoice.objects.get(sale=sale)
+        self.assertEqual(invoice.amount_paid, Decimal("950.00"))
+        self.assertEqual(invoice.status, InvoiceStatusChoices.PAID)
+
+    def test_create_sale_payment_amount_omitted_defaults_to_full_balance(self):
+        """Omitted payment.amount pays the full order balance automatically."""
+        sale_data = {
+            "organization": self.org,
+            "customer": self.customer,
+            "location": self.location,
+            "discount_amount": Decimal("50.00"),
+            "payment": {"method": "cash"},
+            "items": [
+                {
+                    "product": self.product,
+                    "quantity": 10,
+                    "unit_price": Decimal("100.00"),
+                }
+            ],
+        }
+        sale = create_sale(sale_data, actor=self.user)
+        self.assertEqual(sale.total, Decimal("950.00"))
+        self.assertEqual(sale.change_due, Decimal("0.00"))
+        self.assertEqual(sale.payment_status, SalePaymentStatusChoices.PAID)
+
+        invoice = Invoice.objects.get(sale=sale)
+        self.assertEqual(invoice.amount_paid, Decimal("950.00"))
+
     def test_create_sale_unpaid_does_not_create_payment_or_receipt(self):
         """Unpaid sale generates Invoice without Payment or Receipt."""
         sale_data = {
