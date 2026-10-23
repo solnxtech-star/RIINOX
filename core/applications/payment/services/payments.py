@@ -7,8 +7,6 @@ from decimal import InvalidOperation
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import Final
-from decimal import Decimal
-from typing import TYPE_CHECKING, Any, Final
 
 from django.db import transaction
 
@@ -20,8 +18,7 @@ from core.helper.enums import InvoiceStatusChoices
 from core.helper.enums import PaymentMethod
 from core.helper.enums import PaymentStatus
 from core.helper.enums import SalePaymentStatusChoices
-from core.applications.payment.models import InvoicePayment, Payment
-from core.helper.money import CENT, quantize_money
+from core.helper.money import quantize_money
 from core.helper.utils import generate_reference
 
 if TYPE_CHECKING:
@@ -257,5 +254,9 @@ def record_invoice_payment(
         amount=paid_amount,
         balance_after=invoice.total - new_paid,
     )
-    _sync_customer_balance(customer)
-    return RecordPaymentResult(payment, receipt, change_due)
+    recalculate_customer_balance(customer)
+    return RecordPaymentResult(
+        payment=payment,
+        receipt=receipt,
+        change_due=change_due,
+    )
