@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('sales', '0006_sale_warehouse_alter_sale_fulfillment_status_and_more'),
+        ('sales', '0007_sale_sale_cancelled_iff_has_actor'),
     ]
 
     operations = [
