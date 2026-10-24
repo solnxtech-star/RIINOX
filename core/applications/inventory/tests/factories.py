@@ -11,6 +11,7 @@ class OrganizationFactory(DjangoModelFactory):
         model = Organization
     name = factory.Faker('company')
     email = factory.Faker('email')
+    currency = 'NGN'
 
     @factory.post_generation
     def subscription(self, create, extracted, **kwargs):
