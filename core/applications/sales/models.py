@@ -55,13 +55,13 @@ class Sale(TimeBasedModel):
     fulfillment_status = models.CharField(
         max_length=20, choices=SaleFulfillmentStatusChoices.choices, default=SaleFulfillmentStatusChoices.UNFULFILLED
     )
-    
+
     currency = models.CharField(max_length=3, default='USD')
     reference_number = models.CharField(max_length=100, blank=True, null=True)
     due_date = models.DateField(blank=True, null=True)
     billing_address = models.TextField(blank=True, null=True)
     shipping_address = models.TextField(blank=True, null=True)
-    
+
     subtotal = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     discount_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     tax_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
@@ -87,11 +87,24 @@ class Sale(TimeBasedModel):
             models.Index(fields=["organization", "-created_at"], name="sale_org_created_idx"),
         ]
         constraints = [
-            models.CheckConstraint(
-                condition=models.Q(total__gte=0),
-                name="sale_total_non_negative",
+        models.CheckConstraint(
+            condition=models.Q(total__gte=0),
+            name="sale_total_non_negative",
+        ),
+        models.CheckConstraint(
+            condition=(
+                models.Q(
+                    cancelled_at__isnull=True,
+                    cancelled_by__isnull=True,
+                )
+                | models.Q(
+                    cancelled_at__isnull=False,
+                    cancelled_by__isnull=False,
+                )
             ),
-        ]
+            name="sale_cancelled_iff_has_actor",
+        ),
+    ]
 
     def __str__(self):
         return f"Sale {self.sale_id}"
@@ -102,21 +115,21 @@ class SaleItem(TimeBasedModel):
     sale = auto_prefetch.ForeignKey(Sale, on_delete=models.CASCADE, related_name="items")
     product = auto_prefetch.ForeignKey("products.Product", on_delete=models.PROTECT, related_name="sale_items")
     variant = auto_prefetch.ForeignKey("products.ProductVariant", on_delete=models.SET_NULL, null=True, blank=True)
-    
+
     # Historical immutability
     product_name = models.CharField(max_length=255)
     product_sku = models.CharField(max_length=100, blank=True, null=True)
-    
+
     quantity = models.PositiveIntegerField(default=1)
     returned_quantity = models.PositiveIntegerField(default=0)
-    
+
     unit_name = models.CharField(
-        max_length=10, 
-        choices=UnitOfMeasureChoices.choices, 
+        max_length=10,
+        choices=UnitOfMeasureChoices.choices,
         default=UnitOfMeasureChoices.PIECE
     )
     unit_multiplier = models.DecimalField(max_digits=10, decimal_places=3, default=1.0)
-    
+
     unit_price = models.DecimalField(max_digits=12, decimal_places=2)
     discount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     discount_type = models.CharField(
