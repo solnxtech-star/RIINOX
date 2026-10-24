@@ -193,12 +193,10 @@ _sale_return_create_example = OpenApiExample(
         "original_sale": "e4f5a6b7-c8d9-4789-b1c2-d3e4f5a6b7cb",
         "organization": "a1b2c3d4-e5f6-4789-b1c2-d3e4f5a6b7c8",
         "return_reason": "DEFECTIVE",
-        "refund_amount": "4837.50",
         "items": [
             {
                 "sale_item": "f5a6b7c8-d9e0-4789-b1c2-d3e4f5a6b7cc",
                 "quantity": 1,
-                "refund_amount": "4837.50",
                 "condition": "defective",
             }
         ],

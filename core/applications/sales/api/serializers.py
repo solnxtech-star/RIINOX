@@ -83,6 +83,7 @@ class SaleCreateSerializer(serializers.ModelSerializer):
             'sales_rep': {'required': False},
             'warehouse': {'required': False, 'allow_null': True},
             'location': {'required': False, 'allow_null': True},
+            'currency': {'required': False, 'default': 'NGN'},
         }
 
 
@@ -150,7 +151,7 @@ class SaleReturnItemSerializer(serializers.ModelSerializer):
 class SaleReturnItemCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = SaleReturnItem
-        fields = ['sale_item', 'quantity', 'refund_amount', 'condition', 'restock_action']
+        fields = ['sale_item', 'quantity', 'condition', 'restock_action']
 
 class SaleReturnSerializer(serializers.ModelSerializer):
     items = SaleReturnItemSerializer(many=True, read_only=True)
@@ -165,7 +166,7 @@ class SaleReturnCreateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SaleReturn
-        fields = ['original_sale', 'organization', 'return_reason', 'refund_amount', 'refund_method', 'items']
+        fields = ['original_sale', 'organization', 'return_reason', 'refund_method', 'items']
         extra_kwargs = {
             'organization': {'required': False},
         }

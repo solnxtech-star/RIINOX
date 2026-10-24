@@ -230,9 +230,11 @@ def api_exception_handler(exc: Exception, context: dict) -> Response:
     """One error shape for everything: ``{"code", "detail", ...}``."""
     if isinstance(exc, BusinessRuleError):
         set_rollback()
+        payload = {**exc.extra, "code": exc.code, "detail": exc.message}
+        if "detail" in exc.extra and isinstance(exc.extra["detail"], (dict, list)):
+            payload["errors"] = exc.extra["detail"]
         return Response(
-            # ``extra`` goes first so it can never override ``code`` or ``detail``.
-            {**exc.extra, "code": exc.code, "detail": exc.message},
+            payload,
             status=exc.status_code,
         )
 
