@@ -7,6 +7,7 @@ from datetime import timedelta
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import Final
+from typing import Literal
 
 import auto_prefetch
 from django.apps import apps
@@ -28,10 +29,15 @@ if TYPE_CHECKING:
     from core.applications.users.models import Organization
 
 __all__ = [
+    "ARCHIVABLE_STATUSES",
+    "DEFAULT_ORDERING",
     "DEFAULT_PAGE_SIZE",
     "MAX_PAGE_SIZE",
+    "ORDERING_FIELDS",
     "OUTSTANDING_STATUSES",
+    "PIPELINE_STATUSES",
     "SALE_STATUSES",
+    "ArchiveScope",
     "DocumentSequenceManager",
     "DocumentSequenceQuerySet",
     "DocumentTemplateManager",
@@ -54,6 +60,25 @@ SALE_STATUSES: Final = (_S.CONFIRMED, _S.PARTIALLY_PAID, _S.PAID, _S.OVERDUE)
 OUTSTANDING_STATUSES: Final = (_S.CONFIRMED, _S.PARTIALLY_PAID, _S.OVERDUE)
 # Not yet issued: they hold no stock and no receivable.
 PIPELINE_STATUSES: Final = (_S.DRAFT, _S.PENDING)
+# Settled for good: only these may be archived, so an invoice that still carries
+# a balance can never be hidden from the default list.
+ARCHIVABLE_STATUSES: Final = (_S.PAID, _S.CANCELLED)
+
+# Which invoices a list shows: the default hides archived ones.
+ArchiveScope = Literal["active", "archived", "all"]
+
+# Columns a list may be sorted by (PRD §47). Anything else is rejected, so an
+# arbitrary client-supplied string can never reach `order_by`.
+_ORDERING_EXPRESSIONS: Final = {
+    "created_at": F("created_at"),
+    "issued_at": F("issued_at"),
+    "due_date": F("due_date"),
+    "total": F("total"),
+    "invoice_number": F("invoice_number"),
+    "balance_due": ExpressionWrapper(F("total") - F("amount_paid"), output_field=MONEY),
+}
+ORDERING_FIELDS: Final = frozenset(_ORDERING_EXPRESSIONS)
+DEFAULT_ORDERING: Final = "-created_at"
 
 
 def _require_organization(organization: Organization | None) -> Organization:
@@ -200,6 +225,30 @@ class InvoiceQuerySet(auto_prefetch.QuerySet):
         """Invoices that replace a voided original (PRD §24 correction flow)."""
         return self.filter(replaces__isnull=False)
 
+    # -- archiving ---------------------------------------------------------- #
+
+    def active(self):
+        """Invoices that are not archived: what a list shows by default."""
+        return self.filter(archived_at__isnull=True)
+
+    def archived(self):
+        """Invoices that were archived. They still count in reports and totals."""
+        return self.filter(archived_at__isnull=False)
+
+    def with_archive_scope(self, scope: ArchiveScope = "active"):
+        """
+        The list filter behind `archived=false|true|all`: "active" hides archived
+        invoices, "archived" shows only them, "all" shows both.
+        """
+        if scope == "active":
+            return self.active()
+        if scope == "archived":
+            return self.archived()
+        if scope == "all":
+            return self
+        msg = f"Unknown archive scope {scope!r}. Use 'active', 'archived' or 'all'."
+        raise ValueError(msg)
+
     # -- filtering ---------------------------------------------------------- #
 
     def issued_between(
@@ -246,11 +295,43 @@ class InvoiceQuerySet(auto_prefetch.QuerySet):
             | Q(customer__email__istartswith=term)
         )
 
+    # -- ordering ----------------------------------------------------------- #
+
+    def ordered_by(self, ordering: str | None = None):
+        """
+        Sort by one of `ORDERING_FIELDS`, written `field` (ascending) or `-field`
+        (descending), newest first when omitted. Rows with no value (an issue
+        date on a draft) always sort last, and the primary key breaks ties so
+        page-number pagination never repeats or skips a row between pages.
+
+        Raises ValueError for any other field: validate user input first (the
+        API's ordering parameter lists the allowed values).
+        """
+        key = (ordering or DEFAULT_ORDERING).strip()
+        descending = key.startswith("-")
+        field = key.removeprefix("-")
+        expression = _ORDERING_EXPRESSIONS.get(field)
+        if expression is None:
+            msg = f"Cannot order invoices by {field!r}. Allowed: {sorted(ORDERING_FIELDS)}."
+            raise ValueError(msg)
+        primary = expression.desc(nulls_last=True) if descending else expression.asc(nulls_last=True)
+        return self.order_by(primary, "-pk")
+
     # -- loading strategies (avoid N+1) ------------------------------------- #
 
     def for_list(self):
-        """List pages: one query, no items, no N+1 on the columns the table shows."""
-        return self.select_related("customer", "sales_rep", "confirmed_by", "warehouse")
+        """
+        List pages: one query, no items, no N+1 on the columns the table shows.
+        `order_code` is the readable code of the sale behind a sale-origin
+        invoice (the "Order" column), fetched as one joined column rather than
+        a whole Sale row. It is NULL for standalone invoices.
+        """
+        return self.select_related(
+            "customer",
+            "sales_rep",
+            "confirmed_by",
+            "warehouse",
+        ).annotate(order_code=F("sale__sale_id"))
 
     def for_detail(self):
         """
@@ -286,9 +367,14 @@ class InvoiceQuerySet(auto_prefetch.QuerySet):
         )
 
     def with_balance_due(self):
-        """Adds `balance_due` (total minus amount paid) computed in the database."""
+        """
+        Adds `balance_due_amount` (total minus amount paid) computed in the
+        database. It is named differently from the `Invoice.balance_due`
+        property on purpose: Django sets annotations as attributes, and a
+        read-only property of the same name would raise AttributeError.
+        """
         return self.annotate(
-            balance_due=ExpressionWrapper(F("total") - F("amount_paid"), output_field=MONEY)
+            balance_due_amount=ExpressionWrapper(F("total") - F("amount_paid"), output_field=MONEY)
         )
 
     # -- pagination --------------------------------------------------------- #
@@ -308,21 +394,34 @@ class InvoiceQuerySet(auto_prefetch.QuerySet):
 
     # -- aggregates --------------------------------------------------------- #
 
-    def totals(self) -> dict[str, Any]:
-        """Count and money totals for whatever this queryset currently holds."""
-        return self.aggregate(
-            count=Count("pk"),
-            subtotal=Coalesce(Sum("subtotal"), 0, output_field=MONEY),
-            discount=Coalesce(Sum("discount_amount"), 0, output_field=MONEY),
-            tax=Coalesce(Sum("tax_amount"), 0, output_field=MONEY),
-            total=Coalesce(Sum("total"), 0, output_field=MONEY),
-            paid=Coalesce(Sum("amount_paid"), 0, output_field=MONEY),
-            balance_due=Coalesce(
-                Sum(ExpressionWrapper(F("total") - F("amount_paid"), output_field=MONEY)),
+    def totals(self, *, today: date | None = None) -> dict[str, Any]:
+        """
+        Count and money totals for whatever this queryset currently holds.
+
+        Pass `today` (the organization's own date) to also get `overdue_count`
+        and `overdue_amount`: invoices still carrying a balance past their due
+        date, including partially paid ones. They come from the same single
+        query.
+        """
+        balance = ExpressionWrapper(F("total") - F("amount_paid"), output_field=MONEY)
+        aggregates: dict[str, Any] = {
+            "count": Count("pk"),
+            "subtotal": Coalesce(Sum("subtotal"), 0, output_field=MONEY),
+            "discount": Coalesce(Sum("discount_amount"), 0, output_field=MONEY),
+            "tax": Coalesce(Sum("tax_amount"), 0, output_field=MONEY),
+            "total": Coalesce(Sum("total"), 0, output_field=MONEY),
+            "paid": Coalesce(Sum("amount_paid"), 0, output_field=MONEY),
+            "balance_due": Coalesce(Sum(balance), 0, output_field=MONEY),
+        }
+        if today is not None:
+            past_due = Q(status__in=OUTSTANDING_STATUSES, due_date__lt=today)
+            aggregates["overdue_count"] = Count("pk", filter=past_due)
+            aggregates["overdue_amount"] = Coalesce(
+                Sum(balance, filter=past_due),
                 0,
                 output_field=MONEY,
-            ),
-        )
+            )
+        return self.aggregate(**aggregates)
 
     def pipeline_counts(self) -> dict[str, int]:
         """

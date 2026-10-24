@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from dataclasses import replace
 from datetime import timedelta
 from datetime import tzinfo
 from decimal import ROUND_FLOOR
@@ -35,6 +36,7 @@ from core.applications.invoice.exceptions import InvoiceNotFoundError
 from core.applications.invoice.exceptions import InvoiceValidationError
 from core.applications.invoice.models import Invoice
 from core.applications.invoice.models import InvoiceItem
+from core.applications.invoice.queryset import ARCHIVABLE_STATUSES
 from core.applications.invoice.queryset import MAX_PAGE_SIZE
 from core.applications.invoice.services.documents import allocate_document_number
 from core.applications.invoice.services.ports import APPROVAL_CREDIT_OVERRIDE
@@ -43,6 +45,7 @@ from core.applications.invoice.services.ports import EVENT_INVOICE_CONFIRMED
 from core.applications.invoice.services.ports import EVENT_INVOICE_OVERDUE
 from core.applications.invoice.services.ports import EVENT_INVOICE_VOIDED
 from core.applications.invoice.services.ports import PERM_AUDIT_VIEW
+from core.applications.invoice.services.ports import PERM_INVOICE_ARCHIVE
 from core.applications.invoice.services.ports import PERM_INVOICE_CONFIRM
 from core.applications.invoice.services.ports import PERM_INVOICE_CREATE
 from core.applications.invoice.services.ports import PERM_INVOICE_VIEW
@@ -63,7 +66,8 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from datetime import date
     from datetime import datetime
-
+    from django.db.models import QuerySet
+    from core.applications.invoice.queryset import ArchiveScope
     from core.applications.invoice.services.ports import SaleSnapshot
     from core.applications.notification.audit.context import AuditContext
     from core.applications.users.models import Organization
@@ -87,6 +91,7 @@ MAX_INVOICE_LINES: Final = 500
 MAX_LINE_QUANTITY: Final = 1_000_000
 MIN_VOID_REASON_LENGTH: Final = 5
 MAX_IDEMPOTENCY_KEY_LENGTH: Final = 64
+CURRENCY_CODE_LENGTH: Final = 3
 OVERDUE_BATCH_SIZE: Final = 1000
 
 # PENDING is reserved for invoices held for approval before confirmation. No
@@ -104,6 +109,8 @@ ACTION_EDIT: Final = "edit"
 ACTION_CONFIRM: Final = "confirm"
 ACTION_VOID: Final = "void"
 ACTION_VOID_AND_CORRECT: Final = "void_and_correct"
+ACTION_ARCHIVE: Final = "archive"
+ACTION_UNARCHIVE: Final = "unarchive"
 
 # Names of the database constraints the services translate into domain errors.
 _LIVE_INVOICE_CONSTRAINT: Final = "unique_live_invoice_per_sale"
@@ -113,6 +120,7 @@ _IDEMPOTENCY_CONSTRAINT: Final = "unique_invoice_idempotency_key_per_org"
 # attribute on ProductVariant that may override the product's sale price.
 # Adjust these two names to match your models.
 ORGANIZATION_TIMEZONE_ATTR: Final = "timezone"
+ORGANIZATION_CURRENCY_ATTR: Final = "currency"
 VARIANT_PRICE_ATTR: Final = "customer_sale_price"
 
 # Frozen customer details copied onto the invoice (billing/shipping included).
@@ -165,6 +173,8 @@ class InvoiceFilters:
     due_to: date | None = None
     overdue_only: bool = False
     warehouse_id: Any = None
+    # Which invoices the list shows: "active" (default) hides archived ones.
+    archived: ArchiveScope = "active"
 
 
 @dataclass(frozen=True, slots=True)
@@ -270,6 +280,45 @@ def _organization_tz(organization: Organization) -> tzinfo:
 def _today(organization: Organization) -> date:
     return timezone.now().astimezone(_organization_tz(organization)).date()
 
+def _resolve_currency(
+    organization: Organization,
+    requested: str | None = None,
+    *,
+    must_match_organization: bool = False,
+) -> str:
+    """
+    The currency frozen on an invoice (PRD §7): the one requested (a sale's, or
+    a voided original's on a correction), else the organization's own. There is
+    no silent default, so an invoice with no known currency is refused.
+
+    An organization with no currency set cannot invoice. With
+    `must_match_organization=True` (sale-origin invoices) a requested currency
+    that differs from the organization's is refused, so a sale left on a wrong
+    default can never become a legal document in the wrong currency. A
+    correction passes its original's currency without this check, because the
+    organization may have changed currency since.
+    """
+    organization_code = str(
+        getattr(organization, ORGANIZATION_CURRENCY_ATTR, None
+        ) or "").strip().upper()
+    requested_code = str(requested or "").strip().upper()
+
+    if not organization_code and (must_match_organization or not requested_code):
+        msg = "The organization has no currency set. Set it before issuing invoices."
+        raise InvoiceValidationError(msg, detail={"organization_id": str(organization.pk)})
+
+    code = requested_code or organization_code
+    if len(code) != CURRENCY_CODE_LENGTH or not code.isalpha():
+        msg = "A valid three-letter currency code is required."
+        raise InvoiceValidationError(msg, detail={"currency": code})
+    if must_match_organization and code != organization_code:
+        msg = "The currency does not match the organization's currency."
+        raise InvoiceValidationError(
+            msg,
+            detail={"currency": code, "organization_currency": organization_code},
+        )
+    return code
+
 
 def _clean_idempotency_key(key: str | None) -> str | None:
     cleaned = (key or "").strip()
@@ -324,6 +373,7 @@ def _snapshot(invoice: Invoice) -> dict[str, Any]:
         "amount_paid": str(invoice.amount_paid),
         "due_date": invoice.due_date.isoformat() if invoice.due_date else None,
         "issued_at": invoice.issued_at.isoformat() if invoice.issued_at else None,
+        "currency": invoice.currency,
         "sale_id": str(invoice.sale_id) if invoice.sale_id else None,
         "replaces_id": str(invoice.replaces_id) if invoice.replaces_id else None,
     }
@@ -1102,6 +1152,11 @@ def issue_invoice_for_sale(
         shipping_address=getattr(snapshot, "shipping_address", None),
     )
 
+    currency = _resolve_currency(
+        organization,
+        snapshot.currency,
+        must_match_organization=True,
+    )
     number = allocate_document_number(organization, TEMPLATE_TYPES.INVOICE)
     # Balance before this invoice exists, so the credit check below is exact.
     _sync_balance(customer)
@@ -1116,6 +1171,7 @@ def issue_invoice_for_sale(
                 sales_rep_id=snapshot.sales_rep_id,
                 confirmed_by=actor,
                 invoice_number=number.formatted,
+                currency=currency,
                 due_date=due,
                 status=_initial_status(totals.total),
                 subtotal=totals.subtotal,
@@ -1217,6 +1273,7 @@ def create_invoice(
     notes: str | None = "",
     extra_data: dict[str, Any] | None = None,
     replaces: Invoice | None = None,
+    currency: str | None = None,
     idempotency_key: str | None = None,
     audit_context: AuditContext | None = None,
 ) -> Invoice:
@@ -1258,6 +1315,7 @@ def create_invoice(
 
     customer = load_active_customer(organization, customer_id)
     warehouse = _load_warehouse(organization, warehouse_id)
+    invoice_currency = _resolve_currency(organization, currency)
     due = _resolve_due_date(customer, _today(organization), due_date)
     items = _price_lines(organization, lines)
     totals = _calculate_totals(
@@ -1280,6 +1338,7 @@ def create_invoice(
                 warehouse=warehouse,
                 sales_rep=actor,
                 invoice_number=number.formatted,
+                currency=invoice_currency,
                 due_date=due,
                 status=_S.DRAFT,
                 subtotal=totals.subtotal,
@@ -1706,8 +1765,120 @@ def void_and_correct(
         notes=(original.notes or "") if notes is None else notes,
         extra_data=original.extra_data,
         replaces=original,
+        currency=original.currency,
         audit_context=audit_context,
     )
+
+
+# --------------------------------------------------------------------------- #
+# Archive and unarchive
+# --------------------------------------------------------------------------- #
+
+
+def _archive_snapshot(invoice: Invoice) -> dict[str, Any]:
+    """Audit before/after values: the invoice snapshot plus its archive state."""
+    return {
+        **_snapshot(invoice),
+        "archived_at": invoice.archived_at.isoformat() if invoice.archived_at else None,
+    }
+
+
+@transaction.atomic
+def archive_invoice(
+    organization: Organization,
+    invoice_id: Any,
+    *,
+    actor: Any,
+    reason: str = "",
+    audit_context: AuditContext | None = None,
+) -> Invoice:
+    """
+    Hide a settled invoice from the default list. Archiving never deletes
+    (PRD §44), never changes the status, and never moves stock or money: an
+    archived invoice still counts in reports and totals and can be opened by id.
+
+    Only Paid and Cancelled (voided) invoices can be archived
+    (`ARCHIVABLE_STATUSES`). An invoice that still carries a balance can never be
+    hidden, so Draft, Pending, Confirmed, Partially Paid and Overdue raise
+    InvalidInvoiceTransitionError.
+
+    Archiving an invoice that is already archived is a no-op: it returns the
+    invoice unchanged and writes no second audit record, so a double submit or
+    a retried request is safe (PRD §45).
+    """
+    ports = get_invoice_ports()
+    ports.authorize(actor, organization, PERM_INVOICE_ARCHIVE)
+
+    invoice = _lock_invoice(organization, invoice_id)
+    if invoice.archived_at is not None:
+        return invoice
+    _require_status(invoice, ARCHIVABLE_STATUSES, "archived")
+
+    before = _archive_snapshot(invoice)
+    invoice.archived_at = timezone.now()
+    invoice.save(update_fields=["archived_at", "updated_at"])
+
+    record(
+        action=AuditAction.INVOICE_ARCHIVED,
+        organization=organization,
+        actor=actor,
+        resource=invoice,
+        previous_values=before,
+        new_values=_archive_snapshot(invoice),
+        reason=(reason or "").strip(),
+        context=audit_context,
+    )
+    logger.info(
+        "invoice.archived",
+        extra={"organization_id": str(organization.pk), "invoice_id": str(invoice.pk)},
+    )
+    return invoice
+
+
+@transaction.atomic
+def unarchive_invoice(
+    organization: Organization,
+    invoice_id: Any,
+    *,
+    actor: Any,
+    reason: str = "",
+    audit_context: AuditContext | None = None,
+) -> Invoice:
+    """
+    Bring an archived invoice back into the default list. The status is not
+    touched. Unarchiving an invoice that is not archived is a no-op, mirroring
+    `archive_invoice`.
+
+    Any status may be unarchived, not just the archivable ones: an invoice that
+    was archived while Paid and later reopened (say a payment was reversed)
+    must always be able to come back.
+    """
+    ports = get_invoice_ports()
+    ports.authorize(actor, organization, PERM_INVOICE_ARCHIVE)
+
+    invoice = _lock_invoice(organization, invoice_id)
+    if invoice.archived_at is None:
+        return invoice
+
+    before = _archive_snapshot(invoice)
+    invoice.archived_at = None
+    invoice.save(update_fields=["archived_at", "updated_at"])
+
+    record(
+        action=AuditAction.INVOICE_UNARCHIVED,
+        organization=organization,
+        actor=actor,
+        resource=invoice,
+        previous_values=before,
+        new_values=_archive_snapshot(invoice),
+        reason=(reason or "").strip(),
+        context=audit_context,
+    )
+    logger.info(
+        "invoice.unarchived",
+        extra={"organization_id": str(organization.pk), "invoice_id": str(invoice.pk)},
+    )
+    return invoice
 
 
 # --------------------------------------------------------------------------- #
@@ -1829,6 +2000,25 @@ def list_invoices(
     qs = _filtered_invoices(organization, filters or InvoiceFilters())
     return list(qs.for_list().page_after(cursor, max(1, min(limit, MAX_PAGE_SIZE))))
 
+def invoice_queryset(
+    organization: Organization,
+    *,
+    actor: Any,
+    filters: InvoiceFilters | None = None,
+    ordering: str | None = None,
+) -> QuerySet[Invoice]:
+    """
+    The tenant's invoices as a lazy queryset, filtered and ordered, for
+    page-number pagination: DRF's paginator counts and slices it, so nothing is
+    loaded beyond one page. `ordering` is one of `ORDERING_FIELDS`, written
+    `field` or `-field`, and the API validates it before it gets here.
+
+    `list_invoices` stays the keyset version, for exports and background jobs
+    that walk the whole table.
+    """
+    get_invoice_ports().authorize(actor, organization, PERM_INVOICE_VIEW)
+    qs = _filtered_invoices(organization, filters or InvoiceFilters())
+    return qs.for_list().ordered_by(ordering)
 
 def get_invoice_summary(
     organization: Organization,
@@ -1839,13 +2029,22 @@ def get_invoice_summary(
     """
     The Summary block of the invoice list page (PRD §38). The money totals
     (count, subtotal, discount, tax, total, paid, balance due) cover only
-    invoices that count as real sales: confirmed and beyond. Drafts, pending
-    and voided invoices never inflate them. They are reported separately as
-    `draft_count` (drafts and pending) and `voided_count`. Two queries.
+    invoices that count as real sales: confirmed and beyond. `overdue_count`
+    and `overdue_amount` count invoices still carrying a balance past their due
+    date on the organization's own calendar, partially paid ones included.
+    Drafts, pending and voided invoices never inflate any of it. They are
+    reported separately as `draft_count` (drafts and pending) and
+    `voided_count`. Two queries.
+
+    Archived invoices still count in totals, so the archive scope is widened to
+    "all" unless the caller asked for archived-only, in which case the summary
+    matches the archived list it sits beside.
     """
     get_invoice_ports().authorize(actor, organization, PERM_INVOICE_VIEW)
-    matching = _filtered_invoices(organization, filters or InvoiceFilters())
-    summary = matching.confirmed_sales().totals()
+    filters = filters or InvoiceFilters()
+    scope = "archived" if filters.archived == "archived" else "all"
+    matching = _filtered_invoices(organization, replace(filters, archived=scope))
+    summary = matching.confirmed_sales().totals(today=_today(organization))
     summary.update(matching.pipeline_counts())
     return summary
 
@@ -1858,23 +2057,30 @@ def available_actions(invoice: Invoice, permissions: Collection[str]) -> list[st
 
     Sale-origin invoices are born confirmed and are corrected through their
     sale, so they offer void but never edit, confirm or void-and-correct.
+    A voided invoice offers nothing except archiving. An archived invoice
+    offers only unarchive.
     """
-    if invoice.is_voided:
-        return []
-    sale_origin = invoice.is_sale_origin
     actions: list[str] = []
-    if not sale_origin and invoice.status == _S.DRAFT and PERM_INVOICE_CREATE in permissions:
-        actions.append(ACTION_EDIT)
-    if (
-        not sale_origin
-        and invoice.status in CONFIRMABLE_STATUSES
-        and PERM_INVOICE_CONFIRM in permissions
-    ):
-        actions.append(ACTION_CONFIRM)
-    if invoice.status in VOIDABLE_STATUSES and PERM_INVOICE_VOID in permissions:
-        actions.append(ACTION_VOID)
-        if not sale_origin and PERM_INVOICE_CREATE in permissions:
-            actions.append(ACTION_VOID_AND_CORRECT)
+    if not invoice.is_voided:
+        sale_origin = invoice.is_sale_origin
+        if not sale_origin and invoice.status == _S.DRAFT and PERM_INVOICE_CREATE in permissions:
+            actions.append(ACTION_EDIT)
+        if (
+            not sale_origin
+            and invoice.status in CONFIRMABLE_STATUSES
+            and PERM_INVOICE_CONFIRM in permissions
+        ):
+            actions.append(ACTION_CONFIRM)
+        if invoice.status in VOIDABLE_STATUSES and PERM_INVOICE_VOID in permissions:
+            actions.append(ACTION_VOID)
+            if not sale_origin and PERM_INVOICE_CREATE in permissions:
+                actions.append(ACTION_VOID_AND_CORRECT)
+
+    if PERM_INVOICE_ARCHIVE in permissions:
+        if invoice.archived_at is not None:
+            actions.append(ACTION_UNARCHIVE)
+        elif invoice.status in ARCHIVABLE_STATUSES:
+            actions.append(ACTION_ARCHIVE)
     return actions
 
 
@@ -1882,6 +2088,7 @@ def _filtered_invoices(organization: Organization, f: InvoiceFilters):
     """
     The tenant's invoices narrowed by `f`. A malformed id matches nothing.
     Issue-date filters and "overdue" use the organization's own calendar.
+    Archived invoices are hidden unless `f.archived` says otherwise.
     """
     qs = Invoice.objects.for_organization(organization)
     try:
@@ -1904,7 +2111,7 @@ def _filtered_invoices(organization: Organization, f: InvoiceFilters):
     ).due_between(f.due_from, f.due_to)
     if f.overdue_only:
         qs = qs.overdue(_today(organization))
-    return qs
+    return qs.with_archive_scope(f.archived)
 
 
 def get_invoice_audit_trail(

@@ -259,7 +259,7 @@ class Organization(TimeBasedModel):
 
     # Locale & compliance
     country = CharField(max_length=2, blank=True, help_text=_("ISO 3166-1 alpha-2 country code."))
-    currency = CharField(max_length=3, blank=True, help_text=_("ISO 4217 currency code."))
+    currency = CharField(max_length=3, blank=True,  help_text=_("ISO 4217 currency code."))
     timezone = CharField(max_length=64, blank=True)
     tax_id = CharField(max_length=100, blank=True)
     registration_number = CharField(max_length=100, blank=True)

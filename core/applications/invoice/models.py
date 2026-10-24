@@ -117,7 +117,16 @@ class Invoice(TimeBasedModel):
         editable=False,
         help_text=_("Total received against this invoice. System-maintained."),
     )
-
+    currency = models.CharField(
+        blank=True, null=True,
+        help_text=_("ISO 4217 code, frozen at issue time so later changes never rewrite a historical invoice."),
+    )
+    archived_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        editable=False,
+        help_text=_("Set when a settled invoice is hidden from the default list. NULL otherwise."),
+    )
     voided_by = auto_prefetch.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,

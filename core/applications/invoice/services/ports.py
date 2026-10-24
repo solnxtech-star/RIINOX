@@ -26,6 +26,7 @@ PERM_INVOICE_CREATE: Final = P.CREATE_SALE.value
 PERM_INVOICE_CONFIRM: Final = P.CONFIRM_INVOICE.value
 PERM_INVOICE_VOID: Final = P.CANCEL_INVOICE.value
 PERM_AUDIT_VIEW: Final = P.VIEW_AUDIT_LOGS.value
+PERM_INVOICE_ARCHIVE: Final = P.CANCEL_INVOICE.value
 
 # Actions that may need an approval, passed to `InvoicePorts.require_approval`.
 APPROVAL_INVOICE_VOID: Final = "invoice.void"
@@ -109,6 +110,7 @@ class SaleSnapshot:
     lines: tuple[SaleLineSnapshot, ...]
     billing_address: str = ""
     shipping_address: str = ""
+
 
 
 @runtime_checkable

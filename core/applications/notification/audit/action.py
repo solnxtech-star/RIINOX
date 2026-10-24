@@ -14,6 +14,8 @@ class AuditAction:
     INVOICE_VOIDED = "invoice.voided"
     INVOICE_CONFIRMED = "invoice.confirmed"
     INVOICE_CREATED = "invoice.created"
+    INVOICE_ARCHIVED = "invoice.archived"
+    INVOICE_UNARCHIVED = "invoice.unarchived"
 
     # Product Events
     PRODUCT_CREATED = "product.created"
@@ -43,4 +45,3 @@ class AuditAction:
     CUSTOMER_DEACTIVATED = "customer.deactivated"
     CUSTOMER_DELETED = "customer.deleted"
     CUSTOMER_CREDIT_ADJUSTED = "customer.credit_adjusted"
-

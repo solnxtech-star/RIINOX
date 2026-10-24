@@ -265,3 +265,44 @@ def api_exception_handler(exc: Exception, context: dict) -> Response:
     elif isinstance(exc, exceptions.APIException) and isinstance(response.data, dict) and "detail" in response.data:
         response.data = {"code": _error_code(exc), "detail": response.data["detail"]}
     return response
+
+
+class DomainError(BusinessRuleError):
+    """
+    Base for an app's own business errors (invoice, payment, and so on).
+
+    A subclass only sets class attributes:
+
+    - ``code``: the stable, machine-readable code the frontend switches on.
+    - ``default_message``: used when the caller gives no message.
+    - ``status_code``: the HTTP status the API handler answers with.
+
+    Callers may pass ``detail``, a dict of context such as the ids and amounts
+    involved. It is kept on ``exc.detail`` and returned to the client under the
+    ``context`` key, so it can never be confused with, or overwrite, the
+    response's ``detail`` message::
+
+        {"code": "CREDIT_LIMIT_EXCEEDED",
+         "detail": "This sale would take the customer over their credit limit.",
+         "context": {"credit_limit": "50000.00", "exposure": "62000.00"}}
+    """
+
+    code: str = "DOMAIN_ERROR"
+    default_message: str = "The operation could not be completed."
+    status_code: int = status.HTTP_400_BAD_REQUEST
+
+    def __init__(
+        self,
+        message: str | None = None,
+        *,
+        code: str | None = None,
+        status_code: int | None = None,
+        detail: dict[str, Any] | None = None,
+    ) -> None:
+        self.detail: dict[str, Any] = detail or {}
+        super().__init__(
+            code or self.code,
+            message or self.default_message,
+            status_code=status_code or self.status_code,
+            extra={"context": self.detail} if self.detail else None,
+        )
