@@ -56,7 +56,7 @@ class Sale(TimeBasedModel):
         max_length=20, choices=SaleFulfillmentStatusChoices.choices, default=SaleFulfillmentStatusChoices.UNFULFILLED
     )
     
-    currency = models.CharField(max_length=3, default='USD')
+    currency = models.CharField(max_length=3, default='NGN')
     reference_number = models.CharField(max_length=100, blank=True, null=True)
     due_date = models.DateField(blank=True, null=True)
     billing_address = models.TextField(blank=True, null=True)
