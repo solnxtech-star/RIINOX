@@ -4,11 +4,15 @@ import pytest
 from core.applications.invoice.services.ports import (
     SaleLineSnapshot,
     SaleSnapshot,
+    UnitResolution,
     register_invoice_ports,
 )
 
 
 class TestInvoicePorts:
+    def resolve_unit(self, *, organization, product, variant, unit_name, base_price) -> UnitResolution:
+        return UnitResolution(unit_name=unit_name, multiplier=Decimal("1"), unit_price=base_price)
+
     def authorize(self, actor, organization, permission) -> None:
         pass
 

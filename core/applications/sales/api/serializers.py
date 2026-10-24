@@ -83,6 +83,7 @@ class SaleCreateSerializer(serializers.ModelSerializer):
             'sales_rep': {'required': False},
             'warehouse': {'required': False, 'allow_null': True},
             'location': {'required': False, 'allow_null': True},
+            'currency': {'required': False, 'default': 'NGN'},
         }
 
 
