@@ -43,6 +43,12 @@ urlpatterns += [
         ),
     ),
     path(
+        "api/", include(
+            "core.applications.invoice.api.routers",
+            namespace="organization-invoices",
+        ),
+    ),
+    path(
         "api/",
         include(
             "core.applications.sales.api.routers",

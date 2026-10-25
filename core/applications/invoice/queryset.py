@@ -404,24 +404,27 @@ class InvoiceQuerySet(auto_prefetch.QuerySet):
         query.
         """
         balance = ExpressionWrapper(F("total") - F("amount_paid"), output_field=MONEY)
+
         aggregates: dict[str, Any] = {
-            "count": Count("pk"),
-            "subtotal": Coalesce(Sum("subtotal"), 0, output_field=MONEY),
-            "discount": Coalesce(Sum("discount_amount"), 0, output_field=MONEY),
-            "tax": Coalesce(Sum("tax_amount"), 0, output_field=MONEY),
-            "total": Coalesce(Sum("total"), 0, output_field=MONEY),
-            "paid": Coalesce(Sum("amount_paid"), 0, output_field=MONEY),
-            "balance_due": Coalesce(Sum(balance), 0, output_field=MONEY),
+            "agg_count": Count("pk"),
+            "agg_subtotal": Coalesce(Sum("subtotal"), 0, output_field=MONEY),
+            "agg_discount": Coalesce(Sum("discount_amount"), 0, output_field=MONEY),
+            "agg_tax": Coalesce(Sum("tax_amount"), 0, output_field=MONEY),
+            "agg_total": Coalesce(Sum("total"), 0, output_field=MONEY),
+            "agg_paid": Coalesce(Sum("amount_paid"), 0, output_field=MONEY),
+            "agg_balance_due": Coalesce(Sum(balance), 0, output_field=MONEY),
         }
         if today is not None:
             past_due = Q(status__in=OUTSTANDING_STATUSES, due_date__lt=today)
-            aggregates["overdue_count"] = Count("pk", filter=past_due)
-            aggregates["overdue_amount"] = Coalesce(
+            aggregates["agg_overdue_count"] = Count("pk", filter=past_due)
+            aggregates["agg_overdue_amount"] = Coalesce(
                 Sum(balance, filter=past_due),
                 0,
                 output_field=MONEY,
             )
-        return self.aggregate(**aggregates)
+
+        result = self.aggregate(**aggregates)
+        return {key.removeprefix("agg_"): value for key, value in result.items()}
 
     def pipeline_counts(self) -> dict[str, int]:
         """

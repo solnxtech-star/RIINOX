@@ -10,7 +10,8 @@ from core.applications.users import services
 from core.applications.users.defaults import ADMINISTRATOR_ROLE_SLUG
 from core.applications.users.defaults import MANAGER_ROLE_SLUGS
 from core.applications.users.defaults import OWNER_ROLE_SLUG
-from core.applications.users.models import Membership, Organization
+from core.applications.users.models import Membership
+from core.applications.users.models import Organization
 
 
 class _HasSystemRole(BasePermission):
