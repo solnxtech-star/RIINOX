@@ -1,32 +1,44 @@
 import uuid
-from django.db import transaction
-from django.utils import timezone
+
 from django.contrib.contenttypes.models import ContentType
-from core.applications.inventory.models import Inventory, InventoryLedgerEntry, StockAdjustmentRequest
-from core.applications.subscriptions.services.entitlements import ensure_subscription_active
+from django.db import transaction
+from django.db.models import F
+from django.utils import timezone
+from rest_framework.exceptions import ValidationError
+
+from core.applications.inventory.models import Inventory
+from core.applications.inventory.models import InventoryLedgerEntry
+from core.applications.inventory.models import PhysicalStockCount
+from core.applications.inventory.models import StockAdjustmentRequest
+from core.applications.notification.audit.action import AuditAction
+from core.applications.notification.audit.services import record as audit_record
+from core.applications.subscriptions.services.entitlements import (
+    ensure_subscription_active,
+)
+from core.applications.transactions.services import TransactionData
+from core.applications.transactions.services import create_transaction
 from core.applications.transactions.services import (
-    create_transaction,
-    TransactionData,
-    record_sale_financial_entries,
-    record_sale_return_financial_entries,
     record_sale_cancellation_financial_entries,
 )
-from core.applications.notification.audit.services import record as audit_record
-from core.applications.notification.audit.action import AuditAction
-from core.helper.enums import (
-    TransactionTypeChoices,
-    TransactionStatusChoices,
-    RestockActionChoices,
-    ApprovalStatusChoices,
-    UsersRole,
-    PhysicalCountStatusChoices,
-    PurchaseStatusChoices,
-)
+from core.applications.transactions.services import record_sale_financial_entries
+from core.applications.transactions.services import record_sale_return_financial_entries
+from core.helper.enums import ApprovalStatusChoices
+from core.helper.enums import PhysicalCountStatusChoices
+from core.helper.enums import PurchaseStatusChoices
+from core.helper.enums import RestockActionChoices
+from core.helper.enums import TransactionStatusChoices
+from core.helper.enums import TransactionTypeChoices
+from core.helper.enums import UsersRole
 
-from django.db.models import F
 
-from rest_framework.exceptions import ValidationError
-from core.applications.inventory.models import PhysicalStockCount
+class InsufficientStock(Exception):
+    def __init__(self, product, requested, available):
+        self.product = product
+        self.requested = requested
+        self.available = available
+        super().__init__(
+            f"Out of stock: {product.name}. Requested {requested}, available {available}."
+        )
 
 @transaction.atomic
 def process_sale_inventory_and_ledger(sale):
@@ -592,3 +604,117 @@ def finalize_physical_stock_count(count_id, admin_user):
     count.status = PhysicalCountStatusChoices.COMPLETED
     count.save(update_fields=['status'])
     return count
+
+
+@transaction.atomic
+def process_invoice_stock_deduction(invoice, lines, *, actor=None):
+    """
+    Deduct stock for a confirmed standalone invoice, FIFO across batches.
+
+    `lines` is a sequence of (product, variant_id, quantity) with quantity in
+    BASE units, already sorted so rows lock in a fixed order (PRD §43).
+    Untracked products are skipped: they have no stock to move.
+    """
+    tracked = [line for line in lines if line[0].track_inventory]
+    if not tracked:
+        return None
+
+    warehouse = invoice.warehouse
+    transaction_record = create_transaction(TransactionData(
+        transaction_id=f"INV-{invoice.invoice_number}"[:50],
+        organization=invoice.organization,
+        transaction_type=TransactionTypeChoices.SALE,
+        status=TransactionStatusChoices.COMPLETED,
+        content_type=ContentType.objects.get_for_model(invoice),
+        object_id=invoice.pk,
+        created_by=actor,
+    ))
+
+    entries = []
+    for product, variant_id, quantity in tracked:
+        remaining = quantity
+        records = list(
+            Inventory.objects.select_for_update(of=("self",))
+            .filter(product=product, variant_id=variant_id, warehouse=warehouse)
+            .order_by(F("batch__expiry_date").asc(nulls_last=True), "created_at")
+        )
+        available = sum(r.quantity for r in records)
+        if available < remaining:
+            raise InsufficientStock(product, remaining, available)
+
+        for inv in records:
+            if remaining <= 0:
+                break
+            take = min(remaining, inv.quantity)
+            if take <= 0:
+                continue
+            inv.quantity -= take
+            inv.save(update_fields=["quantity"])
+            remaining -= take
+            entries.append(InventoryLedgerEntry(
+                transaction=transaction_record,
+                product=product,
+                variant_id=variant_id,
+                batch=inv.batch,
+                warehouse=warehouse,
+                quantity_moved=-take,
+                unit_cost=product.purchase_cost,
+            ))
+
+    InventoryLedgerEntry.objects.bulk_create(entries)
+    return transaction_record
+
+
+@transaction.atomic
+def reverse_invoice_stock_deduction(invoice, *, actor=None, reason: str = ""):
+    """
+    Reverse a standalone invoice's deduction exactly: same products, variants,
+    batches and warehouse, read back from the original ledger entries (PRD §44).
+    """
+    deductions = list(
+        InventoryLedgerEntry.objects.filter(
+            transaction__organization=invoice.organization,
+            transaction__content_type=ContentType.objects.get_for_model(invoice),
+            transaction__object_id=invoice.pk,
+            transaction__transaction_type=TransactionTypeChoices.SALE,
+            quantity_moved__lt=0,
+        ).order_by("product_id", "variant_id", "batch_id")
+    )
+    if not deductions:
+        return None
+
+    transaction_record = create_transaction(TransactionData(
+        transaction_id=f"VOID-{invoice.invoice_number}"[:50],
+        organization=invoice.organization,
+        transaction_type=TransactionTypeChoices.RETURN,
+        status=TransactionStatusChoices.COMPLETED,
+        content_type=ContentType.objects.get_for_model(invoice),
+        object_id=invoice.pk,
+        created_by=actor,
+        notes=reason or None,
+    ))
+
+    entries = []
+    for entry in deductions:
+        restored = -entry.quantity_moved
+        inventory, _ = Inventory.objects.select_for_update().get_or_create(
+            product=entry.product,
+            variant=entry.variant,
+            batch=entry.batch,
+            warehouse=entry.warehouse,
+            defaults={"quantity": 0},
+        )
+        inventory.quantity += restored
+        inventory.save(update_fields=["quantity"])
+        entries.append(InventoryLedgerEntry(
+            transaction=transaction_record,
+            product=entry.product,
+            variant=entry.variant,
+            batch=entry.batch,
+            warehouse=entry.warehouse,
+            quantity_moved=restored,
+            unit_cost=entry.unit_cost,
+        ))
+
+    InventoryLedgerEntry.objects.bulk_create(entries)
+    return transaction_record

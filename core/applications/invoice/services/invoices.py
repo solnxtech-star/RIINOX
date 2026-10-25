@@ -742,11 +742,6 @@ def _resolve_line_unit(
     line: InvoiceLineInput,
     base_price: Decimal,
 ) -> tuple[str, Decimal, Decimal]:
-    """
-    (unit name, multiplier, price per line unit). Without a requested unit the
-    line is sold in the base unit at the base price. Otherwise the units port
-    decides, so the caller can never choose its own conversion or price.
-    """
     if not line.unit_name:
         return UnitOfMeasureChoices.PIECE, Decimal(1), base_price
 
