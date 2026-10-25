@@ -30,10 +30,10 @@ class SaleItemInline(TabularInline):
     readonly_fields = ("returned_quantity", "line_total")
 
     @display(description=_("Line Total"))
-    def line_total(self, obj: SaleItem):
-        if not obj.pk:
+    def line_total(self, obj: SaleItem | None = None):
+        if not obj or not getattr(obj, "pk", None) or obj.unit_price is None:
             return "-"
-        return obj.total
+        return f"{obj.total:,.2f}"
 
 
 class SaleReturnItemInline(TabularInline):
@@ -115,10 +115,10 @@ class SaleItemAdmin(ModelAdmin):
     readonly_fields = ("created_at", "updated_at", "total_display")
 
     @display(description=_("Total"))
-    def total_display(self, obj: SaleItem):
-        if not obj.pk:
+    def total_display(self, obj: SaleItem | None = None):
+        if not obj or not getattr(obj, "pk", None) or obj.unit_price is None:
             return "-"
-        return obj.total
+        return f"{obj.total:,.2f}"
 
 
 @admin.register(SaleReturn)

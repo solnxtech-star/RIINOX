@@ -1,3 +1,4 @@
+from decimal import Decimal
 import auto_prefetch
 from django.conf import settings
 from django.db import models
@@ -148,8 +149,12 @@ class SaleItem(TimeBasedModel):
         ]
 
     @property
-    def total(self):
-        return (self.quantity * self.unit_price) - self.discount + self.tax
+    def total(self) -> Decimal:
+        if self.unit_price is None or self.quantity is None:
+            return Decimal("0.00")
+        discount = self.discount or Decimal("0.00")
+        tax = self.tax or Decimal("0.00")
+        return (self.quantity * self.unit_price) - discount + tax
 
 class SaleReturn(TimeBasedModel):
     objects = SaleReturnQuerySet.as_manager()
