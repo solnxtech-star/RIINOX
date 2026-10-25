@@ -6,6 +6,7 @@ from django.core.exceptions import ImproperlyConfigured
 from rest_framework.exceptions import PermissionDenied
 
 from core.applications.invoice.exceptions import InvoiceValidationError
+from core.applications.invoice.services import inventory_adapter
 from core.applications.invoice.services import sales_adapters as sales_adapter
 from core.applications.invoice.services.ports import UnitResolution
 from core.applications.products.models import ProductUnitConversion
@@ -79,12 +80,22 @@ class DefaultInvoicePorts:
             unit_price=price.quantize(_CENT, rounding=ROUND_HALF_UP),
         )
 
-    # --- real now ---
+    # --- inventory app (standalone invoices only) ---
+    def deduct_stock(self, invoice, lines):
+        inventory_adapter.deduct_stock_for_invoice(invoice, lines)
+
+    def restore_stock(self, invoice, lines):
+        # The original ledger entries decide what comes back (same products,
+        # variants and batches), so `lines` is not used here.
+        inventory_adapter.restore_stock_for_invoice(invoice)
+
+    # --- users app ---
     def authorize(self, actor, organization, permission):
         if not user_services.has_org_permission(actor, organization, permission):
             msg = "You do not have permission to perform this action."
             raise PermissionDenied(msg)
 
+    # --- background work (later) ---
     def publish(self, event, invoice):
         # No PDFs, emails or notifications yet. Enqueue them here later (PRD §51).
         return
@@ -99,12 +110,3 @@ class DefaultInvoicePorts:
 
     def require_approval(self, *, actor, organization, action, resource, approval_id):
         _dev_only("require_approval")
-
-    # --- must never be silent ---
-    def deduct_stock(self, invoice, lines):
-        msg = "InvoicePorts.deduct_stock is not implemented: confirming would change no stock."
-        raise NotImplementedError(msg)
-
-    def restore_stock(self, invoice, lines):
-        msg = "InvoicePorts.restore_stock is not implemented: voiding would not reverse stock."
-        raise NotImplementedError(msg)

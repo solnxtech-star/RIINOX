@@ -8,10 +8,6 @@ from typing import ClassVar
 
 from django.db import transaction
 from django.http import StreamingHttpResponse
-from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter
-from drf_spectacular.utils import OpenApiResponse
-from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework import viewsets
 from rest_framework.decorators import action
@@ -19,6 +15,10 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from core.applications.invoice.api.constants import EXPORT_CHUNK_SIZE
+from core.applications.invoice.api.constants import EXPORT_COLUMNS
+from core.applications.invoice.api.constants import MAX_EXPORT_ROWS
+from core.applications.invoice.api.schemas.invoice_schemas import invoice_viewset_schema
 from core.applications.invoice.api.serializers.invoice_serializers import (
     AuditCursorField,
 )
@@ -83,7 +83,6 @@ from core.applications.users import services as user_services
 from core.applications.users.permissions import HasOrgPermission
 from core.applications.users.permissions import OrganizationScopedMixin
 from core.helper.custom_exceptions import CustomError
-from core.helper.custom_exceptions import get_all_schema
 from core.helper.pagination import CustomPagination
 
 __all__ = ["InvoiceViewSet"]
@@ -95,53 +94,6 @@ _ACTION_PERMISSIONS = (
     PERM_INVOICE_VOID,
     PERM_INVOICE_ARCHIVE,
 )
-
-# A bigger export belongs in a background job (PRD §51), not in a request.
-MAX_EXPORT_ROWS = 50_000
-EXPORT_CHUNK_SIZE = 200
-EXPORT_COLUMNS = (
-    "Invoice",
-    "Status",
-    "Customer",
-    "Issued",
-    "Due",
-    "Currency",
-    "Total",
-    "Paid",
-    "Balance",
-)
-
-_IDEMPOTENCY_HEADER = OpenApiParameter(
-    "Idempotency-Key",
-    OpenApiTypes.STR,
-    OpenApiParameter.HEADER,
-    required=False,
-    description="Repeating a request with the same key returns the first result.",
-)
-_BUSINESS_RULE_RESPONSE = OpenApiResponse(
-    description=(
-        "A business rule blocked the action. `code` is one of "
-        "INVALID_INVOICE_TRANSITION, INVOICE_HAS_PAYMENTS, INSUFFICIENT_STOCK, "
-        "CREDIT_LIMIT_EXCEEDED, INVOICE_ALREADY_ISSUED_FOR_SALE, APPROVAL_REQUIRED."
-    ),
-)
-
-
-def _responses(
-    status_code: int,
-    serializer: Any,
-    description: str,
-    *,
-    business_rules: bool = False,
-) -> dict[int, Any]:
-    """Documented responses: the project's generic errors plus the success body."""
-    documented: dict[int, Any] = {
-        **CustomError.DEFAULT_ERROR_SCHEMA(),
-        status_code: OpenApiResponse(response=serializer, description=description),
-    }
-    if business_rules:
-        documented[status.HTTP_409_CONFLICT] = _BUSINESS_RULE_RESPONSE
-    return documented
 
 
 class _Echo:
@@ -160,12 +112,17 @@ def _csv_safe(value: Any) -> str:
     return f"'{text}" if text[:1] in {"=", "+", "-", "@", "\t", "\r"} else text
 
 
+@invoice_viewset_schema
 class InvoiceViewSet(OrganizationScopedMixin, viewsets.GenericViewSet):
     """
     Invoices of the organization in the URL.
 
     The organization comes from the URL and is verified against the caller's
     active membership by `HasOrgPermission`. It is never read from the body.
+
+    This class holds behaviour only. Its OpenAPI documentation (what each
+    endpoint does, its rules and its responses) lives in
+    `api/schemas/invoice_schemas.py` and is applied by `invoice_viewset_schema`.
     """
 
     pagination_class = CustomPagination
@@ -295,11 +252,6 @@ class InvoiceViewSet(OrganizationScopedMixin, viewsets.GenericViewSet):
     # List page
     # ------------------------------------------------------------------ #
 
-    @extend_schema(
-        summary="List invoices",
-        parameters=[InvoiceListFilterSerializer],
-        responses=get_all_schema("invoices", InvoiceListSerializer),
-    )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         params = self._query(InvoiceListFilterSerializer)
         queryset = invoice_services.invoice_queryset(
@@ -316,16 +268,6 @@ class InvoiceViewSet(OrganizationScopedMixin, viewsets.GenericViewSet):
         )
         return self.get_paginated_response(serializer.data)
 
-    @extend_schema(
-        summary="Summary cards for the invoice list",
-        description=(
-            "Takes the same filters as the list, so the cards always match the "
-            "rows. Drafts and voided invoices are counted apart and never "
-            "inflate a total."
-        ),
-        parameters=[InvoiceListFilterSerializer],
-        responses=_responses(status.HTTP_200_OK, InvoiceSummarySerializer, "Totals."),
-    )
     @action(detail=False, methods=["get"])
     def summary(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         params = self._query(InvoiceListFilterSerializer)
@@ -336,15 +278,6 @@ class InvoiceViewSet(OrganizationScopedMixin, viewsets.GenericViewSet):
         )
         return Response(InvoiceSummarySerializer(data).data)
 
-    @extend_schema(
-        summary="Export the filtered invoices as CSV",
-        description=f"Same filters as the list. Refused above {MAX_EXPORT_ROWS} rows: narrow the filters.",
-        parameters=[InvoiceListFilterSerializer],
-        responses={
-            **CustomError.DEFAULT_ERROR_SCHEMA(),
-            status.HTTP_200_OK: OpenApiResponse(response=OpenApiTypes.BINARY, description="text/csv"),
-        },
-    )
     @action(detail=False, methods=["get"])
     def export(self, request: Request, *args: Any, **kwargs: Any) -> StreamingHttpResponse:
         filters = self._query(InvoiceListFilterSerializer).to_filters()
@@ -400,20 +333,10 @@ class InvoiceViewSet(OrganizationScopedMixin, viewsets.GenericViewSet):
     # Detail page
     # ------------------------------------------------------------------ #
 
-    @extend_schema(
-        summary="Invoice detail",
-        responses=_responses(status.HTTP_200_OK, InvoiceDetailSerializer, "The invoice."),
-    )
     def retrieve(self, request: Request, pk: str | None = None, *args: Any, **kwargs: Any) -> Response:
         invoice = invoice_services.get_invoice(self.organization, pk, actor=request.user)
         return Response(InvoiceDetailSerializer(invoice, context=self.get_serializer_context()).data)
 
-    @extend_schema(
-        summary="Audit trail of an invoice",
-        description="Newest first. Needs audit access, which is separate from invoice access.",
-        parameters=[AuditTrailQuerySerializer],
-        responses=_responses(status.HTTP_200_OK, AuditTrailPageSerializer, "One page of audit events."),
-    )
     @action(detail=True, methods=["get"])
     def audit(self, request: Request, pk: str | None = None, *args: Any, **kwargs: Any) -> Response:
         query = self._query(AuditTrailQuerySerializer).validated_data
@@ -439,12 +362,6 @@ class InvoiceViewSet(OrganizationScopedMixin, viewsets.GenericViewSet):
     # Create, edit, confirm
     # ------------------------------------------------------------------ #
 
-    @extend_schema(
-        summary="Create a standalone Draft invoice",
-        request=InvoiceCreateSerializer,
-        parameters=[_IDEMPOTENCY_HEADER],
-        responses=_responses(status.HTTP_201_CREATED, InvoiceDetailSerializer, "The Draft.", business_rules=True),
-    )
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         serializer = self._body(idempotency_key=get_idempotency_key(request))
         invoice = invoice_services.create_invoice(
@@ -454,11 +371,6 @@ class InvoiceViewSet(OrganizationScopedMixin, viewsets.GenericViewSet):
         )
         return self._detail(invoice, status.HTTP_201_CREATED)
 
-    @extend_schema(
-        summary="Replace the lines of a Draft",
-        request=InvoiceUpdateSerializer,
-        responses=_responses(status.HTTP_200_OK, InvoiceDetailSerializer, "The re-priced Draft.", business_rules=True),
-    )
     def update(self, request: Request, pk: str | None = None, *args: Any, **kwargs: Any) -> Response:
         serializer = self._body()
         invoice = invoice_services.update_draft_invoice(
@@ -469,15 +381,6 @@ class InvoiceViewSet(OrganizationScopedMixin, viewsets.GenericViewSet):
         )
         return self._detail(invoice)
 
-    @extend_schema(
-        summary="Confirm a Draft",
-        description=(
-            "Locks the customer, checks credit, deducts stock and freezes the "
-            "totals, atomically. An optional `payment` is the money taken now."
-        ),
-        request=InvoiceConfirmSerializer,
-        responses=_responses(status.HTTP_200_OK, InvoiceDetailSerializer, "The confirmed invoice.", business_rules=True),
-    )
     @action(detail=True, methods=["post"])
     def confirm(self, request: Request, pk: str | None = None, *args: Any, **kwargs: Any) -> Response:
         serializer = self._body()
@@ -511,12 +414,6 @@ class InvoiceViewSet(OrganizationScopedMixin, viewsets.GenericViewSet):
     # Void and correct
     # ------------------------------------------------------------------ #
 
-    @extend_schema(
-        summary="Void an invoice",
-        description="The record stays forever. An invoice with payments cannot be voided.",
-        request=InvoiceVoidSerializer,
-        responses=_responses(status.HTTP_200_OK, InvoiceDetailSerializer, "The voided invoice.", business_rules=True),
-    )
     @action(detail=True, methods=["post"])
     def void(self, request: Request, pk: str | None = None, *args: Any, **kwargs: Any) -> Response:
         serializer = self._body()
@@ -528,17 +425,6 @@ class InvoiceViewSet(OrganizationScopedMixin, viewsets.GenericViewSet):
         )
         return self._detail(invoice)
 
-    @extend_schema(
-        summary="Void an invoice and open a corrected Draft",
-        description="Both steps commit together. The response is the corrected Draft, which links back through `replaces`.",
-        request=InvoiceVoidAndCorrectSerializer,
-        responses=_responses(
-            status.HTTP_201_CREATED,
-            InvoiceDetailSerializer,
-            "The corrected Draft.",
-            business_rules=True,
-        ),
-    )
     @action(detail=True, methods=["post"], url_path="void-and-correct")
     def void_and_correct(self, request: Request, pk: str | None = None, *args: Any, **kwargs: Any) -> Response:
         serializer = self._body()
@@ -554,12 +440,6 @@ class InvoiceViewSet(OrganizationScopedMixin, viewsets.GenericViewSet):
     # Archive
     # ------------------------------------------------------------------ #
 
-    @extend_schema(
-        summary="Archive a settled invoice",
-        description="Only Paid and voided invoices. Archiving is idempotent and never changes money or stock.",
-        request=InvoiceArchiveSerializer,
-        responses=_responses(status.HTTP_200_OK, InvoiceStateSerializer, "The invoice's new state.", business_rules=True),
-    )
     @action(detail=True, methods=["post"])
     def archive(self, request: Request, pk: str | None = None, *args: Any, **kwargs: Any) -> Response:
         serializer = self._body()
@@ -571,11 +451,6 @@ class InvoiceViewSet(OrganizationScopedMixin, viewsets.GenericViewSet):
         )
         return self._state(invoice)
 
-    @extend_schema(
-        summary="Bring an archived invoice back",
-        request=InvoiceUnarchiveSerializer,
-        responses=_responses(status.HTTP_200_OK, InvoiceStateSerializer, "The invoice's new state."),
-    )
     @action(detail=True, methods=["post"])
     def unarchive(self, request: Request, pk: str | None = None, *args: Any, **kwargs: Any) -> Response:
         serializer = self._body()
