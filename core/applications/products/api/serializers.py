@@ -10,7 +10,11 @@ from core.applications.products.models import (
     ProductUnitConversion,
     ProductVariant,
 )
-from core.applications.products.services import create_product, update_product
+from core.applications.products.services import (
+    ProductRelationsInput,
+    create_product,
+    update_product,
+)
 from core.applications.users.services import has_org_permission
 from core.applications.warehouse.models import Warehouse
 from core.helper.enums import PermissionCode

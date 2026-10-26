@@ -1,8 +1,11 @@
 import uuid
+from dataclasses import dataclass
+from decimal import Decimal
+from typing import Any
 
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Q
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
@@ -24,11 +27,46 @@ from core.applications.transactions.services import record_sale_financial_entrie
 from core.applications.transactions.services import record_sale_return_financial_entries
 from core.helper.enums import ApprovalStatusChoices
 from core.helper.enums import PhysicalCountStatusChoices
-from core.helper.enums import PurchaseStatusChoices
 from core.helper.enums import RestockActionChoices
 from core.helper.enums import TransactionStatusChoices
 from core.helper.enums import TransactionTypeChoices
 from core.helper.enums import UsersRole
+
+
+@dataclass(frozen=True, slots=True)
+class StockTarget:
+    """Identifies a specific product and optional variant/batch combination for inventory movements."""
+
+    product: Any
+    variant: Any = None
+    batch: Any = None
+
+
+@dataclass(frozen=True, slots=True)
+class StockAdjustmentInput:
+    """Parameter object carrying stock adjustment request details."""
+
+    product: Any
+    warehouse: Any
+    quantity_change: int
+    variant: Any = None
+    batch: Any = None
+    adjustment_reason: str | None = None
+    notes: str | None = None
+    requested_unit: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class StockTransferInput:
+    """Parameter object carrying single stock transfer details."""
+
+    source_warehouse: Any
+    destination_warehouse: Any
+    product: Any
+    quantity: int
+    variant: Any = None
+    batch: Any = None
+    note: str | None = None
 
 
 class InsufficientStock(Exception):
@@ -39,6 +77,7 @@ class InsufficientStock(Exception):
         super().__init__(
             f"Out of stock: {product.name}. Requested {requested}, available {available}."
         )
+
 
 @transaction.atomic
 def process_sale_inventory_and_ledger(sale):
@@ -145,6 +184,7 @@ def process_sale_inventory_and_ledger(sale):
     )
     return transaction_record
 
+
 @transaction.atomic
 def process_return_inventory_and_ledger(sale_return):
     """
@@ -190,6 +230,7 @@ def process_return_inventory_and_ledger(sale_return):
 
     record_sale_return_financial_entries(sale_return, transaction_record)
     return transaction_record
+
 
 @transaction.atomic
 def reverse_sale_inventory_and_ledger(sale, *, actor=None, reason: str = ""):
@@ -242,13 +283,39 @@ def reverse_sale_inventory_and_ledger(sale, *, actor=None, reason: str = ""):
     return transaction_record
 
 
-
 @transaction.atomic
-def create_opening_stock(product, variant, batch, warehouse, quantity, user):
+def create_opening_stock(
+    target: StockTarget | Any = None,
+    warehouse: Any = None,
+    quantity: int = 0,
+    user: Any = None,
+    *legacy_args: Any,
+    **legacy_kwargs: Any,
+):
     """
     Triggered during Product creation to log the initial stock.
     Creates an InventoryLedgerEntry and updates Inventory.
+    Organization and unit_cost are derived from `target.product`.
     """
+    if isinstance(target, StockTarget):
+        product = target.product
+        variant = target.variant
+        batch = target.batch
+    elif legacy_args:
+        product = target
+        variant = warehouse
+        batch = quantity if quantity != 0 or len(legacy_args) >= 1 else None
+        warehouse = user
+        quantity = legacy_args[0]
+        user = legacy_args[1] if len(legacy_args) > 1 else legacy_kwargs.get("user")
+    else:
+        product = target if target is not None else legacy_kwargs.get("product")
+        variant = legacy_kwargs.get("variant")
+        batch = legacy_kwargs.get("batch")
+        warehouse = legacy_kwargs.get("warehouse", warehouse)
+        quantity = legacy_kwargs.get("quantity", quantity)
+        user = legacy_kwargs.get("user", user)
+
     transaction_record = create_transaction(TransactionData(
         transaction_id=f"OPEN-{uuid.uuid4().hex[:8].upper()}",
         organization=product.organization,
@@ -285,20 +352,40 @@ def create_opening_stock(product, variant, batch, warehouse, quantity, user):
 
 
 @transaction.atomic
-def request_stock_adjustment(product, variant, batch, warehouse, quantity_change, adjustment_reason, notes, requested_unit, user):
+def request_stock_adjustment(
+    payload: StockAdjustmentInput | Any = None,
+    *,
+    user: Any = None,
+    **legacy_kwargs: Any,
+):
     """
     Creates a StockAdjustmentRequest. Auto-approves if the user is an Admin/Owner.
+    Organization is derived from `payload.product.organization`.
     """
-    ensure_subscription_active(product.organization)
+    if isinstance(payload, StockAdjustmentInput):
+        resolved = payload
+    else:
+        resolved = StockAdjustmentInput(
+            product=payload if payload is not None else legacy_kwargs.get("product"),
+            variant=legacy_kwargs.get("variant"),
+            batch=legacy_kwargs.get("batch"),
+            warehouse=legacy_kwargs.get("warehouse"),
+            quantity_change=legacy_kwargs.get("quantity_change", 0),
+            adjustment_reason=legacy_kwargs.get("adjustment_reason"),
+            notes=legacy_kwargs.get("notes"),
+            requested_unit=legacy_kwargs.get("requested_unit"),
+        )
+
+    ensure_subscription_active(resolved.product.organization)
     adjustment = StockAdjustmentRequest.objects.create(
-        product=product,
-        variant=variant,
-        batch=batch,
-        warehouse=warehouse,
-        requested_quantity_change=quantity_change,
-        requested_unit=requested_unit,
-        adjustment_reason=adjustment_reason,
-        notes=notes,
+        product=resolved.product,
+        variant=resolved.variant,
+        batch=resolved.batch,
+        warehouse=resolved.warehouse,
+        requested_quantity_change=resolved.quantity_change,
+        requested_unit=resolved.requested_unit,
+        adjustment_reason=resolved.adjustment_reason,
+        notes=resolved.notes,
         requested_by=user,
         status=ApprovalStatusChoices.PENDING
     )
@@ -365,10 +452,51 @@ def approve_stock_adjustment(adjustment_id, admin_user):
 
 
 @transaction.atomic
-def single_transfer_stock(source_warehouse, destination_warehouse, product, variant, batch, quantity, user, note=None):
+def single_transfer_stock(
+    payload: StockTransferInput | Any = None,
+    *legacy_args: Any,
+    user: Any = None,
+    **legacy_kwargs: Any,
+):
     """
     Atomically decreases source and increases destination via two ledger entries for a single product.
+    Organization and unit_cost are derived from `payload.product`.
     """
+    if isinstance(payload, StockTransferInput):
+        resolved = payload
+    elif legacy_args:
+        dest_wh, prod, var, bch, qty, *rest = legacy_args
+        legacy_user = rest[0] if rest else None
+        legacy_note = rest[1] if len(rest) > 1 else legacy_kwargs.get("note")
+        resolved = StockTransferInput(
+            source_warehouse=payload,
+            destination_warehouse=dest_wh,
+            product=prod,
+            variant=var,
+            batch=bch,
+            quantity=qty,
+            note=legacy_note,
+        )
+        if user is None:
+            user = legacy_user
+    else:
+        resolved = StockTransferInput(
+            source_warehouse=payload if payload is not None else legacy_kwargs.get("source_warehouse"),
+            destination_warehouse=legacy_kwargs.get("destination_warehouse"),
+            product=legacy_kwargs.get("product"),
+            variant=legacy_kwargs.get("variant"),
+            batch=legacy_kwargs.get("batch"),
+            quantity=legacy_kwargs.get("quantity", 0),
+            note=legacy_kwargs.get("note"),
+        )
+
+    product = resolved.product
+    variant = resolved.variant
+    batch = resolved.batch
+    source_warehouse = resolved.source_warehouse
+    destination_warehouse = resolved.destination_warehouse
+    quantity = resolved.quantity
+
     transaction_record = create_transaction(TransactionData(
         transaction_id=f"TRF-{uuid.uuid4().hex[:8].upper()}",
         organization=product.organization,
@@ -377,7 +505,7 @@ def single_transfer_stock(source_warehouse, destination_warehouse, product, vari
         content_type=ContentType.objects.get_for_model(product),
         object_id=product.id,
         created_by=user,
-        notes=note
+        notes=resolved.note
     ))
 
     # Source Decrease
@@ -408,16 +536,16 @@ def single_transfer_stock(source_warehouse, destination_warehouse, product, vari
 
 
 @transaction.atomic
-def bulk_transfer_stock(source_warehouse, destination_warehouse, items, user, note=None, default_organization=None):
+def bulk_transfer_stock(source_warehouse, destination_warehouse, items, user, note=None):
     """
     Atomically decreases source and increases destination for multiple items.
     `items` is a list of dicts: [{'product': p, 'variant': v, 'batch': b, 'quantity': q}]
+    Organization is derived from `source_warehouse.organization` or `items[0]['product'].organization`.
     """
     if not items:
         return
 
-    # Use the organization of the first product if not explicitly provided
-    resolved_organization = default_organization or items[0]['product'].organization
+    resolved_organization = getattr(source_warehouse, "organization", None) or items[0]['product'].organization
 
     transaction_record = create_transaction(TransactionData(
         transaction_id=f"TRF-BLK-{uuid.uuid4().hex[:8].upper()}",
@@ -476,79 +604,19 @@ def bulk_transfer_stock(source_warehouse, destination_warehouse, items, user, no
 @transaction.atomic
 def receive_purchase_order(purchase, items_received, user):
     """
-    Updates PurchaseItem.quantity_received, creates Ledger Entries, and updates inventory stock.
-    Transitions purchase status to partially_received or received.
-    `items_received` is a list of dicts: [{'item_id': UUID, 'quantity_received': int}]
+    Delegates purchase order receipt to `purchase.services.receive_purchase_order`
+    so unit conversions, batch tracking, and financial ledger entries are always applied.
     """
-    ensure_subscription_active(purchase.organization)
-
-    if purchase.status == PurchaseStatusChoices.CANCELLED:
-        raise ValidationError("Cannot receive goods against a cancelled purchase order.")
-
-    transaction_record = create_transaction(TransactionData(
-        transaction_id=f"RECV-{str(purchase.id)[:8]}-{uuid.uuid4().hex[:8].upper()}",
-        organization=purchase.organization,
-        transaction_type=TransactionTypeChoices.PURCHASE if hasattr(TransactionTypeChoices, 'PURCHASE') else 'PURCHASE',
-        status=TransactionStatusChoices.COMPLETED,
-        content_type=ContentType.objects.get_for_model(purchase),
-        object_id=purchase.id,
-        created_by=user
-    ))
-
-    entries = []
-    for received_item_data in items_received:
-        item = purchase.items.get(id=received_item_data['item_id'])
-        received_quantity = received_item_data['quantity_received']
-
-        if received_quantity <= 0:
-            raise ValidationError(f"Received quantity must be greater than zero for '{item.product.name}'.")
-
-        if item.quantity_received + received_quantity > item.quantity_ordered:
-            raise ValidationError(
-                f"Cannot receive {received_quantity} units of '{item.product.name}'. "
-                f"Already received {item.quantity_received} of {item.quantity_ordered} ordered."
-            )
-
-        item.quantity_received += received_quantity
-        item.save(update_fields=['quantity_received'])
-
-        entries.append(InventoryLedgerEntry(
-            transaction=transaction_record,
-            product=item.product,
-            variant=item.variant,
-            batch=None,
-            warehouse=purchase.warehouse,
-            quantity_moved=received_quantity,
-            unit_cost=item.purchase_cost
-        ))
-
-        inventory, _ = Inventory.objects.get_or_create(
-            product=item.product, variant=item.variant, batch=None, warehouse=purchase.warehouse
-        )
-        inventory.quantity += received_quantity
-        inventory.save(update_fields=['quantity'])
-
-    InventoryLedgerEntry.objects.bulk_create(entries)
-
-    # Transition purchase status and update received_by
-    purchase.refresh_from_db()
-    all_items = list(purchase.items.all())
-    if all_items and all(it.quantity_received >= it.quantity_ordered for it in all_items):
-        purchase.status = PurchaseStatusChoices.RECEIVED
-    elif any(it.quantity_received > 0 for it in all_items):
-        purchase.status = PurchaseStatusChoices.PARTIALLY_RECEIVED
-
-    purchase.received_by = user
-    purchase.save(update_fields=['status', 'received_by'])
-
-    audit_record(
-        action=AuditAction.PURCHASE_ORDER_RECEIVED,
-        organization=purchase.organization,
-        actor=user,
-        resource=purchase,
-        metadata={"items_received": len(items_received), "status": purchase.status}
+    from core.applications.purchase.services import (
+        receive_purchase_order as purchase_receive_service,
     )
-    return purchase
+
+    return purchase_receive_service(
+        purchase=purchase,
+        items_received=items_received,
+        user=user,
+    )
+
 
 @transaction.atomic
 def finalize_physical_stock_count(count_id, admin_user):
@@ -718,3 +786,205 @@ def reverse_invoice_stock_deduction(invoice, *, actor=None, reason: str = ""):
 
     InventoryLedgerEntry.objects.bulk_create(entries)
     return transaction_record
+
+
+@transaction.atomic
+def record_purchase_receipt_inventory_and_ledger(
+    *,
+    purchase: Any,
+    movement_lines: list[dict[str, Any]],
+    received_cost_total: Decimal,
+    user: Any,
+):
+    """
+    Records inventory stock additions, InventoryLedgerEntry rows, and double-entry FinancialLedgerEntry
+    rows for a Purchase Order goods receipt (PRD §16, §18, §42-43).
+    """
+    from core.applications.transactions.services import record_purchase_financial_entries
+
+    ensure_subscription_active(purchase.organization)
+
+    transaction_record = create_transaction(
+        TransactionData(
+            transaction_id=f"RECV-{str(purchase.id)[:8]}-{uuid.uuid4().hex[:8].upper()}",
+            organization=purchase.organization,
+            transaction_type=TransactionTypeChoices.PURCHASE,
+            status=TransactionStatusChoices.COMPLETED,
+            content_type=ContentType.objects.get_for_model(purchase),
+            object_id=purchase.id,
+            created_by=user,
+            notes=f"Goods received for purchase {purchase.purchase_number}",
+        )
+    )
+
+    sorted_lines = sorted(
+        movement_lines,
+        key=lambda line: (
+            str(line["product"].pk),
+            str(line["variant"].pk if line.get("variant") else ""),
+            str(line["batch"].pk if line.get("batch") else ""),
+        ),
+    )
+
+    entries = []
+    for line in sorted_lines:
+        product = line["product"]
+        variant = line.get("variant")
+        batch = line.get("batch")
+        quantity_moved = int(line["base_quantity_moved"])
+        unit_cost = line["base_unit_cost"]
+
+        entries.append(
+            InventoryLedgerEntry(
+                transaction=transaction_record,
+                product=product,
+                variant=variant,
+                batch=batch,
+                warehouse=purchase.warehouse,
+                quantity_moved=quantity_moved,
+                unit_cost=unit_cost,
+            )
+        )
+
+        inventory, _ = Inventory.objects.select_for_update().get_or_create(
+            product=product,
+            variant=variant,
+            batch=batch,
+            warehouse=purchase.warehouse,
+            defaults={"quantity": 0},
+        )
+        inventory.quantity += quantity_moved
+        inventory.save(update_fields=["quantity"])
+
+    if entries:
+        InventoryLedgerEntry.objects.bulk_create(entries)
+
+    if received_cost_total > Decimal("0.00"):
+        record_purchase_financial_entries(purchase, transaction_record, received_cost_total)
+
+    return transaction_record
+
+
+@transaction.atomic
+def process_purchase_return_inventory_and_ledger(
+    purchase_return: Any,
+    *,
+    actor: Any = None,
+):
+    """
+    Deducts returned supplier goods from warehouse inventory under select_for_update()
+    and writes negative InventoryLedgerEntry + double-entry FinancialLedgerEntry rows.
+    """
+    from core.applications.transactions.services import record_purchase_return_financial_entries
+
+    purchase = purchase_return.purchase
+    ensure_subscription_active(purchase.organization)
+
+    transaction_record = create_transaction(
+        TransactionData(
+            transaction_id=f"PRET-{str(purchase_return.id)[:8]}-{uuid.uuid4().hex[:6].upper()}",
+            organization=purchase.organization,
+            transaction_type=TransactionTypeChoices.RETURN,
+            status=TransactionStatusChoices.COMPLETED,
+            content_type=ContentType.objects.get_for_model(purchase_return),
+            object_id=purchase_return.id,
+            created_by=actor or purchase_return.returned_by,
+            notes=purchase_return.reason or f"Supplier return for {purchase.purchase_number}",
+        )
+    )
+
+    return_items = list(
+        purchase_return.items.select_related(
+            "purchase_item__product",
+            "purchase_item__variant",
+            "purchase_item__unit",
+            "batch",
+        ).order_by("purchase_item__product_id", "pk")
+    )
+
+    entries = []
+    for return_item in return_items:
+        p_item = return_item.purchase_item
+        product = p_item.product
+        variant = p_item.variant
+        batch = return_item.batch
+        multiplier = Decimal(str(p_item.unit.multiplier)) if p_item.unit else Decimal("1.000")
+        base_qty = int((Decimal(str(return_item.quantity)) * multiplier).to_integral_value())
+
+        inventory_qs = Inventory.objects.select_for_update().filter(
+            product=product,
+            variant=variant,
+            warehouse=purchase.warehouse,
+        )
+        if batch is not None:
+            inventory_qs = inventory_qs.filter(batch=batch)
+        records = list(inventory_qs.order_by("created_at"))
+        available = sum(r.quantity for r in records)
+        if available < base_qty:
+            raise InsufficientStock(product, base_qty, available)
+
+        remaining = base_qty
+        base_unit_cost = (Decimal(str(p_item.purchase_cost)) / multiplier).quantize(Decimal("0.01"))
+        for inv in records:
+            if remaining <= 0:
+                break
+            take = min(remaining, inv.quantity)
+            if take <= 0:
+                continue
+            inv.quantity -= take
+            inv.save(update_fields=["quantity"])
+            remaining -= take
+            entries.append(
+                InventoryLedgerEntry(
+                    transaction=transaction_record,
+                    product=product,
+                    variant=variant,
+                    batch=inv.batch,
+                    warehouse=purchase.warehouse,
+                    quantity_moved=-take,
+                    unit_cost=base_unit_cost,
+                )
+            )
+
+    if entries:
+        InventoryLedgerEntry.objects.bulk_create(entries)
+
+    record_purchase_return_financial_entries(purchase_return, transaction_record)
+    return transaction_record
+
+
+def get_purchase_stock_activity(purchase: Any):
+    """
+    Returns InventoryLedgerEntry records for a Purchase Order and any of its PurchaseReturns
+    to power the Stock Activity detail tab (UI Page 7).
+    """
+    purchase_ct = ContentType.objects.get_for_model(purchase)
+    purchase_ids = {str(purchase.pk), str(purchase.pk).replace("-", "")}
+    try:
+        purchase_ids.add(str(uuid.UUID(str(purchase.pk))))
+    except ValueError:
+        pass
+    query = Q(transaction__content_type=purchase_ct, transaction__object_id__in=purchase_ids)
+
+    if hasattr(purchase, "returns"):
+        return_ids: set[str] = set()
+        for pk in purchase.returns.values_list("pk", flat=True):
+            return_ids.add(str(pk))
+            return_ids.add(str(pk).replace("-", ""))
+            try:
+                return_ids.add(str(uuid.UUID(str(pk))))
+            except ValueError:
+                pass
+        if return_ids:
+            return_model = purchase.returns.model
+            return_ct = ContentType.objects.get_for_model(return_model)
+            query |= Q(transaction__content_type=return_ct, transaction__object_id__in=return_ids)
+
+    return (
+        InventoryLedgerEntry.objects.filter(
+            transaction__organization=purchase.organization,
+        )
+        .filter(query)
+        .select_related("transaction", "product", "variant", "batch", "warehouse")
+        .order_by("-created_at")
+    )

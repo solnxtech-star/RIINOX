@@ -133,9 +133,7 @@ class DocumentTemplateQuerySet(auto_prefetch.QuerySet):
 DocumentTemplateManager = auto_prefetch.Manager.from_queryset(DocumentTemplateQuerySet)
 
 
-# --------------------------------------------------------------------------- #
 # DocumentSequence
-# --------------------------------------------------------------------------- #
 
 
 class DocumentSequenceQuerySet(auto_prefetch.QuerySet):
@@ -157,13 +155,11 @@ class DocumentSequenceQuerySet(auto_prefetch.QuerySet):
 DocumentSequenceManager = auto_prefetch.Manager.from_queryset(DocumentSequenceQuerySet)
 
 
-# --------------------------------------------------------------------------- #
 # Invoice
-# --------------------------------------------------------------------------- #
 
 
 class InvoiceQuerySet(auto_prefetch.QuerySet):
-    # -- tenant scoping ----------------------------------------------------- #
+    # Tenant scoping
 
     def for_organization(self, organization: Organization | None):
         return self.filter(organization=_require_organization(organization))
@@ -174,7 +170,7 @@ class InvoiceQuerySet(auto_prefetch.QuerySet):
     def by_sales_rep(self, user):
         return self.filter(sales_rep=user)
 
-    # -- origin ------------------------------------------------------------- #
+    # Origin
 
     def for_sale(self, sale_id):
         """Every invoice, live or voided, ever issued for one sale."""
@@ -188,7 +184,7 @@ class InvoiceQuerySet(auto_prefetch.QuerySet):
         """Invoices created without a sale."""
         return self.filter(sale__isnull=True)
 
-    # -- lifecycle groupings ------------------------------------------------ #
+    # Lifecycle groupings
 
     def with_status(self, *statuses: str):
         return self.filter(status__in=statuses)
@@ -225,7 +221,7 @@ class InvoiceQuerySet(auto_prefetch.QuerySet):
         """Invoices that replace a voided original (PRD §24 correction flow)."""
         return self.filter(replaces__isnull=False)
 
-    # -- archiving ---------------------------------------------------------- #
+    # Archiving
 
     def active(self):
         """Invoices that are not archived: what a list shows by default."""
@@ -249,7 +245,7 @@ class InvoiceQuerySet(auto_prefetch.QuerySet):
         msg = f"Unknown archive scope {scope!r}. Use 'active', 'archived' or 'all'."
         raise ValueError(msg)
 
-    # -- filtering ---------------------------------------------------------- #
+    # Filtering
 
     def issued_between(
         self,
@@ -295,7 +291,7 @@ class InvoiceQuerySet(auto_prefetch.QuerySet):
             | Q(customer__email__istartswith=term)
         )
 
-    # -- ordering ----------------------------------------------------------- #
+    # Ordering
 
     def ordered_by(self, ordering: str | None = None):
         """
@@ -317,7 +313,7 @@ class InvoiceQuerySet(auto_prefetch.QuerySet):
         primary = expression.desc(nulls_last=True) if descending else expression.asc(nulls_last=True)
         return self.order_by(primary, "-pk")
 
-    # -- loading strategies (avoid N+1) ------------------------------------- #
+    # Loading strategies (avoid N+1)
 
     def for_list(self):
         """
@@ -377,7 +373,7 @@ class InvoiceQuerySet(auto_prefetch.QuerySet):
             balance_due_amount=ExpressionWrapper(F("total") - F("amount_paid"), output_field=MONEY)
         )
 
-    # -- pagination --------------------------------------------------------- #
+    # Pagination
 
     def page_after(self, cursor: tuple[datetime, Any] | None = None, limit: int = DEFAULT_PAGE_SIZE):
         """
@@ -392,7 +388,7 @@ class InvoiceQuerySet(auto_prefetch.QuerySet):
             qs = qs.filter(Q(created_at__lt=created_at) | Q(created_at=created_at, pk__lt=pk))
         return qs[: _clamp_page_size(limit)]
 
-    # -- aggregates --------------------------------------------------------- #
+    # Aggregates
 
     def totals(self, *, today: date | None = None) -> dict[str, Any]:
         """
@@ -450,9 +446,7 @@ class InvoiceQuerySet(auto_prefetch.QuerySet):
 InvoiceManager = auto_prefetch.Manager.from_queryset(InvoiceQuerySet)
 
 
-# --------------------------------------------------------------------------- #
 # InvoiceItem
-# --------------------------------------------------------------------------- #
 
 
 class InvoiceItemQuerySet(auto_prefetch.QuerySet):
@@ -531,3 +525,61 @@ class InvoiceItemQuerySet(auto_prefetch.QuerySet):
 
 
 InvoiceItemManager = auto_prefetch.Manager.from_queryset(InvoiceItemQuerySet)
+
+
+
+# PurchaseInvoice & PurchaseInvoiceItem
+
+
+class PurchaseInvoiceQuerySet(auto_prefetch.QuerySet):
+    """Tenant-scoped queryset for PurchaseInvoice (supplier invoices)."""
+
+    def for_organization(self, organization: Organization | str):
+        if isinstance(organization, str):
+            return self.filter(organization_id=organization)
+        return self.filter(organization=_require_organization(organization))
+
+    def for_user(self, user):
+        if not getattr(user, "is_authenticated", False):
+            return self.none()
+        if getattr(user, "is_superuser", False):
+            return self.all()
+        return self.filter(organization__in=Organization.objects.for_user(user))
+
+    def not_voided(self):
+        return self.exclude(status=_S.CANCELLED)
+
+    def with_details(self):
+        return self.select_related(
+            "organization",
+            "vendor",
+            "purchase",
+            "warehouse",
+            "recorded_by",
+            "voided_by",
+        ).prefetch_related("items__product", "items__variant", "items__purchase_item")
+
+
+PurchaseInvoiceManager = auto_prefetch.Manager.from_queryset(PurchaseInvoiceQuerySet)
+
+
+class PurchaseInvoiceItemQuerySet(auto_prefetch.QuerySet):
+    """Tenant-scoped queryset for PurchaseInvoiceItem."""
+
+    def for_organization(self, organization: Organization | str):
+        if isinstance(organization, str):
+            return self.filter(purchase_invoice__organization_id=organization)
+        return self.filter(purchase_invoice__organization=_require_organization(organization))
+
+    def for_user(self, user):
+        if not getattr(user, "is_authenticated", False):
+            return self.none()
+        if getattr(user, "is_superuser", False):
+            return self.all()
+        return self.filter(purchase_invoice__organization__in=Organization.objects.for_user(user))
+
+    def with_details(self):
+        return self.select_related("purchase_invoice", "purchase_item", "product", "variant")
+
+
+PurchaseInvoiceItemManager = auto_prefetch.Manager.from_queryset(PurchaseInvoiceItemQuerySet)

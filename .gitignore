@@ -278,3 +278,4 @@ core/media/
 !.envs/.local/
 .agents/
 scratch*
+docs/purchase_testing_guide.md

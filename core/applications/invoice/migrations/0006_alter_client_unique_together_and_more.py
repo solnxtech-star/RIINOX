@@ -28,6 +28,10 @@ class Migration(migrations.Migration):
             model_name='client',
             name='organization',
         ),
+        migrations.RemoveIndex(
+            model_name='invoice',
+            name='inv_org_client_idx',
+        ),
         migrations.RemoveField(
             model_name='invoice',
             name='client',
@@ -35,10 +39,6 @@ class Migration(migrations.Migration):
         migrations.RemoveConstraint(
             model_name='invoiceitem',
             name='invoice_item_unit_price_non_negative',
-        ),
-        migrations.RemoveIndex(
-            model_name='invoice',
-            name='inv_org_client_idx',
         ),
         migrations.AddField(
             model_name='invoice',

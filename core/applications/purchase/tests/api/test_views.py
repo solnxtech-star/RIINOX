@@ -1,24 +1,35 @@
-import uuid
 from decimal import Decimal
-from rest_framework.test import APITestCase
 from rest_framework import status
-from core.applications.purchase.models import Purchase, PurchaseItem
-from core.applications.vendors.models import Vendor
+from rest_framework.test import APITestCase
+
+from core.applications.inventory.models import Inventory
+from core.applications.inventory.tests.factories import (
+    OrganizationFactory,
+    ProductFactory,
+    UserFactory,
+    WarehouseFactory,
+)
+from core.applications.invoice.models import PurchaseInvoice
+from core.applications.payment.models import PurchasePayment
+from core.applications.products.models import ProductBatch
+from core.applications.purchase.models import Purchase, PurchaseItem, PurchaseReturn
 from core.applications.users.models import Membership
 from core.applications.users.services import seed_default_roles
-from core.applications.inventory.tests.factories import (
-    OrganizationFactory, UserFactory, WarehouseFactory, ProductFactory
+from core.applications.vendors.models import Vendor
+from core.helper.enums import (
+    InvoiceStatusChoices,
+    PaymentMethod,
+    PurchasePaymentStatusChoices,
+    PurchaseStatusChoices,
+    SubscriptionStatus,
 )
-from core.helper.enums import PurchaseStatusChoices, SubscriptionStatus
 
 
 class PurchaseAPITest(APITestCase):
     def setUp(self):
-        # 1. Organization & Roles
         self.org = OrganizationFactory()
         self.roles = seed_default_roles(self.org)
 
-        # 2. Owner user (all permissions)
         self.owner = UserFactory()
         self.owner_membership = Membership.objects.create(
             user=self.owner,
@@ -27,7 +38,6 @@ class PurchaseAPITest(APITestCase):
             is_active=True,
         )
 
-        # 3. Inventory Staff (has VIEW_PURCHASES and RECEIVE_GOODS, but lacks CREATE_PURCHASE)
         self.inventory_staff = UserFactory()
         self.staff_membership = Membership.objects.create(
             user=self.inventory_staff,
@@ -36,7 +46,6 @@ class PurchaseAPITest(APITestCase):
             is_active=True,
         )
 
-        # 4. Sales Representative (lacks VIEW_PURCHASES, CREATE_PURCHASE, RECEIVE_GOODS)
         self.sales_rep = UserFactory()
         self.sales_rep_membership = Membership.objects.create(
             user=self.sales_rep,
@@ -45,7 +54,6 @@ class PurchaseAPITest(APITestCase):
             is_active=True,
         )
 
-        # 5. Other Org & Other User for Tenant Boundary Isolation
         self.other_org = OrganizationFactory()
         self.other_roles = seed_default_roles(self.other_org)
         self.other_user = UserFactory()
@@ -56,7 +64,6 @@ class PurchaseAPITest(APITestCase):
             is_active=True,
         )
 
-        # 6. Base Resources
         self.warehouse = WarehouseFactory(organization=self.org)
         self.product = ProductFactory(organization=self.org)
         self.vendor = Vendor.objects.create(organization=self.org, company_name="Test Vendor")
@@ -76,7 +83,6 @@ class PurchaseAPITest(APITestCase):
             purchase_cost=10.0,
         )
 
-        # Default client authenticated as Owner
         self.client.force_authenticate(user=self.owner)
         self.base_url = f"/api/organizations/{self.org.id}/purchases/"
         self.detail_url = f"/api/organizations/{self.org.id}/purchases/{self.purchase.id}/"
@@ -86,9 +92,9 @@ class PurchaseAPITest(APITestCase):
         url = self.base_url
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        results = response.data.get('results', []) if isinstance(response.data, dict) else response.data
+        results = response.data.get("results", []) if isinstance(response.data, dict) else response.data
         self.assertGreaterEqual(len(results), 1)
-        self.assertEqual(str(results[0]['id']).replace('-', ''), str(self.purchase.id).replace('-', ''))
+        self.assertEqual(str(results[0]["id"]).replace("-", ""), str(self.purchase.id).replace("-", ""))
 
     def test_create_purchase_with_items_round_trip(self):
         """
@@ -109,32 +115,30 @@ class PurchaseAPITest(APITestCase):
                     "product": str(self.product.id),
                     "quantity_ordered": 50,
                     "purchase_cost": "15.00",
-                    "discount": "0.00"
+                    "discount": "0.00",
                 },
                 {
                     "product": str(product2.id),
                     "quantity_ordered": 20,
                     "purchase_cost": "30.00",
-                    "discount": "0.00"
-                }
-            ]
+                    "discount": "0.00",
+                },
+            ],
         }
-        response = self.client.post(url, data, format='json')
+        response = self.client.post(url, data, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        purchase_id = response.data['id']
+        purchase_id = response.data["id"]
 
-        # 1. Database state verification (Guards against silent drops)
         created_purchase = Purchase.objects.get(id=purchase_id)
         self.assertEqual(created_purchase.items.count(), 2)
         item1 = created_purchase.items.get(product=self.product)
         self.assertEqual(item1.quantity_ordered, 50)
-        self.assertEqual(item1.purchase_cost, 15.00)
+        self.assertEqual(item1.purchase_cost, Decimal("15.00"))
 
-        # 2. Round-Trip GET verification (Read Serializer checks)
         get_response = self.client.get(f"/api/organizations/{self.org.id}/purchases/{purchase_id}/")
         self.assertEqual(get_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(get_response.data['items']), 2)
-        self.assertEqual(get_response.data['status'], PurchaseStatusChoices.DRAFT)
+        self.assertEqual(len(get_response.data["items"]), 2)
+        self.assertEqual(get_response.data["status"], PurchaseStatusChoices.DRAFT)
 
     def test_receive_purchase_transitions_status(self):
         """
@@ -145,25 +149,28 @@ class PurchaseAPITest(APITestCase):
         url = f"{self.detail_url}receive/"
         item_uuid = str(self.purchase_item.id)
 
-        # Receive 50 units out of 100
         data = {
             "items_received": [
                 {
                     "item_id": item_uuid,
-                    "quantity_received": 50
+                    "quantity_received": 50,
+                    "batch_number": "BATCH-API-001",
+                    "expiry_date": "2028-06-30",
                 }
             ]
         }
-        response = self.client.post(url, data, format='json')
+        response = self.client.post(url, data, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["purchase_status"], PurchaseStatusChoices.PARTIALLY_RECEIVED)
 
         self.purchase.refresh_from_db()
         self.assertEqual(self.purchase.status, PurchaseStatusChoices.PARTIALLY_RECEIVED)
         self.assertEqual(self.purchase.received_by, self.owner)
+        self.assertTrue(
+            ProductBatch.objects.filter(product=self.product, batch_number="BATCH-API-001").exists()
+        )
 
-        # Receive remaining 50 units
-        response2 = self.client.post(url, data, format='json')
+        response2 = self.client.post(url, data, format="json")
         self.assertEqual(response2.status_code, status.HTTP_200_OK)
         self.assertEqual(response2.data["purchase_status"], PurchaseStatusChoices.RECEIVED)
 
@@ -177,19 +184,18 @@ class PurchaseAPITest(APITestCase):
             "items_received": [
                 {
                     "item_id": str(self.purchase_item.id),
-                    "quantity_received": 150  # ordered 100
+                    "quantity_received": 150,
                 }
             ]
         }
-        response = self.client.post(url, data, format='json')
+        response = self.client.post(url, data, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data["code"], "RECEIVE_ERROR")
 
     def test_cannot_delete_received_purchase(self):
         """Orders with received items cannot be hard-deleted (PRD §18)."""
-        # Receive goods first
         self.purchase_item.quantity_received = 10
-        self.purchase_item.save(update_fields=['quantity_received'])
+        self.purchase_item.save(update_fields=["quantity_received"])
 
         url = self.detail_url
         response = self.client.delete(url)
@@ -204,118 +210,252 @@ class PurchaseAPITest(APITestCase):
             "items_received": [
                 {
                     "item_id": "not-a-valid-uuid-1234",
-                    "quantity_received": 50
+                    "quantity_received": 50,
                 }
             ]
         }
-        response = self.client.post(url, data, format='json')
+        response = self.client.post(url, data, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    # -------------------------------------------------------------------------
-    # Granular Role-Based Permission Tests
-    # -------------------------------------------------------------------------
+    def test_summary_and_export_endpoints(self):
+        summary_resp = self.client.get(f"{self.base_url}summary/")
+        self.assertEqual(summary_resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(summary_resp.data["total_purchase_orders"], 1)
+        self.assertEqual(summary_resp.data["pending_delivery_count"], 1)
+
+        export_resp = self.client.get(f"{self.base_url}export/")
+        self.assertEqual(export_resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(export_resp["Content-Type"], "text/csv")
+        self.assertIn(self.purchase.purchase_number, export_resp.content.decode("utf-8"))
+
+    def test_cancel_purchase_endpoint(self):
+        cancel_resp = self.client.post(
+            f"{self.detail_url}cancel/",
+            {"reason": "Ordered by mistake"},
+            format="json",
+        )
+        self.assertEqual(cancel_resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(cancel_resp.data["status"], PurchaseStatusChoices.CANCELLED)
+        self.assertEqual(cancel_resp.data["cancel_reason"], "Ordered by mistake")
+
+    def test_purchase_invoice_payments_returns_and_stock_activity_endpoints(self):
+        # 1. Receive 60 units
+        receive_resp = self.client.post(
+            f"{self.detail_url}receive/",
+            {
+                "items_received": [
+                    {
+                        "item_id": str(self.purchase_item.id),
+                        "quantity_received": 60,
+                    }
+                ]
+            },
+            format="json",
+        )
+        self.assertEqual(receive_resp.status_code, status.HTTP_200_OK)
+
+        # 2. Record Supplier Invoice (PurchaseInvoice)
+        inv_resp = self.client.post(
+            f"{self.detail_url}purchase-invoice/",
+            {
+                "vendor_invoice_number": "VEN-INV-881",
+                "billed_to": "RIINOX Operations",
+                "invoice_type": "supplier_invoice",
+                "issue_date": "2026-10-15",
+                "due_date": "2026-11-15",
+                "tax_rate": "5.00",
+                "notes": "Net 30 supplier terms",
+                "items": [
+                    {
+                        "purchase_item_id": str(self.purchase_item.id),
+                        "invoice_quantity": 60,
+                        "unit_cost": "10.00",
+                    }
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(inv_resp.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(inv_resp.data["invoice_number"].startswith("PINV-"))
+        self.assertEqual(inv_resp.data["status"], InvoiceStatusChoices.CONFIRMED)
+        self.assertEqual(PurchaseInvoice.objects.filter(purchase=self.purchase).count(), 1)
+
+        list_inv_resp = self.client.get(f"{self.detail_url}purchase-invoice/")
+        self.assertEqual(list_inv_resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(list_inv_resp.data), 1)
+
+        # 3. Record Supplier Payment
+        pay_resp = self.client.post(
+            f"{self.detail_url}payments/",
+            {
+                "amount": "1000.00",
+                "method": PaymentMethod.BANK_TRANSFER,
+                "payment_date": "2026-10-16",
+                "notes": "Partial wire transfer",
+            },
+            format="json",
+        )
+        self.assertEqual(pay_resp.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Decimal(pay_resp.data["amount"]), Decimal("1000.00"))
+        self.assertEqual(PurchasePayment.objects.filter(purchase=self.purchase).count(), 1)
+
+        self.purchase.refresh_from_db()
+        self.assertEqual(self.purchase.payment_status, PurchasePaymentStatusChoices.PARTIALLY_PAID)
+
+        list_pay_resp = self.client.get(f"{self.detail_url}payments/")
+        self.assertEqual(list_pay_resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(list_pay_resp.data), 1)
+
+        # 4. Record Supplier Return
+        ret_resp = self.client.post(
+            f"{self.detail_url}returns/",
+            {
+                "reason": "10 units damaged in transit",
+                "items": [
+                    {
+                        "purchase_item": str(self.purchase_item.id),
+                        "quantity": 10,
+                    }
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(ret_resp.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Decimal(ret_resp.data["total_refund_amount"]), Decimal("100.00"))
+        self.assertEqual(PurchaseReturn.objects.filter(purchase=self.purchase).count(), 1)
+
+        inv_stock = Inventory.objects.get(product=self.product, warehouse=self.warehouse)
+        self.assertEqual(inv_stock.quantity, 50)
+
+        list_ret_resp = self.client.get(f"{self.detail_url}returns/")
+        self.assertEqual(list_ret_resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(list_ret_resp.data), 1)
+
+        # 5. Stock Activity tab
+        activity_resp = self.client.get(f"{self.detail_url}stock-activity/")
+        self.assertEqual(activity_resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(activity_resp.data), 2)  # +60 receipt and -10 return
+
     def test_sales_rep_cannot_view_or_create_purchases(self):
         """Sales Rep lacks VIEW_PURCHASES and CREATE_PURCHASE -> 403 Forbidden."""
         self.client.force_authenticate(user=self.sales_rep)
 
-        # Cannot list
         list_resp = self.client.get(self.base_url)
         self.assertEqual(list_resp.status_code, status.HTTP_403_FORBIDDEN)
 
-        # Cannot create
-        create_resp = self.client.post(self.base_url, {
-            "organization": str(self.org.id),
-            "vendor": str(self.vendor.id),
-            "warehouse": str(self.warehouse.id),
-            "items": []
-        }, format="json")
+        create_resp = self.client.post(
+            self.base_url,
+            {
+                "organization": str(self.org.id),
+                "vendor": str(self.vendor.id),
+                "warehouse": str(self.warehouse.id),
+                "items": [],
+            },
+            format="json",
+        )
         self.assertEqual(create_resp.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_inventory_staff_can_view_and_receive_but_cannot_create(self):
         """Inventory Staff has VIEW_PURCHASES and RECEIVE_GOODS, but lacks CREATE_PURCHASE."""
         self.client.force_authenticate(user=self.inventory_staff)
 
-        # Can list
         list_resp = self.client.get(self.base_url)
         self.assertEqual(list_resp.status_code, status.HTTP_200_OK)
 
-        # Cannot create -> 403
-        create_resp = self.client.post(self.base_url, {
-            "organization": str(self.org.id),
-            "vendor": str(self.vendor.id),
-            "warehouse": str(self.warehouse.id),
-            "items": []
-        }, format="json")
+        create_resp = self.client.post(
+            self.base_url,
+            {
+                "organization": str(self.org.id),
+                "vendor": str(self.vendor.id),
+                "warehouse": str(self.warehouse.id),
+                "items": [],
+            },
+            format="json",
+        )
         self.assertEqual(create_resp.status_code, status.HTTP_403_FORBIDDEN)
 
-        # Can receive goods -> 200
-        receive_resp = self.client.post(f"{self.detail_url}receive/", {
-            "items_received": [
-                {
-                    "item_id": str(self.purchase_item.id),
-                    "quantity_received": 10
-                }
-            ]
-        }, format="json")
+        # Inventory staff can view payments/returns/purchase-invoice (GET) but cannot POST
+        get_pay_resp = self.client.get(f"{self.detail_url}payments/")
+        self.assertEqual(get_pay_resp.status_code, status.HTTP_200_OK)
+        post_pay_resp = self.client.post(
+            f"{self.detail_url}payments/",
+            {"method": PaymentMethod.CASH},
+            format="json",
+        )
+        self.assertEqual(post_pay_resp.status_code, status.HTTP_403_FORBIDDEN)
+
+        receive_resp = self.client.post(
+            f"{self.detail_url}receive/",
+            {
+                "items_received": [
+                    {
+                        "item_id": str(self.purchase_item.id),
+                        "quantity_received": 10,
+                    }
+                ]
+            },
+            format="json",
+        )
         self.assertEqual(receive_resp.status_code, status.HTTP_200_OK)
 
-    # -------------------------------------------------------------------------
-    # Multi-Tenant Boundary Isolation Tests
-    # -------------------------------------------------------------------------
     def test_tenant_isolation_cross_tenant_access_denied(self):
         """User from Org B cannot retrieve, update, delete, or receive goods on Org A purchase."""
         self.client.force_authenticate(user=self.other_user)
 
-        # Org A endpoints return 404 Not Found to non-member
         list_resp = self.client.get(self.base_url)
         self.assertEqual(list_resp.status_code, status.HTTP_404_NOT_FOUND)
 
         get_resp = self.client.get(self.detail_url)
         self.assertEqual(get_resp.status_code, status.HTTP_404_NOT_FOUND)
 
-        receive_resp = self.client.post(f"{self.detail_url}receive/", {
-            "items_received": [{"item_id": str(self.purchase_item.id), "quantity_received": 10}]
-        }, format="json")
+        receive_resp = self.client.post(
+            f"{self.detail_url}receive/",
+            {"items_received": [{"item_id": str(self.purchase_item.id), "quantity_received": 10}]},
+            format="json",
+        )
         self.assertEqual(receive_resp.status_code, status.HTTP_404_NOT_FOUND)
 
-        create_resp = self.client.post(self.base_url, {
-            "organization": str(self.org.id),
-            "vendor": str(self.vendor.id),
-            "warehouse": str(self.warehouse.id),
-            "items": []
-        }, format="json")
+        create_resp = self.client.post(
+            self.base_url,
+            {
+                "organization": str(self.org.id),
+                "vendor": str(self.vendor.id),
+                "warehouse": str(self.warehouse.id),
+                "items": [],
+            },
+            format="json",
+        )
         self.assertEqual(create_resp.status_code, status.HTTP_404_NOT_FOUND)
 
-        # Accessing own Org B endpoint is allowed and does not expose Org A purchases
         other_base_url = f"/api/organizations/{self.other_org.id}/purchases/"
         own_list_resp = self.client.get(other_base_url)
         self.assertEqual(own_list_resp.status_code, status.HTTP_200_OK)
-        results = own_list_resp.data.get('results', []) if isinstance(own_list_resp.data, dict) else own_list_resp.data
-        purchase_ids = [str(r['id']).replace('-', '') for r in results]
-        self.assertNotIn(str(self.purchase.id).replace('-', ''), purchase_ids)
+        results = own_list_resp.data.get("results", []) if isinstance(own_list_resp.data, dict) else own_list_resp.data
+        purchase_ids = [str(r["id"]).replace("-", "") for r in results]
+        self.assertNotIn(str(self.purchase.id).replace("-", ""), purchase_ids)
 
-    # -------------------------------------------------------------------------
-    # Subscription Write-Gate and Usage Tests
-    # -------------------------------------------------------------------------
     def test_inactive_subscription_blocks_purchase_operations(self):
         """Inactive subscription prevents creating, updating, or receiving purchases."""
         self.client.force_authenticate(user=self.owner)
         self.org.subscription.status = SubscriptionStatus.CANCELED
         self.org.subscription.save(update_fields=["status"])
 
-        # Create blocked
-        create_resp = self.client.post(self.base_url, {
-            "vendor": str(self.vendor.id),
-            "warehouse": str(self.warehouse.id),
-            "items": []
-        }, format="json")
+        create_resp = self.client.post(
+            self.base_url,
+            {
+                "vendor": str(self.vendor.id),
+                "warehouse": str(self.warehouse.id),
+                "items": [],
+            },
+            format="json",
+        )
         self.assertEqual(create_resp.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(create_resp.data.get("code"), "SUBSCRIPTION_REQUIRED")
 
-        # Receive blocked
-        receive_resp = self.client.post(f"{self.detail_url}receive/", {
-            "items_received": [{"item_id": str(self.purchase_item.id), "quantity_received": 5}]
-        }, format="json")
+        receive_resp = self.client.post(
+            f"{self.detail_url}receive/",
+            {"items_received": [{"item_id": str(self.purchase_item.id), "quantity_received": 5}]},
+            format="json",
+        )
         self.assertEqual(receive_resp.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(receive_resp.data.get("code"), "SUBSCRIPTION_REQUIRED")
-
