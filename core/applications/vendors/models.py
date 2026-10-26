@@ -1,12 +1,15 @@
 import auto_prefetch
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
+from core.applications.vendors.queryset import VendorQuerySet
 from core.helper.enums import VendorStatusChoices
 from core.helper.models import TimeBasedModel
 
 
 class Vendor(TimeBasedModel):
+    objects = VendorQuerySet.as_manager()
 
     organization = auto_prefetch.ForeignKey(
         "users.Organization",
@@ -67,5 +70,12 @@ class Vendor(TimeBasedModel):
         verbose_name_plural = _("Vendors")
         ordering = ["company_name"]
 
-    def __str__(self):
+    def clean(self) -> None:
+        super().clean()
+        if not self.company_name or not self.company_name.strip():
+            raise ValidationError({"company_name": _("Company name cannot be empty.")})
+
+    def __str__(self) -> str:
+        if self.organization_id:
+            return f"{self.company_name} ({self.organization.name})"
         return self.company_name

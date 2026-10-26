@@ -32,6 +32,12 @@ class AuditAction:
     PURCHASE_ORDER_APPROVED = "purchase_order.approved"
     PURCHASE_ORDER_UPDATED = "purchase_order.updated"
     PURCHASE_ORDER_RECEIVED = "purchase_order.received"
+    PURCHASE_ORDER_CANCELLED = "purchase_order.cancelled"
+    PURCHASE_ORDER_DELETED = "purchase_order.deleted"
+    PURCHASE_PAYMENT_RECORDED = "purchase_order.payment_recorded"
+    PURCHASE_RETURN_CREATED = "purchase_return.created"
+    PURCHASE_INVOICE_RECORDED = "purchase_invoice.recorded"
+    PURCHASE_INVOICE_VOIDED = "purchase_invoice.voided"
 
     # Sales Events
     SALES_ORDER_CREATED = "sales_order.created"

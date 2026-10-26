@@ -384,3 +384,89 @@ def record_sale_return_financial_entries(
         )
 
     return create_financial_entries(transaction_record, entries)
+
+
+
+def record_purchase_financial_entries(
+    purchase: Any,
+    transaction_record: Transaction,
+    received_cost_total: Decimal,
+) -> list[FinancialLedgerEntry]:
+    """
+    Generates balanced double-entry ledger entries when goods are received on a Purchase Order
+    per PRD §18 and docs/transactions.rst.
+    - Debit:  AccountNameChoices.INVENTORY_ASSET (received_cost_total)
+    - Credit: AccountNameChoices.ACCOUNTS_PAYABLE (received_cost_total)
+    """
+    amount = quantize_money(received_cost_total, field="received_cost_total")
+    if amount <= Decimal("0.00"):
+        return []
+
+    entries = [
+        FinancialEntryData(
+            account_name=AccountNameChoices.INVENTORY_ASSET,
+            debit=amount,
+        ),
+        FinancialEntryData(
+            account_name=AccountNameChoices.ACCOUNTS_PAYABLE,
+            credit=amount,
+        ),
+    ]
+    return create_financial_entries(transaction_record, entries)
+
+
+def record_purchase_payment_financial_entries(
+    payment: Any,
+    transaction_record: Transaction,
+) -> list[FinancialLedgerEntry]:
+    """
+    Generates balanced double-entry ledger entries when a supplier payment is sent (PAYMENT_SENT).
+    - Debit:  AccountNameChoices.ACCOUNTS_PAYABLE (payment.amount)
+    - Credit: AccountNameChoices.CASH_BANK (payment.amount)
+    """
+    amount = quantize_money(payment.amount, field="payment amount")
+    if amount <= Decimal("0.00"):
+        return []
+
+    entries = [
+        FinancialEntryData(
+            account_name=AccountNameChoices.ACCOUNTS_PAYABLE,
+            debit=amount,
+        ),
+        FinancialEntryData(
+            account_name=AccountNameChoices.CASH_BANK,
+            credit=amount,
+        ),
+    ]
+    return create_financial_entries(transaction_record, entries)
+
+
+def record_purchase_return_financial_entries(
+    purchase_return: Any,
+    transaction_record: Transaction,
+) -> list[FinancialLedgerEntry]:
+    """
+    Generates balanced double-entry ledger entries when received goods are returned to a supplier.
+    - Debit:  AccountNameChoices.ACCOUNTS_PAYABLE (purchase_return.total_refund_amount)
+    - Credit: AccountNameChoices.INVENTORY_ASSET (purchase_return.total_refund_amount)
+    """
+    raw_refund = getattr(
+        purchase_return,
+        "total_refund_amount",
+        getattr(purchase_return, "refund_amount", Decimal("0.00")),
+    )
+    refund_amount = quantize_money(raw_refund, field="refund_amount")
+    if refund_amount <= Decimal("0.00"):
+        return []
+
+    entries = [
+        FinancialEntryData(
+            account_name=AccountNameChoices.ACCOUNTS_PAYABLE,
+            debit=refund_amount,
+        ),
+        FinancialEntryData(
+            account_name=AccountNameChoices.INVENTORY_ASSET,
+            credit=refund_amount,
+        ),
+    ]
+    return create_financial_entries(transaction_record, entries)

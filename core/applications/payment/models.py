@@ -50,7 +50,7 @@ class Payment(TimeBasedModel):
         verbose_name_plural = _("Payments")
         ordering = ["-created_at"]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.method} {self.amount}{self.currency} ({self.status})"
 
 
@@ -74,7 +74,7 @@ class PaymentLog(TimeBasedModel):
         verbose_name_plural = _("Payment Logs")
         ordering = ["-created_at"]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"Log {self.event} for {self.payment.reference}"
 
 
@@ -94,7 +94,7 @@ class ReceiptSequenceCounter(TimeBasedModel):
         verbose_name = _("Receipt Sequence Counter")
         verbose_name_plural = _("Receipt Sequence Counters")
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.year}: {self.last_sequence}"
 
     @classmethod
@@ -167,7 +167,7 @@ class InvoicePayment(TimeBasedModel):
         verbose_name = _("Invoice Payment")
         verbose_name_plural = _("Invoice Payments")
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"Receipt for Invoice {self.invoice.invoice_number} - {self.amount}"
 
     def save(self, *args, **kwargs):
@@ -216,7 +216,7 @@ class Refund(TimeBasedModel):
         verbose_name_plural = _("Refunds")
         ordering = ["-created_at"]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"Refund {self.amount} for {self.payment.reference}"
 
 
@@ -255,6 +255,16 @@ class PurchasePayment(TimeBasedModel):
         decimal_places=2,
         help_text=_("Remaining balance on the purchase order immediately after this payment."),
     )
+    payment_date = models.DateField(
+        null=True,
+        blank=True,
+        help_text=_("Date the supplier payment was made (UI Page 15)."),
+    )
+    notes = models.TextField(
+        blank=True,
+        null=True,
+        help_text=_("Additional notes or remarks for this supplier payment."),
+    )
     supporting_document = models.FileField(
         upload_to=MediaHelper.get_image_upload_path,
         blank=True,
@@ -276,8 +286,9 @@ class PurchasePayment(TimeBasedModel):
     class Meta(auto_prefetch.Model.Meta):
         verbose_name = _("Purchase Payment")
         verbose_name_plural = _("Purchase Payments")
+        ordering = ["-created_at"]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"Payment for Purchase {self.purchase.purchase_number} - {self.amount}"
 
     def save(self, *args, **kwargs):

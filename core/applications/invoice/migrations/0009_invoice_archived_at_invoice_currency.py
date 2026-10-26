@@ -18,6 +18,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='invoice',
             name='currency',
-            field=models.CharField(blank=True, help_text='ISO 4217 code, frozen at issue time so later changes never rewrite a historical invoice.', null=True),
+            field=models.CharField(blank=True, help_text='ISO 4217 code, frozen at issue time so later changes never rewrite a historical invoice.', max_length=10, null=True),
         ),
     ]

@@ -508,3 +508,21 @@ class PaymentTransactionStatus(TextChoices):
     SUCCESS = "success", _("Success")
     FAILED = "failed", _("Failed")
     ABANDONED = "abandoned", _("Abandoned")
+
+
+class PurchasePaymentStatusChoices(TextChoices):
+    """
+    Represents the payment settlement status of a purchase order.
+    """
+    UNPAID = "unpaid", _("Unpaid")
+    PARTIALLY_PAID = "partially_paid", _("Partially Paid")
+    PAID = "paid", _("Paid")
+    REFUNDED = "refunded", _("Refunded")
+
+
+class InvoiceTypeChoices(TextChoices):
+    """
+    Represents the classification of an invoice document.
+    """
+    CUSTOMER_INVOICE = "customer_invoice", _("Customer Invoice")
+    SUPPLIER_INVOICE = "supplier_invoice", _("Supplier Invoice")
