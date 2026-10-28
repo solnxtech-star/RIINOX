@@ -23,6 +23,7 @@ from core.applications.purchase.api.serializers import (
     PurchaseSerializer,
     PurchaseStockActivitySerializer,
     PurchaseSummarySerializer,
+    PurchaseUpdateSerializer,
 )
 
 # Reusable Path & Query Parameters
@@ -205,39 +206,52 @@ NOT_FOUND_RESPONSE = OpenApiResponse(
 
 # Request & Response Examples with Valid UUIDs
 
-_purchase_create_example = OpenApiExample(
-    "Standard Purchase Order with Line Items",
-    summary="Create PO with Product UUIDs, packaging units, and line items",
+_purchase_create_minimal_example = OpenApiExample(
+    "Minimal Purchase Order (Auto-Resolved Product Cost)",
+    summary="Create PO with only required fields (auto-snapshots catalog cost)",
     description=(
-        "Full purchase order creation payload including header info, supplier/vendor, destination warehouse, "
-        "and line items. Each line item requires the catalog Product UUID (obtained from "
-        "`GET /api/organizations/{organization_id}/products/`). Snapshots purchase costs at order time. "
-        "Does NOT update inventory until `/receive/` is called."
+        "Minimal payload for creating a Purchase Order. Only `vendor`, `warehouse`, and `items` (`product` + `quantity_ordered`) "
+        "are needed. When `items[].purchase_cost` is omitted, the backend automatically snapshots `variant.purchase_cost` "
+        "or `product.purchase_cost` (multiplied by `unit.multiplier` if a packaging unit is specified). "
+        "`discount`, `other_costs`, and `items[].discount` default to `0.00` and can be supplied later when recording "
+        "the Supplier Invoice (`POST /purchases/{id}/purchase-invoice/`)."
     ),
     value={
-        "organization": "a1b2c3d4-e5f6-4789-b1c2-d3e4f5a6b7c8",
-        "vendor": "f1e2d3c4-b5a6-4789-b1c2-d3e4f5a6b7c8",
-        "warehouse": "c1d2e3f4-a5b6-4789-b1c2-d3e4f5a6b7c8",
+        "vendor": "1fd7d5fb-eb86-45be-a42e-d5cfd8396004",
+        "warehouse": "d1328862-6a31-421b-94ac-dc25744f21fc",
+        "order_date": "2026-10-28",
+        "delivery_date": "2026-10-30",
+        "items": [
+            {
+                "product": "1e5339e4-f1f9-4259-b849-70cf2c242e4c",
+                "quantity_ordered": 10,
+            },
+        ],
+    },
+    request_only=True,
+)
+
+_purchase_create_example = OpenApiExample(
+    "Standard Purchase Order with Negotiated Cost",
+    summary="Create PO with explicit unit cost, dates, and delivery metadata",
+    description=(
+        "Full purchase order creation payload including header info, supplier/vendor, destination warehouse, "
+        "and line items with an explicit negotiated `purchase_cost`. Each line item requires the catalog Product UUID "
+        "(obtained from `GET /api/products/products/`). Does NOT update inventory until `/receive/` is called."
+    ),
+    value={
+        "vendor": "1fd7d5fb-eb86-45be-a42e-d5cfd8396004",
+        "warehouse": "d1328862-6a31-421b-94ac-dc25744f21fc",
         "vendor_invoice_number": "INV-VEN-2026-9812",
         "delivery_method": "Supplier Delivery",
-        "other_costs": "5000.00",
-        "discount": "1000.00",
-        "order_date": "2026-10-09",
-        "delivery_date": "2026-10-16",
+        "order_date": "2026-10-28",
+        "delivery_date": "2026-10-30",
         "notes": "Restocking core warehouse items for Q4 wholesale distribution.",
         "items": [
             {
-                "product": "d1e2f3a4-b5c6-4789-b1c2-d3e4f5a6b7c8",
-                "variant": "e2f3a4b5-c6d7-4789-b1c2-d3e4f5a6b7c8",
-                "unit": "b3c4d5e6-f7a8-4789-b1c2-d3e4f5a6b7c8",
-                "quantity_ordered": 100,
+                "product": "1e5339e4-f1f9-4259-b849-70cf2c242e4c",
+                "quantity_ordered": 200,
                 "purchase_cost": "2500.00",
-                "discount": "500.00",
-            },
-            {
-                "product": "c4d5e6f7-a8b9-4789-b1c2-d3e4f5a6b7c8",
-                "quantity_ordered": 50,
-                "purchase_cost": "1200.00",
             },
         ],
     },
@@ -255,9 +269,9 @@ _purchase_response_example = OpenApiExample(
         "id": "7b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
         "purchase_number": "PO-2026-0004",
         "organization": "a1b2c3d4-e5f6-4789-b1c2-d3e4f5a6b7c8",
-        "vendor": "f1e2d3c4-b5a6-4789-b1c2-d3e4f5a6b7c8",
+        "vendor": "1fd7d5fb-eb86-45be-a42e-d5cfd8396004",
         "vendor_name": "TechSupply Global Ltd",
-        "warehouse": "c1d2e3f4-a5b6-4789-b1c2-d3e4f5a6b7c8",
+        "warehouse": "d1328862-6a31-421b-94ac-dc25744f21fc",
         "warehouse_name": "Main Warehouse - Lagos",
         "ordered_by": "11111111-2222-3333-4444-555555555555",
         "ordered_by_name": "Admin User",
@@ -294,7 +308,7 @@ _purchase_response_example = OpenApiExample(
             {
                 "id": "8c2deb4d-4c8d-5cae-acde-3c1e8c4dcb7e",
                 "purchase": "7b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
-                "product": "d1e2f3a4-b5c6-4789-b1c2-d3e4f5a6b7c8",
+                "product": "1e5339e4-f1f9-4259-b849-70cf2c242e4c",
                 "product_name": "Wireless Mouse",
                 "product_sku": "WM-001",
                 "variant": "e2f3a4b5-c6d7-4789-b1c2-d3e4f5a6b7c8",
@@ -364,7 +378,7 @@ _purchase_update_items_example = OpenApiExample(
         "discount": "800.00",
         "items": [
             {
-                "product": "d1e2f3a4-b5c6-4789-b1c2-d3e4f5a6b7c8",
+                "product": "1e5339e4-f1f9-4259-b849-70cf2c242e4c",
                 "variant": "e2f3a4b5-c6d7-4789-b1c2-d3e4f5a6b7c8",
                 "unit": "b3c4d5e6-f7a8-4789-b1c2-d3e4f5a6b7c8",
                 "quantity_ordered": 150,
@@ -464,8 +478,8 @@ _purchase_invoice_response_example = OpenApiExample(
         "organization": "a1b2c3d4-e5f6-4789-b1c2-d3e4f5a6b7c8",
         "purchase": "7b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
         "purchase_number": "PO-2026-0004",
-        "vendor": "f1e2d3c4-b5a6-4789-b1c2-d3e4f5a6b7c8",
-        "warehouse": "c1d2e3f4-a5b6-4789-b1c2-d3e4f5a6b7c8",
+        "vendor": "1fd7d5fb-eb86-45be-a42e-d5cfd8396004",
+        "warehouse": "d1328862-6a31-421b-94ac-dc25744f21fc",
         "recorded_by": "11111111-2222-3333-4444-555555555555",
         "recorded_by_name": "Admin User",
         "billed_to": "Funke Adeleke - RIINOX Operations",
@@ -495,7 +509,7 @@ _purchase_invoice_response_example = OpenApiExample(
             {
                 "id": "ae4f0d6f-6eaf-4ec0-ce00-5e30ae6fed90",
                 "purchase_item": "8c2deb4d-4c8d-5cae-acde-3c1e8c4dcb7e",
-                "product": "d1e2f3a4-b5c6-4789-b1c2-d3e4f5a6b7c8",
+                "product": "1e5339e4-f1f9-4259-b849-70cf2c242e4c",
                 "product_name": "Wireless Mouse",
                 "variant": "e2f3a4b5-c6d7-4789-b1c2-d3e4f5a6b7c8",
                 "variant_name": "Black",
@@ -596,7 +610,7 @@ _purchase_return_response_example = OpenApiExample(
             {
                 "id": "f3945214-b3f4-4315-b355-a385f3143245",
                 "purchase_item": "8c2deb4d-4c8d-5cae-acde-3c1e8c4dcb7e",
-                "product_id": "d1e2f3a4-b5c6-4789-b1c2-d3e4f5a6b7c8",
+                "product_id": "1e5339e4-f1f9-4259-b849-70cf2c242e4c",
                 "product_name": "Wireless Mouse",
                 "variant_name": "Black",
                 "batch": "d1723092-91d2-41f3-f133-8163d1921023",
@@ -621,13 +635,13 @@ _purchase_stock_activity_response_example = OpenApiExample(
             "id": "14a56325-c405-4426-c466-b49614254356",
             "transaction_id": "PRET-E2834103-9A1B2C",
             "transaction_type": "return",
-            "product": "d1e2f3a4-b5c6-4789-b1c2-d3e4f5a6b7c8",
+            "product": "1e5339e4-f1f9-4259-b849-70cf2c242e4c",
             "product_name": "Wireless Mouse",
             "variant": "e2f3a4b5-c6d7-4789-b1c2-d3e4f5a6b7c8",
             "variant_name": "Black",
             "batch": "d1723092-91d2-41f3-f133-8163d1921023",
             "batch_number": "BATCH-2026-10A",
-            "warehouse": "c1d2e3f4-a5b6-4789-b1c2-d3e4f5a6b7c8",
+            "warehouse": "d1328862-6a31-421b-94ac-dc25744f21fc",
             "warehouse_name": "Main Warehouse - Lagos",
             "quantity_moved": -120,
             "unit_cost": "208.33",
@@ -637,13 +651,13 @@ _purchase_stock_activity_response_example = OpenApiExample(
             "id": "25b67436-d516-4537-d577-c50725365467",
             "transaction_id": "PUR-7B1DEB4D-3F4E5D",
             "transaction_type": "purchase",
-            "product": "d1e2f3a4-b5c6-4789-b1c2-d3e4f5a6b7c8",
+            "product": "1e5339e4-f1f9-4259-b849-70cf2c242e4c",
             "product_name": "Wireless Mouse",
             "variant": "e2f3a4b5-c6d7-4789-b1c2-d3e4f5a6b7c8",
             "variant_name": "Black",
             "batch": "d1723092-91d2-41f3-f133-8163d1921023",
             "batch_number": "BATCH-2026-10A",
-            "warehouse": "c1d2e3f4-a5b6-4789-b1c2-d3e4f5a6b7c8",
+            "warehouse": "d1328862-6a31-421b-94ac-dc25744f21fc",
             "warehouse_name": "Main Warehouse - Lagos",
             "quantity_moved": 600,
             "unit_cost": "208.33",
@@ -664,8 +678,25 @@ purchase_schema = extend_schema_view(
             "Retrieves a paginated, filterable, and searchable list of purchase orders for the active tenant "
             "organization, including nested line items, supplier/warehouse names, payment status, and contextual "
             "`available_actions` (PRD §6, §18; UI Pages 4–6, 9–12).\n\n"
+            "### Frontend Guide: Dynamic Action Gating (`available_actions`)\n"
+            "Every purchase order object returns an `available_actions` string array computed by the backend state machine. "
+            "Frontend engineers should use this array directly to render/enable options in the **Purchase Order List row kebab menu (`⋮`)** "
+            "(UI Pages 5–6) and **Purchase Order Detail `Actions` dropdown** (UI Pages 13–14) instead of hardcoding status checks on the client.\n\n"
+            "| Action Key | Backend State Condition | Target UI Action / API Endpoint | Required User Permission |\n"
+            "| :--- | :--- | :--- | :--- |\n"
+            "| `view` | Always returned | Open PO Detail (`GET /purchases/{id}/`) | `VIEW_PURCHASES` |\n"
+            "| `edit` | `status != 'cancelled'` AND all items have `quantity_received == 0` | Edit PO modal (`PUT` / `PATCH /purchases/{id}/`) | `CREATE_PURCHASE` |\n"
+            "| `cancel` | `status != 'cancelled'` AND all items have `quantity_received == 0` | Cancel Order modal (`POST /purchases/{id}/cancel/`) | `CREATE_PURCHASE` |\n"
+            "| `delete` | `status != 'cancelled'` AND all items have `quantity_received == 0` | Delete PO confirmation (`DELETE /purchases/{id}/`) | `CREATE_PURCHASE` |\n"
+            "| `receive_goods` | `status != 'cancelled'` AND any item has `quantity_received < quantity_ordered` | Receive Products modal (`POST /purchases/{id}/receive/`) | `RECEIVE_GOODS` |\n"
+            "| `record_purchase_invoice` | `status != 'cancelled'` | 3-Step Supplier Invoice wizard (`POST /purchases/{id}/purchase-invoice/`) | `CREATE_PURCHASE` |\n"
+            "| `record_payment` | `(has_received_goods OR has_active_invoice)` AND `balance_due > 0.00` | Record Payment modal (`POST /purchases/{id}/payments/`) | `CREATE_PURCHASE` |\n"
+            "| `create_return` | Any item has `quantity_received > 0` | Return Goods modal (`POST /purchases/{id}/returns/`) | `CREATE_PURCHASE` |\n\n"
+            "> **Frontend RBAC Intersection**: `available_actions` reflects **order lifecycle state**. Intersect it with the logged-in user's role capabilities "
+            "(e.g., an `inventory-staff` user has `RECEIVE_GOODS` and `VIEW_PURCHASES`, so show `view` and `receive_goods`, while hiding `edit`/`cancel`/`record_payment` which require `CREATE_PURCHASE`).\n\n"
             "### Required Permissions & Access Control (PRD §28, §55)\n"
-            "- Requires **`VIEW_PURCHASES`** permission in the target organization.\n"
+            "- Requires **`VIEW_PURCHASES`** permission in the target organization (granted to `owner`, `administrator`, `manager`, "
+            "`inventory-manager`, `inventory-staff`, `accountant`, `finance-officer`).\n"
             "- Unauthenticated requests return HTTP 401.\n"
             "- Authenticated callers without active membership or `VIEW_PURCHASES` capability receive HTTP 403 Forbidden.\n\n"
             "### Multi-Tenancy & Tenant Boundaries (PRD §6)\n"
@@ -698,15 +729,30 @@ purchase_schema = extend_schema_view(
             "### Overview\n"
             "Fetches complete details for a single purchase order by UUID, powering the **Purchase Order Detail** "
             "`Overview` and `Received Goods` tabs (UI Pages 7–14).\n\n"
-            "### Returned Data & Computed Properties\n"
-            "- **Header & Party Details**: `purchase_number`, `vendor_name`, `warehouse_name`, `ordered_by_name`, "
-            "`received_by_name`, `cancelled_by_name`, `order_date`, `delivery_date`, `delivery_method`.\n"
-            "- **Financial Totals**: `subtotal`, `discount`, `other_costs`, `ordered_value`, `total_value` (received value), "
-            "`amount_paid`, `balance_due` (uses active `PurchaseInvoice.total` if recorded, else `total_value` or `ordered_value`), "
-            "and `payment_status`.\n"
-            "- **Dynamic Action Gating (`available_actions`)**: Returns the exact row/detail actions valid for the "
-            "order's current state (`view`, `edit`, `cancel`, `delete`, `receive_goods`, `record_purchase_invoice`, "
-            "`record_payment`, `create_return`).\n\n"
+            "### Frontend Guide: Financial Calculations & `balance_due` Priority\n"
+            "- **`items[].ordered_value`**: `(quantity_ordered × purchase_cost) - item.discount` (floored at `0.00`).\n"
+            "- **`items[].received_value`**: `(quantity_received × purchase_cost) - item.discount` (floored at `0.00`, `0.00` when `quantity_received == 0`).\n"
+            "- **`subtotal`**: Sum of `items[].ordered_value` across all line items.\n"
+            "- **`ordered_value`**: `subtotal + other_costs - discount` (total expected cost of the order).\n"
+            "- **`total_value`**: Sum of `items[].received_value + other_costs - discount` (total cost of physically received goods).\n"
+            "- **`balance_due`**: Remaining amount owed to the supplier (`max(payable_total - amount_paid, 0.00)`), where `payable_total` is resolved in priority order:\n"
+            "  1. **Active `PurchaseInvoice.total`** (if a Supplier Invoice has been recorded via `POST /purchases/{id}/purchase-invoice/`, including tax, invoice discounts, and shipping).\n"
+            "  2. **`total_value`** (if any goods have been received and no Supplier Invoice exists yet).\n"
+            "  3. **`ordered_value`** (while the PO is still in `draft`/`ordered` with zero received items).\n\n"
+            "### Dynamic Action Gating (`available_actions`)\n"
+            "Returns the exact actions valid for the order's current lifecycle state:\n"
+            "- **Before Goods Receipt (`draft` / `ordered`, `quantity_received == 0`)**:\n"
+            "  `[\"view\", \"edit\", \"cancel\", \"delete\", \"receive_goods\", \"record_purchase_invoice\"]` "
+            "( plus `\"record_payment\"` if a Supplier Invoice has already been recorded with `balance_due > 0`).\n"
+            "- **Partially Received (`partially_received`, `0 < quantity_received < quantity_ordered`)**:\n"
+            "  `[\"view\", \"receive_goods\", \"record_purchase_invoice\", \"record_payment\", \"create_return\"]` "
+            "(`edit`, `cancel`, and `delete` are automatically removed to protect inventory/ledger integrity).\n"
+            "- **Fully Received & Unpaid (`received`, `balance_due > 0`)**:\n"
+            "  `[\"view\", \"record_purchase_invoice\", \"record_payment\", \"create_return\"]` (`receive_goods` is removed).\n"
+            "- **Fully Received & Paid (`received`, `payment_status == 'paid'`, `balance_due == 0`)**:\n"
+            "  `[\"view\", \"record_purchase_invoice\", \"create_return\"]` (`record_payment` is removed).\n"
+            "- **Cancelled (`cancelled`)**:\n"
+            "  `[\"view\"]`.\n\n"
             "### Required Permissions & Cross-Tenant Isolation (PRD §6, §28, §55)\n"
             "- Requires **`VIEW_PURCHASES`** permission in the target tenant organization.\n"
             "- Cross-tenant lookups return HTTP 404 Not Found to prevent resource enumeration across tenant boundaries."
@@ -730,6 +776,26 @@ purchase_schema = extend_schema_view(
             "### Overview\n"
             "Creates a new Purchase Order and its nested line items in an atomic transaction, backing the "
             "**3-Step Create Purchase Order Wizard** (PRD §10, §18; UI Pages 4, 5, 8, 16–18).\n\n"
+            "### Frontend Guide: Required vs. Optional Payload Fields & Auto-Defaults\n"
+            "| Field | Required? | Default / Auto-Resolution Behavior |\n"
+            "| :--- | :---: | :--- |\n"
+            "| `vendor` | **Required** | UUID of an active supplier in this organization (`GET /api/vendors/`). |\n"
+            "| `warehouse` | **Required** | UUID of an active destination warehouse in this organization (`GET /api/warehouses/`). |\n"
+            "| `items` | Optional | Array of line items to order. |\n"
+            "| `items[].product` | **Required** (per line) | UUID of the catalog product (`GET /api/products/products/`). |\n"
+            "| `items[].quantity_ordered` | **Required** (per line) | Integer `>= 1`. |\n"
+            "| `items[].purchase_cost` | Optional | If omitted or `null`, automatically snapshots `variant.purchase_cost` or `product.purchase_cost` (multiplied by `unit.multiplier` when `unit` is set). Pass explicitly to override with a negotiated unit cost. |\n"
+            "| `items[].discount` | Optional | Defaults to `\"0.00\"`. |\n"
+            "| `items[].variant` | Optional | UUID of `ProductVariant` (validated to belong to `items[].product`). |\n"
+            "| `items[].unit` | Optional | UUID of `ProductUnitConversion` (validated to belong to `items[].product`). |\n"
+            "| `other_costs` | Optional | Defaults to `\"0.00\"`. Typically recorded later on the Supplier Invoice (`POST /purchases/{id}/purchase-invoice/`), which automatically syncs back to the PO. |\n"
+            "| `discount` | Optional | Defaults to `\"0.00\"`. Typically recorded later on the Supplier Invoice (`POST /purchases/{id}/purchase-invoice/`), which automatically syncs back to the PO. |\n"
+            "| `vendor_invoice_number` | Optional | Defaults to `null`. Also auto-synced when a Supplier Invoice is recorded. |\n"
+            "| `order_date` / `delivery_date` | Optional | `YYYY-MM-DD` dates (`null` if omitted). |\n"
+            "| `delivery_method` / `notes` | Optional | Free-text strings (`null` if omitted). |\n"
+            "| `status` | Optional | Defaults to `\"draft\"` (can also be initialized as `\"ordered\"`). |\n"
+            "| `organization` | Optional | Auto-resolved from URL path `{organization_id}`. |\n"
+            "| `ordered_by` | Optional | Auto-resolved from authenticated `request.user`. |\n\n"
             "### Atomic Creation & Inventory Separation Invariant (PRD §10, §18)\n"
             "1. Validates that `vendor`, `warehouse`, and every line item's `product`, `variant`, and `unit` "
             "belong to the active tenant organization.\n"
@@ -741,7 +807,7 @@ purchase_schema = extend_schema_view(
             "via `POST /api/organizations/{organization_id}/purchases/{id}/receive/`.\n"
             "5. Records audit event `PURCHASE_ORDER_CREATED`.\n\n"
             "### Required Permissions & Access Control (PRD §28, §55)\n"
-            "- Requires **`CREATE_PURCHASE`** permission in the target organization.\n"
+            "- Requires **`CREATE_PURCHASE`** permission in the target organization (roles: `owner`, `administrator`, `inventory-manager`).\n"
             "- Cross-tenant foreign keys (`vendor`, `warehouse`, or `items[].product` belonging to another tenant) "
             "are rejected with HTTP 400 Bad Request.\n\n"
             "### Plan Limits & Subscription Invariants (PRD §10, §52)\n"
@@ -750,7 +816,7 @@ purchase_schema = extend_schema_view(
         ),
         parameters=[PURCHASE_ORGANIZATION_PARAM],
         request=PurchaseCreateSerializer,
-        examples=[_purchase_create_example],
+        examples=[_purchase_create_minimal_example, _purchase_create_example],
         responses={
             201: OpenApiResponse(
                 response=PurchaseSerializer,
@@ -773,6 +839,11 @@ purchase_schema = extend_schema_view(
             "### Overview\n"
             "Fully updates an existing Purchase Order and optionally replaces its nested `items` collection "
             "(PRD §18; UI Page 13).\n\n"
+            "### Frontend Guide: Required vs. Optional Fields (`PUT` vs `PATCH`)\n"
+            "- **`PUT`** requires `vendor` and `warehouse` in the payload (all other fields are optional).\n"
+            "- If `items` is included in the payload, it **replaces** the entire line-item collection on the PO (only allowed while `quantity_received == 0`). "
+            "Just like `POST`, `items[].purchase_cost` and `items[].discount` are optional and auto-resolve from the product catalog if omitted.\n"
+            "- If `items` is omitted from the payload, existing line items remain untouched.\n\n"
             "### Business Rules & Immutability Guards (PRD §18)\n"
             "- **Cancelled Guard**: Cancelled purchase orders (`status == 'cancelled'`) cannot be modified.\n"
             "- **Received Goods Guard**: Once any line item has `quantity_received > 0`, changing `vendor`, `warehouse`, "
@@ -780,12 +851,12 @@ purchase_schema = extend_schema_view(
             "such as `notes`, `delivery_date`, or `vendor_invoice_number` may still be updated.\n"
             "- **Audit Trail**: Emits `PURCHASE_ORDER_APPROVED` if transitioning to `ORDERED`, otherwise `PURCHASE_ORDER_UPDATED`.\n\n"
             "### Required Permissions & Subscription Invariants (PRD §10, §28, §52)\n"
-            "- Requires **`CREATE_PURCHASE`** permission.\n"
+            "- Requires **`CREATE_PURCHASE`** permission (roles: `owner`, `administrator`, `inventory-manager`).\n"
             "- Enforces `ensure_subscription_active(organization)`."
         ),
         parameters=[PURCHASE_ORGANIZATION_PARAM, PURCHASE_ID_PARAM],
-        request=PurchaseCreateSerializer,
-        examples=[_purchase_create_example, _purchase_update_items_example],
+        request=PurchaseUpdateSerializer,
+        examples=[_purchase_update_items_example],
         responses={
             200: OpenApiResponse(
                 response=PurchaseSerializer,
@@ -807,17 +878,21 @@ purchase_schema = extend_schema_view(
         description=(
             "### Overview\n"
             "Partially updates selected fields on a Purchase Order without requiring the full payload.\n\n"
+            "### Frontend Guide: Required vs. Optional Fields (`PATCH`)\n"
+            "- **All fields are optional** in `PATCH`. Send only the fields the user modified.\n"
+            "- When `edit` is present in `available_actions` (`quantity_received == 0`), the frontend can `PATCH` any combination of header fields (`vendor`, `warehouse`, `order_date`, `delivery_date`, `delivery_method`, `other_costs`, `discount`, `status`, `notes`) and/or `items`.\n"
+            "- Once goods have been partially or fully received (`edit` is no longer in `available_actions`), `vendor`, `warehouse`, and `items` are locked, while non-structural metadata (`notes`, `delivery_date`, `delivery_method`, `vendor_invoice_number`) can still be patched.\n\n"
             "### Business Rules & Immutability Guards (PRD §18)\n"
             "- Line items (`items`), `vendor`, and `warehouse` can only be modified while `quantity_received == 0` "
             "across all items.\n"
             "- Non-item metadata (`notes`, `delivery_date`, `delivery_method`, `vendor_invoice_number`) can be patched "
             "at any non-cancelled stage.\n\n"
             "### Required Permissions & Subscription Invariants (PRD §10, §28, §52)\n"
-            "- Requires **`CREATE_PURCHASE`** permission.\n"
+            "- Requires **`CREATE_PURCHASE`** permission (roles: `owner`, `administrator`, `inventory-manager`).\n"
             "- Enforces `ensure_subscription_active(organization)`."
         ),
         parameters=[PURCHASE_ORGANIZATION_PARAM, PURCHASE_ID_PARAM],
-        request=PurchaseCreateSerializer,
+        request=PurchaseUpdateSerializer,
         examples=[_purchase_update_items_example, _purchase_partial_update_metadata_example],
         responses={
             200: OpenApiResponse(
@@ -839,7 +914,7 @@ purchase_schema = extend_schema_view(
         summary="Delete a Purchase Order",
         description=(
             "### Overview\n"
-            "Hard-deletes an unfulfilled Purchase Order (PRD §18).\n\n"
+            "Hard-deletes an unfulfilled Purchase Order (PRD §18). Only enabled in the UI when `\"delete\"` is present in `available_actions`.\n\n"
             "### Data & Ledger Integrity Guards (PRD §18, §44)\n"
             "- **Received Goods Guard**: If any line item has `quantity_received > 0`, deletion is rejected with "
             "HTTP 400 (`CANNOT_DELETE_RECEIVED_PURCHASE`). Use the Supplier Return workflow (`POST /purchases/{id}/returns/`) "
@@ -848,7 +923,7 @@ purchase_schema = extend_schema_view(
             "deletion is rejected with HTTP 400.\n"
             "- **Audit Trail**: Records `PURCHASE_ORDER_DELETED` prior to removal.\n\n"
             "### Required Permissions & Subscription Invariants\n"
-            "- Requires **`CREATE_PURCHASE`** permission.\n"
+            "- Requires **`CREATE_PURCHASE`** permission (roles: `owner`, `administrator`, `inventory-manager`).\n"
             "- Enforces `ensure_subscription_active(organization)`."
         ),
         parameters=[PURCHASE_ORGANIZATION_PARAM, PURCHASE_ID_PARAM],
@@ -928,7 +1003,10 @@ purchase_schema = extend_schema_view(
         summary="Cancel a Purchase Order",
         description=(
             "### Overview\n"
-            "Cancels a `DRAFT` or `ORDERED` Purchase Order before any goods have been received (UI Page 14).\n\n"
+            "Cancels a `DRAFT` or `ORDERED` Purchase Order before any goods have been received (UI Page 14). "
+            "Only enabled in the UI when `\"cancel\"` is present in `available_actions`.\n\n"
+            "### Frontend Guide: Request Payload\n"
+            "- `reason` (**Optional**, string): Reason entered in the Cancel Order confirmation modal (defaults to `\"\"` if omitted or `{}` is sent).\n\n"
             "### Business Rules & Invariants (PRD §18, §44)\n"
             "- **Status Guard**: Only `draft` or `ordered` purchase orders with zero received items (`quantity_received == 0`) "
             "and zero active payments can be cancelled.\n"
@@ -937,9 +1015,9 @@ purchase_schema = extend_schema_view(
             "- **Cascading Supplier Invoice Void**: Any non-cancelled `PurchaseInvoice` attached to the purchase order is "
             "automatically marked `cancelled` / voided.\n"
             "- **Audit Trail**: Sets `status = 'cancelled'`, `cancelled_at`, `cancelled_by`, `cancel_reason`, and records "
-            "`PURCHASE_ORDER_CANCELLED`.\n\n"
+            "`PURCHASE_ORDER_CANCELLED`. Subsequent responses return `available_actions: [\"view\"]`.\n\n"
             "### Required Permissions & Subscription Invariants\n"
-            "- Requires **`CREATE_PURCHASE`** permission.\n"
+            "- Requires **`CREATE_PURCHASE`** permission (roles: `owner`, `administrator`, `inventory-manager`).\n"
             "- Enforces `ensure_subscription_active(organization)`."
         ),
         parameters=[PURCHASE_ORGANIZATION_PARAM, PURCHASE_ID_PARAM],
@@ -975,7 +1053,17 @@ purchase_schema = extend_schema_view(
         description=(
             "### Overview\n"
             "Records the physical arrival and check-in of ordered goods at the destination warehouse, backing the "
-            "**Receive Products Modal** (PRD §10, §16, §18, §42, §43; UI Page 19).\n\n"
+            "**Receive Products Modal** (PRD §10, §16, §18, §42, §43; UI Page 19). "
+            "Enabled in the UI when `\"receive_goods\"` is present in `available_actions`.\n\n"
+            "### Frontend Guide: Required vs. Optional Payload Fields\n"
+            "| Field | Required? | Description |\n"
+            "| :--- | :---: | :--- |\n"
+            "| `items_received` | **Required** | Non-empty array of line items being checked in during this delivery. |\n"
+            "| `items_received[].item_id` | **Required** | UUID of the `PurchaseItem` (`items[].id` from the Purchase Order response — **not** the catalog `product` UUID). |\n"
+            "| `items_received[].quantity_received` | **Required** | Integer `>= 1`. Must not exceed remaining unreceived quantity (`quantity_ordered - quantity_received`). |\n"
+            "| `items_received[].batch_number` | Optional | Batch string entered in the Receive Products modal (e.g. `\"BATCH-2026-10A\"`). Auto-creates or resolves a `ProductBatch`. |\n"
+            "| `items_received[].expiry_date` | Optional | Expiry date (`YYYY-MM-DD`) for the batch. |\n"
+            "| `items_received[].batch` | Optional | UUID of an existing `ProductBatch` if selecting an existing batch directly. |\n\n"
             "### Atomic Inventory, Batch & Double-Entry Ledger Workflow\n"
             "When executed inside its `@transaction.atomic` block:\n"
             "1. **Deterministic Row Locking**: Locks `Purchase` and `PurchaseItem` rows (`select_for_update()`) ordered by "
@@ -990,14 +1078,15 @@ purchase_schema = extend_schema_view(
             "5. **Inventory & Immutable Ledger (`inventory.services.record_purchase_receipt_inventory_and_ledger`)**:\n"
             "   - Creates a unified `Transaction` (`transaction_type = 'purchase'`, `status = 'completed'`).\n"
             "   - Increments `Inventory.quantity` for `(product, variant, batch, warehouse)`.\n"
-            "   - Writes positive `InventoryLedgerEntry` rows.\n"
+            "   - Writes positive `InventoryLedgerEntry` rows (visible in `GET /purchases/{id}/stock-activity/`).\n"
             "6. **Double-Entry Accounting (`transactions.services.record_purchase_financial_entries`)**:\n"
             "   - **Debit**: `INVENTORY_ASSET` (`received_cost_total`)\n"
             "   - **Credit**: `ACCOUNTS_PAYABLE` (`received_cost_total`)\n"
-            "7. **Lifecycle Status Transition**: Transitions `purchase.status` to `partially_received` or `received` "
+            "7. **Lifecycle Status & Action Transition**: Transitions `purchase.status` to `partially_received` or `received`, "
+            "removes `edit`/`cancel`/`delete` from `available_actions`, unlocks `record_payment` and `create_return`, "
             "and records audit event `PURCHASE_ORDER_RECEIVED`.\n\n"
             "### Required Permissions & Subscription Invariants (PRD §10, §28, §52)\n"
-            "- Requires **`RECEIVE_GOODS`** permission in the target organization.\n"
+            "- Requires **`RECEIVE_GOODS`** permission in the target organization (roles: `owner`, `administrator`, `inventory-manager`, `inventory-staff`).\n"
             "- Enforces `ensure_subscription_active(organization)` and consumes 1 monthly transaction slot "
             "(`UsageMetric.TRANSACTIONS`)."
         ),
@@ -1038,20 +1127,35 @@ purchase_schema = extend_schema_view(
             "- **`GET`**: Lists all supplier invoices (`PurchaseInvoice`) recorded for this purchase order, powering the "
             "**Supplier Invoice** detail tab (UI Page 7).\n"
             "- **`POST`**: Records or updates the active `PurchaseInvoice` for this purchase order, backing the "
-            "**3-Step Create New Invoice (Supplier Invoice) Wizard** (UI Pages 1–3, 17).\n\n"
-            "### 3-Step Supplier Invoice Creation & Snapshot Workflow (`POST`)\n"
+            "**3-Step Create New Invoice (Supplier Invoice) Wizard** (UI Pages 1–3, 17). Enabled when `\"record_purchase_invoice\"` is in `available_actions`.\n\n"
+            "### Frontend Guide: Required vs. Optional Payload Fields (`POST`)\n"
+            "**All fields in the `POST` body are optional** — an empty `{}` body will generate a confirmed Supplier Invoice directly from the Purchase Order's current snapshot:\n\n"
+            "| Field | Required? | Default / Synchronization Behavior |\n"
+            "| :--- | :---: | :--- |\n"
+            "| `vendor_invoice_number` | Optional | Supplier's external bill reference. If provided, **automatically syncs back to `purchase.vendor_invoice_number`**. |\n"
+            "| `billed_to` | Optional | Entity name billed on the invoice (UI Step 1). |\n"
+            "| `invoice_type` | Optional | Defaults to `\"supplier_invoice\"` (or `\"credit_note\"`, `\"debit_note\"`). |\n"
+            "| `issue_date` / `due_date` | Optional | `YYYY-MM-DD` dates (`issue_date` defaults to today if omitted). |\n"
+            "| `tax_rate` | Optional | Tax percentage (e.g. `\"7.50\"` for 7.5%). Defaults to `\"0.00\"`. |\n"
+            "| `tax_amount` | Optional | Explicit tax amount override; if omitted, computed as `(subtotal - discount_amount) × (tax_rate / 100)`. |\n"
+            "| `discount_amount` | Optional | Global invoice discount. Defaults to `purchase.discount`, and **automatically syncs back to `purchase.discount`** when provided. |\n"
+            "| `other_costs` | Optional | Shipping/handling charges on the bill. Defaults to `purchase.other_costs`, and **automatically syncs back to `purchase.other_costs`** when provided. |\n"
+            "| `items` | Optional | Per-line overrides (`purchase_item_id`, `invoice_quantity`, `unit_cost`, `discount_amount`). If omitted, lines auto-populate from the PO (`quantity_received` if > 0, else `quantity_ordered`). |\n\n"
+            "### 3-Step Supplier Invoice Creation & Synchronization Workflow (`POST`)\n"
             "1. **Step 1 — Header & Party Details**: Captures `billed_to`, `invoice_type` (`supplier_invoice`), "
             "`vendor_invoice_number`, `issue_date`, `due_date`, `notes`, and freezes vendor contact details via "
             "`vendors.services.vendor_snapshot`.\n"
             "2. **Step 2 — Line Items & Tax Calculation**:\n"
             "   - Accepts optional per-line overrides (`items`: `purchase_item_id`, `invoice_quantity`, `unit_cost`, `discount_amount`).\n"
-            "   - If `items` is omitted, automatically populates lines from the Purchase Order snapshot (`quantity_received` if > 0, else `quantity_ordered`).\n"
             "   - Computes `subtotal`, applies `discount_amount`, `tax_rate` / `tax_amount`, and `other_costs` to derive `total`.\n"
-            "3. **Step 3 — Review & Confirmation**: Synchronizes `amount_paid` from the purchase order, sets status to "
-            "`confirmed` / `partially_paid` / `paid`, and emits audit event `PURCHASE_INVOICE_RECORDED`.\n\n"
+            "3. **Step 3 — Review, Confirmation & PO Sync**:\n"
+            "   - Synchronizes `vendor_invoice_number`, `discount_amount` (`purchase.discount`), and `other_costs` (`purchase.other_costs`) back onto the parent `Purchase`.\n"
+            "   - Updates `purchase.balance_due` to reflect the confirmed `PurchaseInvoice.total` (including tax).\n"
+            "   - Unlocks `\"record_payment\"` in `purchase.available_actions` (even before goods arrive, enabling advance supplier payments against an invoice).\n"
+            "   - Emits audit event `PURCHASE_INVOICE_RECORDED`.\n\n"
             "### Required Permissions\n"
             "- **`GET`**: Requires **`VIEW_PURCHASES`** permission.\n"
-            "- **`POST`**: Requires **`CREATE_PURCHASE`** permission and an active organization subscription."
+            "- **`POST`**: Requires **`CREATE_PURCHASE`** permission (roles: `owner`, `administrator`, `inventory-manager`) and an active organization subscription."
         ),
         parameters=[PURCHASE_ORGANIZATION_PARAM, PURCHASE_ID_PARAM],
         request=PurchaseInvoiceCreateSerializer,
@@ -1088,7 +1192,16 @@ purchase_schema = extend_schema_view(
             "- **`GET`**: Lists all supplier payment receipts (`PurchasePayment`) recorded against this purchase order, "
             "powering the **Payments** detail tab (UI Page 7).\n"
             "- **`POST`**: Records a partial or full supplier payment against this purchase order, backing the "
-            "**Record Payment Modal** (UI Pages 15, 20).\n\n"
+            "**Record Payment Modal** (UI Pages 15, 20). Enabled when `\"record_payment\"` is in `available_actions`.\n\n"
+            "### Frontend Guide: Required vs. Optional Payload Fields (`POST`)\n"
+            "| Field | Required? | Default / Auto-Resolution Behavior |\n"
+            "| :--- | :---: | :--- |\n"
+            "| `method` | **Required** | One of `\"cash\"`, `\"bank_transfer\"`, `\"pos\"`, `\"cheque\"`, `\"mobile_money\"`, `\"card\"`, `\"other\"`. |\n"
+            "| `amount` | Optional | Decimal amount paid (`> 0.00` and `<= balance_due`). **If omitted or `null`, automatically pays the full remaining `balance_due`**. |\n"
+            "| `reference` | Optional | Bank transfer / POS / cheque reference string. |\n"
+            "| `payment_date` | Optional | `YYYY-MM-DD` date the supplier was paid. |\n"
+            "| `notes` | Optional | Internal payment notes. |\n"
+            "| `supporting_document` | Optional | Multipart file upload for proof of payment receipt. |\n\n"
             "### Supplier Payment & Double-Entry Accounting Workflow (`POST`)\n"
             "1. **Payable Eligibility Guard**: Requires that goods have been received (`quantity_received > 0`) or an active "
             "`PurchaseInvoice` has been recorded. Cancelled or unreceived draft orders without an invoice cannot take payments.\n"
@@ -1098,15 +1211,15 @@ purchase_schema = extend_schema_view(
             "   - Rejects overpayments (`amount > balance_due`) with HTTP 400 (`PAYMENT_VALIDATION_ERROR`).\n"
             "3. **Atomic Persistence & Synchronization**:\n"
             "   - Creates `Payment` and `PurchasePayment` (`PRCP-YYYY-NNNN`) with `payment_date`, `notes`, `reference`, and `balance_after`.\n"
-            "   - Updates `purchase.amount_paid` and transitions `purchase.payment_status` to `partially_paid` or `paid`.\n"
+            "   - Updates `purchase.amount_paid` and transitions `purchase.payment_status` to `partially_paid` or `paid` (removing `\"record_payment\"` from `available_actions` once `balance_due == 0.00`).\n"
             "   - Synchronizes `PurchaseInvoice.amount_paid` and `PurchaseInvoice.status` via `apply_payment_to_purchase_invoice`.\n"
             "4. **Double-Entry Financial Ledger (`TransactionTypeChoices.PAYMENT_SENT`)**:\n"
             "   - **Debit**: `ACCOUNTS_PAYABLE` (`paid_amount`)\n"
             "   - **Credit**: `CASH_BANK` (`paid_amount`)\n"
             "5. **Audit Trail**: Emits `PURCHASE_PAYMENT_RECORDED`.\n\n"
             "### Required Permissions & Subscription Invariants\n"
-            "- **`GET`**: Requires **`VIEW_PAYMENTS`** permission.\n"
-            "- **`POST`**: Requires **`RECORD_PAYMENT`** permission, an active subscription, and consumes 1 monthly transaction slot."
+            "- **`GET`**: Requires **`VIEW_PURCHASES`** permission.\n"
+            "- **`POST`**: Requires **`CREATE_PURCHASE`** permission (roles: `owner`, `administrator`, `inventory-manager`), an active subscription, and consumes 1 monthly transaction slot."
         ),
         parameters=[PURCHASE_ORGANIZATION_PARAM, PURCHASE_ID_PARAM],
         request=PurchasePaymentCreateSerializer,
@@ -1142,7 +1255,16 @@ purchase_schema = extend_schema_view(
             "### Overview\n"
             "- **`GET`**: Lists all supplier returns (`PurchaseReturn`) recorded against this purchase order, powering the "
             "**Returns** detail tab (UI Page 7).\n"
-            "- **`POST`**: Records a return of damaged, defective, or excess goods back to the supplier (UI Pages 7, 10, 18).\n\n"
+            "- **`POST`**: Records a return of damaged, defective, or excess goods back to the supplier (UI Pages 7, 10, 18). "
+            "Enabled when `\"create_return\"` is in `available_actions`.\n\n"
+            "### Frontend Guide: Required vs. Optional Payload Fields (`POST`)\n"
+            "| Field | Required? | Description |\n"
+            "| :--- | :---: | :--- |\n"
+            "| `items` | **Required** | Non-empty array of received purchase items being returned to the supplier. |\n"
+            "| `items[].purchase_item` | **Required** | UUID of the `PurchaseItem` (`items[].id` from the Purchase Order response — **not** the catalog `product` UUID). |\n"
+            "| `items[].quantity` | **Required** | Integer `>= 1`. Must be `<= quantity_received - already_returned` and available in warehouse inventory. |\n"
+            "| `items[].batch` | Optional | UUID of the specific `ProductBatch` being returned (obtainable from `GET /purchases/{id}/stock-activity/`). |\n"
+            "| `reason` | Optional | Reason for returning the goods (defaults to `\"\"`). |\n\n"
             "### Supplier Return, Stock Deduction & Double-Entry Reversal Workflow (`POST`)\n"
             "1. **Returnable Quantity Validation**: Verifies for each line that `quantity <= item.quantity_received - already_returned`. "
             "Returning more than received is rejected with HTTP 400 (`PURCHASE_RETURN_ERROR`).\n"
@@ -1157,7 +1279,7 @@ purchase_schema = extend_schema_view(
             "4. **Audit Trail**: Generates sequential `return_number` (`PRET-YYYY-NNNN`) and emits `PURCHASE_RETURN_CREATED`.\n\n"
             "### Required Permissions & Subscription Invariants\n"
             "- **`GET`**: Requires **`VIEW_PURCHASES`** permission.\n"
-            "- **`POST`**: Requires **`RECEIVE_GOODS`** permission, an active subscription, and consumes 1 monthly transaction slot."
+            "- **`POST`**: Requires **`CREATE_PURCHASE`** permission (roles: `owner`, `administrator`, `inventory-manager`), an active subscription, and consumes 1 monthly transaction slot."
         ),
         parameters=[PURCHASE_ORGANIZATION_PARAM, PURCHASE_ID_PARAM],
         request=PurchaseReturnCreateSerializer,
@@ -1197,7 +1319,9 @@ purchase_schema = extend_schema_view(
             "### Returned Ledger Fields\n"
             "- `transaction_id`, `transaction_type`, `product`, `product_name`, `variant`, `variant_name`, "
             "`batch`, `batch_number`, `warehouse`, `warehouse_name`, `quantity_moved` (positive for receipts, negative for returns), "
-            "`unit_cost`, and `created_at`.\n\n"
+            "`unit_cost`, and `created_at`.\n"
+            "- Frontend Tip: The `batch` UUID returned on receipt rows can be passed to `POST /purchases/{id}/returns/` (`items[].batch`) "
+            "when returning goods from a specific batch.\n\n"
             "### Required Permissions\n"
             "- Requires **`VIEW_PURCHASES`** permission in the target organization."
         ),

@@ -108,20 +108,16 @@ class PurchaseAPITest(APITestCase):
             "vendor": str(self.vendor.id),
             "warehouse": str(self.warehouse.id),
             "delivery_method": "Supplier Delivery",
-            "other_costs": "2000.00",
-            "discount": "500.00",
             "items": [
                 {
                     "product": str(self.product.id),
                     "quantity_ordered": 50,
                     "purchase_cost": "15.00",
-                    "discount": "0.00",
                 },
                 {
                     "product": str(product2.id),
                     "quantity_ordered": 20,
                     "purchase_cost": "30.00",
-                    "discount": "0.00",
                 },
             ],
         }

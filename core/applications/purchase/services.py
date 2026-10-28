@@ -99,6 +99,19 @@ def _validate_purchase_items_for_organization(
                 "Ordered quantity must be greater than zero.",
                 detail={"line": idx, "quantity_ordered": quantity_ordered},
             )
+        if item_data.get("purchase_cost") is None and product is not None:
+            variant_cost = getattr(variant, "purchase_cost", None) if variant else None
+            base_cost = Decimal(
+                str(
+                    variant_cost
+                    if variant_cost is not None
+                    else (getattr(product, "purchase_cost", None) or Decimal("0.00"))
+                )
+            )
+            multiplier = Decimal(str(unit.multiplier)) if unit else Decimal("1.000")
+            item_data["purchase_cost"] = (base_cost * multiplier).quantize(Decimal("0.01"))
+        if item_data.get("discount") is None:
+            item_data["discount"] = Decimal("0.00")
 
 
 @transaction.atomic
@@ -498,19 +511,24 @@ def record_purchase_invoice(
             detail={"purchase_id": str(purchase.pk)},
         )
 
-    if resolved_payload.vendor_invoice_number:
-        purchase.vendor_invoice_number = resolved_payload.vendor_invoice_number
-    if resolved_payload.supporting_document is not None:
-        purchase.supporting_document = resolved_payload.supporting_document
-    if resolved_payload.vendor_invoice_number or resolved_payload.supporting_document is not None:
-        purchase.save(update_fields=["vendor_invoice_number", "supporting_document", "updated_at"])
-
     purchase_invoice = create_or_update_purchase_invoice(
         purchase=purchase,
         actor=actor,
         payload=resolved_payload,
         audit_context=audit_context,
     )
+
+    updated_fields = ["discount", "other_costs", "updated_at"]
+    purchase.discount = purchase_invoice.discount_amount
+    purchase.other_costs = purchase_invoice.other_costs
+    if resolved_payload.vendor_invoice_number:
+        purchase.vendor_invoice_number = resolved_payload.vendor_invoice_number
+        updated_fields.append("vendor_invoice_number")
+    if resolved_payload.supporting_document is not None:
+        purchase.supporting_document = resolved_payload.supporting_document
+        updated_fields.append("supporting_document")
+    purchase.save(update_fields=updated_fields)
+
     return purchase_invoice
 
 

@@ -94,26 +94,84 @@ class PurchaseItemCreateSerializer(serializers.ModelSerializer):
                 "help_text": "Number of units ordered from the vendor (must be >= 1).",
             },
             "purchase_cost": {
-                "help_text": "Snapshotted agreed unit cost for this product line.",
+                "required": False,
+                "allow_null": True,
+                "help_text": (
+                    "Optional snapshotted agreed unit cost for this product line. "
+                    "Defaults to variant.purchase_cost or product.purchase_cost (scaled by unit.multiplier) if omitted."
+                ),
             },
             "discount": {
-                "help_text": "Line-item discount applied to this product line.",
+                "required": False,
+                "help_text": "Optional line-item discount applied to this product line (defaults to 0.00).",
             },
         }
 
 
+class PurchaseItemUpdateSerializer(PurchaseItemCreateSerializer):
+    pass
+
+
 class PurchaseSerializer(serializers.ModelSerializer):
-    items = PurchaseItemSerializer(many=True, read_only=True)
-    vendor_name = serializers.CharField(source="vendor.company_name", read_only=True)
-    warehouse_name = serializers.CharField(source="warehouse.name", read_only=True)
-    ordered_by_name = serializers.SerializerMethodField()
-    received_by_name = serializers.SerializerMethodField()
-    cancelled_by_name = serializers.SerializerMethodField()
-    subtotal = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
-    total_value = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
-    ordered_value = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
-    balance_due = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
-    available_actions = serializers.SerializerMethodField()
+    items = PurchaseItemSerializer(
+        many=True,
+        read_only=True,
+        help_text="Line items belonging to this purchase order.",
+    )
+    vendor_name = serializers.CharField(
+        source="vendor.company_name",
+        read_only=True,
+        help_text="Company name of the supplier/vendor.",
+    )
+    warehouse_name = serializers.CharField(
+        source="warehouse.name",
+        read_only=True,
+        help_text="Name of the destination warehouse.",
+    )
+    ordered_by_name = serializers.SerializerMethodField(
+        help_text="Display name or email of the user who created the purchase order.",
+    )
+    received_by_name = serializers.SerializerMethodField(
+        help_text="Display name or email of the user who last checked in goods.",
+    )
+    cancelled_by_name = serializers.SerializerMethodField(
+        help_text="Display name or email of the user who cancelled the purchase order.",
+    )
+    subtotal = serializers.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        read_only=True,
+        help_text="Sum of ordered line values across all items: sum((quantity_ordered * purchase_cost) - line_discount).",
+    )
+    total_value = serializers.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        read_only=True,
+        help_text="Total value of physically received goods plus other_costs minus header discount: sum((quantity_received * purchase_cost) - line_discount) + other_costs - discount.",
+    )
+    ordered_value = serializers.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        read_only=True,
+        help_text="Total value of ordered goods plus other_costs minus header discount: subtotal + other_costs - discount.",
+    )
+    balance_due = serializers.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        read_only=True,
+        help_text=(
+            "Remaining payable balance (max(payable_total - amount_paid, 0.00)). "
+            "Priority for payable_total: (1) active PurchaseInvoice.total if recorded, "
+            "(2) total_value if any goods have been received, (3) ordered_value if unreceived."
+        ),
+    )
+    available_actions = serializers.SerializerMethodField(
+        help_text=(
+            "Backend-computed list of valid UI actions for this purchase order's current lifecycle state "
+            "(view, edit, cancel, delete, receive_goods, record_purchase_invoice, record_payment, create_return). "
+            "Used to populate row kebab menus (UI Pages 5-6) and detail action buttons (UI Pages 13-14)."
+        ),
+    )
 
     class Meta:
         model = Purchase
@@ -221,8 +279,28 @@ class PurchaseCreateSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "purchase_number", "created_at"]
         extra_kwargs = {
-            "organization": {"required": False},
-            "ordered_by": {"required": False},
+            "organization": {
+                "required": False,
+                "help_text": "Optional UUID of the tenant organization. Automatically resolved from URL path {organization_id} if omitted.",
+            },
+            "vendor": {
+                "help_text": "Required UUID of the supplier/vendor belonging to this organization.",
+            },
+            "warehouse": {
+                "help_text": "Required UUID of the destination warehouse belonging to this organization.",
+            },
+            "ordered_by": {
+                "required": False,
+                "help_text": "Optional UUID of the ordering user. Automatically defaults to the authenticated request.user.",
+            },
+            "other_costs": {
+                "required": False,
+                "help_text": "Optional shipping/handling/ancillary costs on the purchase order (defaults to 0.00). Also automatically synchronized when a Supplier Invoice is recorded.",
+            },
+            "discount": {
+                "required": False,
+                "help_text": "Optional global order-level discount (defaults to 0.00). Also automatically synchronized when a Supplier Invoice is recorded.",
+            },
         }
 
     def to_internal_value(self, data):
@@ -273,6 +351,35 @@ class PurchaseCreateSerializer(serializers.ModelSerializer):
                         {"items": f"Line {idx}: Unit conversion does not belong to the selected product."}
                     )
         return super().validate(attrs)
+
+
+class PurchaseUpdateSerializer(PurchaseCreateSerializer):
+    items = PurchaseItemUpdateSerializer(
+        many=True,
+        required=False,
+        help_text="List of line items ordered from the vendor.",
+    )
+
+    class Meta(PurchaseCreateSerializer.Meta):
+        fields = [
+            "id",
+            "purchase_number",
+            "organization",
+            "vendor",
+            "warehouse",
+            "ordered_by",
+            "vendor_invoice_number",
+            "supporting_document",
+            "delivery_date",
+            "order_date",
+            "delivery_method",
+            "other_costs",
+            "discount",
+            "status",
+            "notes",
+            "items",
+            "created_at",
+        ]
 
 
 class PurchaseReceiveItemSerializer(serializers.Serializer):

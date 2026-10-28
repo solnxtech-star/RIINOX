@@ -27,6 +27,7 @@ from core.applications.purchase.api.serializers import (
     PurchaseSerializer,
     PurchaseStockActivitySerializer,
     PurchaseSummarySerializer,
+    PurchaseUpdateSerializer,
 )
 from core.applications.purchase.filters import PurchaseFilterSet
 from core.applications.purchase.models import Purchase, PurchaseReturn
@@ -85,8 +86,8 @@ class PurchaseViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
         is_post = self.request.method == "POST"
         serializer_map = {
             "create": PurchaseCreateSerializer,
-            "update": PurchaseCreateSerializer,
-            "partial_update": PurchaseCreateSerializer,
+            "update": PurchaseUpdateSerializer,
+            "partial_update": PurchaseUpdateSerializer,
             "summary": PurchaseSummarySerializer,
             "cancel": PurchaseCancelSerializer,
             "receive": PurchaseReceiveSerializer,
