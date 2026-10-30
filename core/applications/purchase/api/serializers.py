@@ -259,8 +259,6 @@ class PurchaseCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Purchase
         fields = [
-            "id",
-            "purchase_number",
             "organization",
             "vendor",
             "warehouse",
@@ -275,9 +273,7 @@ class PurchaseCreateSerializer(serializers.ModelSerializer):
             "status",
             "notes",
             "items",
-            "created_at",
         ]
-        read_only_fields = ["id", "purchase_number", "created_at"]
         extra_kwargs = {
             "organization": {
                 "required": False,
@@ -362,8 +358,6 @@ class PurchaseUpdateSerializer(PurchaseCreateSerializer):
 
     class Meta(PurchaseCreateSerializer.Meta):
         fields = [
-            "id",
-            "purchase_number",
             "organization",
             "vendor",
             "warehouse",
@@ -378,7 +372,6 @@ class PurchaseUpdateSerializer(PurchaseCreateSerializer):
             "status",
             "notes",
             "items",
-            "created_at",
         ]
 
 

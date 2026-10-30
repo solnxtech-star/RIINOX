@@ -85,3 +85,6 @@ CLOUDINARY_STORAGE = {
     "API_KEY": env("CLOUDINARY_API_KEY"),
     "API_SECRET": env("CLOUDINARY_API_SECRET"),
 }
+
+# CORS in local development
+CORS_ALLOW_ALL_ORIGINS = True

@@ -209,3 +209,13 @@ SPECTACULAR_SETTINGS["SERVERS"] = [
 ]
 # Your stuff...
 # ------------------------------------------------------------------------------
+
+# CORS in production
+CORS_ALLOWED_ORIGINS = env.list(
+    "CORS_ALLOWED_ORIGINS",
+    default=[
+        env("FRONTEND_URL", default="https://riinox.onrender.com").rstrip("/"),
+        env("API_BASE_URL", default="https://riinox.onrender.com").rstrip("/"),
+    ],
+)
+CORS_ALLOW_CREDENTIALS = True
