@@ -35,7 +35,7 @@ from rest_framework.throttling import SimpleRateThrottle
 from rest_framework.throttling import UserRateThrottle
 from rest_framework.viewsets import ModelViewSet
 from rest_framework_simplejwt.authentication import AUTH_HEADER_TYPES
-from rest_framework_simplejwt.authentication import JWTAuthentication
+from core.helper.authentications import CustomJWTAuthentication
 from rest_framework_simplejwt.exceptions import InvalidToken
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.settings import api_settings
@@ -600,7 +600,7 @@ class UserViewSet(ModelViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(tags=["auth", "User Management"])
-    @action(["get"], detail=False, authentication_classes=[JWTAuthentication])
+    @action(["get"], detail=False, authentication_classes=[CustomJWTAuthentication])
     def logout(self, request, *args, **kwargs):
         if settings.TOKEN_MODEL:
             settings.TOKEN_MODEL.objects.filter(user=request.user).delete()
@@ -618,7 +618,7 @@ class UserViewSet(ModelViewSet):
         # request=UserSerializer.PhoneMetadata,  # noqa: ERA001
         responses={status.HTTP_204_NO_CONTENT: None},
     )
-    @action(["POST"], detail=False, authentication_classes=[JWTAuthentication])
+    @action(["POST"], detail=False, authentication_classes=[CustomJWTAuthentication])
     def metadatas(self, request: Request, *args, **kwargs):
         serializer = UserSerializer.PhoneMetadata(
             data=request.data,

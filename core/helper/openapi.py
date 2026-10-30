@@ -7,15 +7,21 @@ def remove_uuid_format(result, generator, request, public):
     """
     # Remove format from path/query parameters
     for path, methods in result.get('paths', {}).items():
+        if not isinstance(methods, dict):
+            continue
         for method, operation in methods.items():
+            if not isinstance(operation, dict):
+                continue
             for param in operation.get('parameters', []):
-                if param.get('schema', {}).get('format') == 'uuid':
+                if isinstance(param, dict) and param.get('schema', {}).get('format') == 'uuid':
                     del param['schema']['format']
-    
+
     # Also remove format from components (response/request bodies)
     for schema_name, schema in result.get('components', {}).get('schemas', {}).items():
+        if not isinstance(schema, dict):
+            continue
         for prop_name, prop in schema.get('properties', {}).items():
-            if prop.get('format') == 'uuid':
+            if isinstance(prop, dict) and prop.get('format') == 'uuid':
                 del prop['format']
-                
+
     return result
