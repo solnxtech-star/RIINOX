@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from drf_spectacular.utils import extend_schema
-from rest_framework import filters, viewsets
+from rest_framework import filters
+from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 
 from core.applications.purchase.api.permissions import PurchasePermission
@@ -15,6 +16,7 @@ class VendorViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
     """
     CRUD ViewSet for Suppliers / Vendors scoped to the tenant organization.
     """
+
     queryset = Vendor.objects.none()
     permission_classes = [IsAuthenticated, PurchasePermission]
     serializer_class = VendorSerializer

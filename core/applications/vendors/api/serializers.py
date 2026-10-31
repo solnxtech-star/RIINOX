@@ -46,3 +46,4 @@ class VendorSerializer(serializers.ModelSerializer):
                 )
             attrs["organization"] = url_org
         return super().validate(attrs)
+

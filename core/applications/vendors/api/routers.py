@@ -17,3 +17,4 @@ app_name = "vendors"
 urlpatterns = [
     path("", include(router.urls)),
 ]
+
