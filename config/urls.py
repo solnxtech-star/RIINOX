@@ -79,6 +79,13 @@ urlpatterns += [
     path(
         "api/",
         include(
+            "core.applications.vendors.api.routers",
+            namespace="vendors",
+        ),
+    ),
+    path(
+        "api/",
+        include(
             "core.applications.warehouse.api.routers",
             namespace="warehouse",
         ),
