@@ -392,7 +392,7 @@ def receive_purchase_order(
 
     locked_items = {
         str(it.pk).replace("-", ""): it
-        for it in purchase.items.select_for_update()
+        for it in purchase.items.select_for_update(of=('self',))
         .select_related("product", "variant", "unit")
         .order_by("product_id", "pk")
     }
@@ -602,7 +602,7 @@ def create_purchase_return(
 
     locked_items = {
         str(it.pk).replace("-", ""): it
-        for it in purchase.items.select_for_update()
+        for it in purchase.items.select_for_update(of=('self',))
         .select_related("product", "variant", "unit")
         .order_by("product_id", "pk")
     }
