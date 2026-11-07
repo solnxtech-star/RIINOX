@@ -113,7 +113,7 @@ CLOUDINARY_STORAGE = {
 if TEST_MODE:
     DEFAULT_FROM_EMAIL = env(
         "DJANGO_DEFAULT_FROM_EMAIL",
-        default="Roots coding club <mastergentility5@gmail.com>",
+        default="Riinox <mastergentility5@gmail.com>",
     )
 else:
     # ------------------------------------------------------------------------------
