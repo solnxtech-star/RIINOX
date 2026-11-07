@@ -1,10 +1,11 @@
-from drf_spectacular.utils import (
-    extend_schema,
-    extend_schema_view,
-    OpenApiExample,
-    OpenApiParameter,
-    OpenApiTypes,
-)
+from drf_spectacular.utils import OpenApiExample
+from drf_spectacular.utils import OpenApiParameter
+from drf_spectacular.utils import OpenApiResponse
+from drf_spectacular.utils import OpenApiTypes
+from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema_view
+
+from core.applications.inventory.api.serializers import InventorySummarySerializer
 
 PRODUCT_CREATE_EXAMPLE = {
     "name": "NEW TEST PRODUCT 1",
@@ -28,20 +29,20 @@ PRODUCT_CREATE_EXAMPLE = {
             "expiry_date": "2027-12-31",
             "cost_price": "1200.00",
             "selling_price": "2000.00",
-        }
+        },
     ],
     "bulk_discounts": [
         {
             "min_quantity": 10,
             "discount_amount": "100.00",
-        }
+        },
     ],
     "unit_conversions": [
         {
             "unit_name": "carton",
             "multiplier": "24.000",
             "price_override": "45000.00",
-        }
+        },
     ],
 }
 
@@ -54,7 +55,7 @@ PRODUCT_ORGANIZATION_PARAM = OpenApiParameter(
 
 product_schema = extend_schema_view(
     list=extend_schema(
-        tags=['Products'],
+        tags=["Products"],
         summary="List all Products",
         description="""Retrieves a paginated list of products for the active tenant, including nested batches, discounts, and packaging unit conversions.
 
@@ -64,13 +65,98 @@ product_schema = extend_schema_view(
 
 ### Field-Level Security & Cost Redaction (PRD §55):
 - Users holding `VIEW_PRODUCT_COSTS` (Owner, Admin, Accountant) receive full monetary visibility (`purchase_cost`, `vendor_sale_cost`, and batch `cost_price`).
-- Users without this permission (Sales Rep, Manager, Cashier) have cost fields dynamically stripped from the JSON response.""",
+- Users without this permission (Sales Rep, Manager, Cashier) have cost fields dynamically stripped from the JSON response.
+
+### Warehouse Filtering:
+- Pass `?warehouse=<uuid>` to filter products stocked at a specific warehouse and dynamically compute `current_stock` for that warehouse.""",
         parameters=[
             PRODUCT_ORGANIZATION_PARAM,
+            OpenApiParameter(
+                "warehouse",
+                OpenApiTypes.UUID,
+                OpenApiParameter.QUERY,
+                description="Filter products by warehouse UUID. When provided, `current_stock` reflects on-hand quantity in this warehouse.",
+            ),
+            OpenApiParameter(
+                "status",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                description="Filter products by status ('active', 'draft', 'archived').",
+            ),
+            OpenApiParameter(
+                "category",
+                OpenApiTypes.UUID,
+                OpenApiParameter.QUERY,
+                description="Filter products by category UUID.",
+            ),
+            OpenApiParameter(
+                "brand",
+                OpenApiTypes.UUID,
+                OpenApiParameter.QUERY,
+                description="Filter products by brand UUID.",
+            ),
+            OpenApiParameter(
+                "product_type",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                description="Filter products by product type ('standard', 'service', 'consumable').",
+            ),
         ],
     ),
+    summary=extend_schema(
+        tags=["Products"],
+        summary="Get Products & Inventory Summary Metrics",
+        description="""Computes the 4 KPI summary cards for the Products and Inventory dashboard:
+- **`stock_value`**: Total valuation of on-hand inventory at purchase cost (`Σ (quantity × purchase_cost)`).
+- **`potential_sales_value`**: Total valuation of on-hand inventory at retail selling price (`Σ (quantity × customer_sale_price)`).
+- **`profit_to_be_made`**: Projected gross profit (`potential_sales_value - stock_value`).
+- **`stock_requiring_attention`**: Count of active tracked products that are low stock (`current_stock <= minimum_stock_level`) or out of stock (`current_stock == 0`).
+
+### Warehouse Scoping:
+- Omit `warehouse` to retrieve organization-wide metrics across all active branches.
+- Pass `?warehouse=<uuid>` to scope all valuation and attention figures strictly to that warehouse.
+
+### Cost Security (PRD §12, §27, §55):
+- Requires `VIEW_PRODUCTS`.
+- If the caller lacks `VIEW_PRODUCT_COSTS`, `stock_value` and `profit_to_be_made` are returned as `null` (`has_cost_permission: false`).""",
+        parameters=[
+            PRODUCT_ORGANIZATION_PARAM,
+            OpenApiParameter(
+                "warehouse",
+                OpenApiTypes.UUID,
+                OpenApiParameter.QUERY,
+                description="Optional warehouse UUID to scope summary metrics to a single branch.",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=InventorySummarySerializer,
+                description="Inventory and product valuation summary figures.",
+                examples=[
+                    OpenApiExample(
+                        "Organization-Wide Inventory Summary",
+                        value={
+                            "stock_value": "1250000.00",
+                            "potential_sales_value": "1850000.00",
+                            "profit_to_be_made": "600000.00",
+                            "stock_requiring_attention": 4,
+                            "out_of_stock_count": 1,
+                            "low_stock_count": 3,
+                            "total_products": 45,
+                            "total_inventory_items": 1420,
+                            "warehouses_count": 2,
+                            "warehouse_id": None,
+                            "warehouse_name": "All Warehouses",
+                            "has_cost_permission": True,
+                        },
+                        response_only=True,
+                    ),
+                ],
+            ),
+        },
+    ),
     create=extend_schema(
-        tags=['Products'],
+        tags=["Products"],
         summary="Create a New Product",
         description="""Creates a product within the tenant organization, optionally provisioning starting inventory, nested batches, bulk discounts, and unit conversions.
 
@@ -98,12 +184,12 @@ product_schema = extend_schema_view(
             OpenApiExample(
                 name="Complete Product Payload with Opening Stock",
                 value=PRODUCT_CREATE_EXAMPLE,
-                request_only=True
-            )
-        ]
+                request_only=True,
+            ),
+        ],
     ),
     retrieve=extend_schema(
-        tags=['Products'],
+        tags=["Products"],
         summary="Retrieve a Product",
         description="""Fetch a single product by its UUID.
 
@@ -114,7 +200,7 @@ product_schema = extend_schema_view(
 - Requesting a product belonging to another tenant returns HTTP 404 Not Found (never 403, preventing resource enumeration).""",
     ),
     update=extend_schema(
-        tags=['Products'],
+        tags=["Products"],
         summary="Update a Product",
         description="""Fully update a product and synchronize child relations.
 
@@ -129,12 +215,12 @@ product_schema = extend_schema_view(
             OpenApiExample(
                 name="Update Product Payload",
                 value=PRODUCT_CREATE_EXAMPLE,
-                request_only=True
-            )
-        ]
+                request_only=True,
+            ),
+        ],
     ),
     partial_update=extend_schema(
-        tags=['Products'],
+        tags=["Products"],
         summary="Partially Update a Product",
         description="""Partially update selected fields on a product (e.g. updating only `customer_sale_price` or `status`).
 
@@ -143,7 +229,7 @@ product_schema = extend_schema_view(
 - Changing costs requires `EDIT_PRODUCT_COSTS`.""",
     ),
     destroy=extend_schema(
-        tags=['Products'],
+        tags=["Products"],
         summary="Delete or Archive a Product",
         description="""Deletes or archives a product based on inventory history invariants (PRD §44 & §60).
 
@@ -152,12 +238,12 @@ product_schema = extend_schema_view(
 - **Protected Archival**: If the product has existing stock movements or sales history, `ProtectedError` is trapped, the product is automatically soft-archived (`status = 'archived'`), an audit log `PRODUCT_ARCHIVED` is emitted, and HTTP 200 OK is returned with an explanatory message.""",
     ),
     archive=extend_schema(
-        tags=['Products'],
+        tags=["Products"],
         summary="Archive a Product",
         description="""Explicitly soft-archive an active product (PRD §44). Changes status to 'archived' and records audit event `product.archived`.""",
     ),
     restore=extend_schema(
-        tags=['Products'],
+        tags=["Products"],
         summary="Restore an Archived Product",
         description="""Restores a previously archived product back to active status (PRD §44). Evaluates subscription plan quota before activation and records audit event `product.restored`.""",
     ),
@@ -242,4 +328,3 @@ brand_schema = extend_schema_view(
         parameters=[PRODUCT_ORGANIZATION_PARAM],
     ),
 )
-

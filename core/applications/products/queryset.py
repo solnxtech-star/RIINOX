@@ -30,10 +30,10 @@ class ProductQuerySet(auto_prefetch.QuerySet):
     def with_details(self):
         """
         Eagerly load related foreign keys and reverse relations (batches, discounts,
-        unit conversions, variants, images) to eliminate N+1 queries during serialization.
+        unit conversions, variants, images, inventory_records) to eliminate N+1 queries during serialization.
         """
         return self.select_related("category", "brand").prefetch_related(
-            "batches", "bulk_discounts", "unit_conversions", "variants", "images"
+            "batches", "bulk_discounts", "unit_conversions", "variants", "images", "inventory_records"
         )
 
 
