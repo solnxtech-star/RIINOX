@@ -3,20 +3,21 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
+from typing import Any
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
-from core.applications.invoice.models import PurchaseInvoice, PurchaseInvoiceItem
-from core.applications.invoice.services.purchase_adapters import (
-    PurchaseSnapshot,
-    build_purchase_snapshot,
-)
+from core.applications.invoice.models import PurchaseInvoice
+from core.applications.invoice.models import PurchaseInvoiceItem
+from core.applications.invoice.services.purchase_adapters import PurchaseSnapshot
+from core.applications.invoice.services.purchase_adapters import build_purchase_snapshot
 from core.applications.notification.audit.action import AuditAction
 from core.applications.notification.audit.services import record as audit_record
 from core.applications.vendors.services import vendor_snapshot
-from core.helper.enums import InvoiceStatusChoices, InvoiceTypeChoices
+from core.helper.enums import InvoiceStatusChoices
+from core.helper.enums import InvoiceTypeChoices
 from core.helper.money import quantize_money
 
 if TYPE_CHECKING:
@@ -366,4 +367,3 @@ def apply_payment_to_purchase_invoice(
     invoice.status = _resolve_status_for_paid(invoice.total, paid_val)
     invoice.save(update_fields=["amount_paid", "status", "updated_at"])
     return invoice
-
