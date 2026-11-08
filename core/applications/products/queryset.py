@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import auto_prefetch
-from django.db.models import QuerySet
 
 from core.applications.users.models import Organization
 from core.helper.enums import ProductStatusChoices
@@ -20,7 +19,7 @@ class ProductQuerySet(auto_prefetch.QuerySet):
     def for_user(self, user):
         """Scope records to organizations the given user is an active member of."""
         return self.filter(
-            organization__in=Organization.objects.for_user(user)
+            organization__in=Organization.objects.for_user(user),
         )
 
     def active(self):
@@ -33,7 +32,12 @@ class ProductQuerySet(auto_prefetch.QuerySet):
         unit conversions, variants, images, inventory_records) to eliminate N+1 queries during serialization.
         """
         return self.select_related("category", "brand").prefetch_related(
-            "batches", "bulk_discounts", "unit_conversions", "variants", "images", "inventory_records"
+            "batches",
+            "bulk_discounts",
+            "unit_conversions",
+            "variants",
+            "images",
+            "inventory_records",
         )
 
 
@@ -45,7 +49,7 @@ class CategoryQuerySet(auto_prefetch.QuerySet):
 
     def for_user(self, user):
         return self.filter(
-            organization__in=Organization.objects.for_user(user)
+            organization__in=Organization.objects.for_user(user),
         )
 
     def active(self):
@@ -60,7 +64,7 @@ class BrandQuerySet(auto_prefetch.QuerySet):
 
     def for_user(self, user):
         return self.filter(
-            organization__in=Organization.objects.for_user(user)
+            organization__in=Organization.objects.for_user(user),
         )
 
     def active(self):
@@ -75,7 +79,7 @@ class ProductVariantQuerySet(auto_prefetch.QuerySet):
 
     def for_user(self, user):
         return self.filter(
-            product__organization__in=Organization.objects.for_user(user)
+            product__organization__in=Organization.objects.for_user(user),
         )
 
     def active(self):
