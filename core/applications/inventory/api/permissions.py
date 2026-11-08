@@ -26,6 +26,7 @@ class InventoryPermission(BaseTenantPermission):
     action_permissions: dict[str, str] = {
         "list": PermissionCode.VIEW_INVENTORY,
         "retrieve": PermissionCode.VIEW_INVENTORY,
+        "summary": PermissionCode.VIEW_INVENTORY,
     }
     default_permission: str = PermissionCode.VIEW_INVENTORY
 

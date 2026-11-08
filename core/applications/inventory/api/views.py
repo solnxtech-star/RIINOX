@@ -1,3 +1,4 @@
+from django.db.models import F
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -19,6 +20,7 @@ from core.applications.inventory.api.schemas import (
 from core.applications.inventory.api.serializers import (
     InventoryLedgerEntrySerializer,
     InventorySerializer,
+    InventorySummarySerializer,
     StockAdjustmentRequestSerializer,
     StockTransferSerializer,
 )
@@ -31,6 +33,7 @@ from core.applications.inventory.services import (
     StockAdjustmentInput,
     StockTransferInput,
     approve_stock_adjustment,
+    get_inventory_summary,
     request_stock_adjustment,
     single_transfer_stock,
 )
@@ -146,6 +149,11 @@ class InventoryViewSet(OrganizationScopedMixin, viewsets.ReadOnlyModelViewSet):
     serializer_class = InventorySerializer
     permission_classes = [IsAuthenticated, InventoryPermission]
 
+    def get_serializer_class(self):
+        if self.action == "summary":
+            return InventorySummarySerializer
+        return InventorySerializer
+
     def get_queryset(self):
         user = self.request.user
         if not user.is_authenticated:
@@ -154,7 +162,33 @@ class InventoryViewSet(OrganizationScopedMixin, viewsets.ReadOnlyModelViewSet):
         if not self.organization:
             return Inventory.objects.none()
 
-        return Inventory.objects.for_organization(self.organization).with_details()
+        queryset = Inventory.objects.for_organization(self.organization).with_details()
+        warehouse_param = self.request.query_params.get("warehouse")
+        if warehouse_param:
+            queryset = queryset.filter(warehouse_id=warehouse_param)
+        product_param = self.request.query_params.get("product")
+        if product_param:
+            queryset = queryset.filter(product_id=product_param)
+        low_stock_param = self.request.query_params.get("low_stock")
+        if low_stock_param and low_stock_param.lower() in ("true", "1", "yes"):
+            queryset = queryset.filter(quantity__lte=F("product__minimum_stock_level"))
+        return queryset
+
+    @action(detail=False, methods=["get"], url_path="summary")
+    def summary(self, request, organization_id=None):
+        """
+        Returns KPI summary metrics for the Inventory and Products screens (Stock Value,
+        Potential Sales Value, Profit to be made, Stock Requiring Attention).
+        Supports optional ?warehouse=<uuid> filtering.
+        """
+        warehouse_param = request.query_params.get("warehouse")
+        summary_data = get_inventory_summary(
+            organization=self.organization,
+            warehouse_id=warehouse_param,
+            user=request.user,
+        )
+        serializer = InventorySummarySerializer(summary_data)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 @ledger_entry_schema
