@@ -140,7 +140,16 @@ class GetUser(serializers.ModelSerializer):
             "id",
             "email",
             "name",
+            "role",
             "is_active",
+        )
+
+    def get_role(self, obj):
+        membership = (
+            obj.memberships.filter(is_active=True)
+            .select_related("role")
+            .order_by("created_at")
+            .first()
         )
 
 
