@@ -134,6 +134,7 @@ class CustomUserSerializer(serializers.ModelSerializer):
 
 
 class GetUser(serializers.ModelSerializer):
+    role = serializers.SerializerMethodField()
     class Meta:
         model = User
         fields = (
@@ -151,6 +152,7 @@ class GetUser(serializers.ModelSerializer):
             .order_by("created_at")
             .first()
         )
+        return membership.role.name if membership else None
 
 
 class EmailAndTokenSerializer(serializers.Serializer):
