@@ -44,6 +44,13 @@ class NotificationTypeChoices(TextChoices):
     SALE_COMPLETED = "sale_completed", _("Sale Completed")
     PRODUCT_AVAILABLE = "product_available", _("Product Available")
 
+class LocationType(TextChoices):
+    BRANCH = "branch", _("Branch")
+    STORE = "store", _("Store / Shop")
+    WAREHOUSE = "warehouse", _("Warehouse")
+    OFFICE = "office", _("Office")
+    OTHER = "other", _("Other")
+
 
 class NotificationStatusChoices(TextChoices):
     """Tracks the delivery status of a notification."""

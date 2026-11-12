@@ -2,15 +2,19 @@ import re
 from typing import Any
 
 import phonenumbers
+from django.db.models import Model
 from django.utils.translation import gettext_lazy as _
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from core.applications.invoice.services import documents as document_services
+from core.applications.notification.audit.context import AuditContext
 from core.applications.subscriptions.models import Plan
 from core.applications.users import reference_data
 from core.applications.users import services
 from core.applications.users.errors import domain_errors
+from core.applications.users.invitation_services import assignable_locations
 from core.applications.users.invitation_services import assignable_roles
 from core.applications.users.invitation_services import mask_email
 from core.applications.users.models import BusinessType
@@ -20,16 +24,17 @@ from core.applications.users.models import Organization
 from core.applications.users.models import OrganizationBusinessType
 from core.applications.users.models import Role
 from core.applications.users.models import State
+from core.applications.users.models import User
+from core.applications.warehouse.models import Warehouse
 
 REGISTRATION_NUMBER_RE = re.compile(r"[A-Z0-9\-/]{3,30}")
 
 
-
 # ===========================================================================
-# 1. Plans & business types
+# 1. Plans and business types
 # ===========================================================================
 class PlanSerializer(serializers.ModelSerializer):
-    """The subscription Plan linked to an organization."""
+    """The subscription plan linked to an organization."""
 
     class Meta:
         model = Plan
@@ -70,10 +75,12 @@ class OrganizationBusinessTypesUpdateSerializer(serializers.Serializer):
         slug_field="code",
         queryset=BusinessType.objects.active(),
         allow_empty=False,
+        help_text="Codes of every business type the organization should have.",
     )
     primary_business_type = serializers.SlugRelatedField(
         slug_field="code",
         queryset=BusinessType.objects.active(),
+        help_text="One of the codes in business_types. Drives terminology and dashboard defaults.",
     )
 
     def validate(self, attrs):
@@ -121,13 +128,14 @@ class OrganizationProfileValidationMixin:
 
     def validate_registration_number(self, value: str) -> str:
         # Optional (CAC/RC). Normalise only; verifying against CAC is out of scope.
-        value = re.sub(r"\s+", "", value).upper()
+        value = re.sub(r"\s+", "", value or "").upper()
         if value and not REGISTRATION_NUMBER_RE.fullmatch(value):
             raise serializers.ValidationError(_("Enter a valid registration number."))
         return value
 
-    def validate_postal_code(self, value: str) -> str:
-        return " ".join(value.upper().split())
+    def validate_postal_code(self, value: str | None) -> str:
+        # The model allows NULL, and DRF still calls this hook with None.
+        return " ".join(value.upper().split()) if value else ""
 
     # -- country-dependent fields -------------------------------------------
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
@@ -190,6 +198,7 @@ class OrganizationProfileValidationMixin:
             raise serializers.ValidationError(_("Enter a valid phone number."))
         return phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
 
+
 class OrganizationSerializer(serializers.ModelSerializer):
     """
     Read serializer. Load through Organization.objects.for_user(user).with_detail()
@@ -201,7 +210,9 @@ class OrganizationSerializer(serializers.ModelSerializer):
     business_types = OrganizationBusinessTypeSerializer(
         source="organization_business_types", many=True, read_only=True
     )
-    primary_business_type = serializers.SerializerMethodField()
+    primary_business_type = serializers.SerializerMethodField(
+        help_text="Code of the primary business type, e.g. 'retail'."
+    )
 
     class Meta:
         model = Organization
@@ -237,25 +248,21 @@ class OrganizationSerializer(serializers.ModelSerializer):
         )
 
 
-class OrganizationCreateSerializer(
-    OrganizationProfileValidationMixin,
-    serializers.ModelSerializer,
-):
+class OrganizationCreateSerializer(OrganizationProfileValidationMixin, serializers.ModelSerializer):
     """
     Body of POST /organizations/: onboarding screen 1 (business type) and
     screen 2 (business details) submitted together, so no half-created
-    organization can exist.
+    organization can exist. The service also creates the default location.
 
-    Branding and templates belong to a later onboarding step.
-
-    Timezone is not collected from the onboarding request. The service layer
-    applies the default timezone of Africa/Lagos through OrganizationProfile.
+    Branding and templates belong to a later onboarding step. Timezone is not
+    collected here: the service layer applies the default (Africa/Lagos).
     """
 
     business_type = serializers.SlugRelatedField(
         slug_field="code",
         queryset=BusinessType.objects.active(),
         write_only=True,
+        help_text="Code from GET /business-type/?context=onboarding. Becomes the primary business type.",
     )
 
     class Meta:
@@ -264,7 +271,7 @@ class OrganizationCreateSerializer(
             "id",
             "business_type",
             "name",
-            "registration_number",  # CAC/RC (Optional)
+            "registration_number",  # CAC/RC, optional
             "country",
             "state",
             "address",
@@ -274,92 +281,53 @@ class OrganizationCreateSerializer(
             "phone",
             "staff_size",
         ]
-
         read_only_fields = ["id"]
-
+        # The model allows blank for most of these; the onboarding form does not.
         extra_kwargs = {
-            "name": {
-                "required": True,
-                "allow_blank": False,
-            },
-            "registration_number": {
-                "required": False,
-            },
-            # The model allows blank; the onboarding form does not.
-            "country": {
-                "required": True,
-                "allow_blank": False,
-            },
-            "currency": {
-                "required": True,
-                "allow_blank": False,
-            },
-            "state": {
-                "required": True,
-                "allow_blank": False,
-            },
-            "address": {
-                "required": True,
-                "allow_blank": False,
-            },
-            "staff_size": {
-                "required": True,
-                "allow_blank": False,
-            },
-            # Not collected on the business-details screen.
-            # The service layer applies the default timezone.
-            "postal_code": {
-                "required": False,
-            },
-            "tax_id": {
-                "required": False,
-            },
-            "phone": {
-                "required": True,
-                "allow_blank": False,
-            },
+            "name": {"required": True, "allow_blank": False},
+            "registration_number": {"required": False},
+            "country": {"required": True, "allow_blank": False},
+            "currency": {"required": True, "allow_blank": False},
+            "state": {"required": True, "allow_blank": False},
+            "address": {"required": True, "allow_blank": False},
+            "staff_size": {"required": True, "allow_blank": False},
+            "phone": {"required": True, "allow_blank": False},
+            "postal_code": {"required": False},
+            "tax_id": {"required": False},
         }
 
     def create(self, validated_data):
         business_type = validated_data.pop("business_type")
-        user = self.context["request"].user
+        request = self.context["request"]
 
-        organization = services.create_organization(
-            user=user,
-            business_type=business_type,
-            profile=services.OrganizationProfile(**validated_data),
-        )
+        with domain_errors():
+            organization = services.create_organization(
+                user=request.user,
+                business_type=business_type,
+                profile=services.OrganizationProfile(**validated_data),
+                audit_context=AuditContext.from_request(request),
+            )
 
-        # Reload through the tenant-scoped queryset so the response
-        # is fully preloaded.
-        return (
-            Organization.objects
-            .for_user(user)
-            .with_detail()
-            .get(pk=organization.pk)
-        )
+        # Reload through the tenant-scoped queryset so the response is fully preloaded.
+        return Organization.objects.for_user(request.user).with_detail().get(pk=organization.pk)
 
     def to_representation(self, instance):
-        return OrganizationSerializer(
-            instance,
-            context=self.context,
-        ).data
-
+        return OrganizationSerializer(instance, context=self.context).data
 
 
 class OrganizationUpdateSerializer(OrganizationProfileValidationMixin, serializers.ModelSerializer):
     """
-    Body of PUT/PATCH /organizations/{id}/ (profile + branding). Business types
-    have their own action.
+    Body of PUT/PATCH /organizations/{id}/ (profile and branding). Business
+    types have their own action.
 
-    country and currency are deliberately not editable here: they are fixed at
+    country and currency are deliberately not editable: they are fixed at
     creation, because changing currency after transactions exist would rewrite
     the meaning of historical records. State and phone are still validated
     against the organization's stored country (see the validation mixin).
 
-    Template fields are generated from the model FKs (so `limit_choices_to` on
-    type/active still applies) and re-scoped per organization in get_fields():
-    shared defaults + this organization's own templates. Without that, any
+    Template fields are generated from the model FKs (so `limit_choices_to`
+    still applies) and re-scoped per organization in get_fields(): shared
+    defaults plus this organization's own templates. Without that, any
     organization could assign another tenant's custom template by primary key.
     """
 
@@ -428,36 +396,149 @@ class OrganizationUpdateSerializer(OrganizationProfileValidationMixin, serialize
 
 
 # ===========================================================================
-# 3. Members & roles  (organization actions)
+# 3. Locations (shared by invitations and memberships)
+# ===========================================================================
+class LocationOptionSerializer(serializers.ModelSerializer):
+    """
+    One location, as shown in dropdowns and inside invitations and memberships.
+    Use with `assignable_locations()` for the "Assign Location" dropdown.
+    """
+
+    class Meta:
+        model = Warehouse
+        fields = ["id", "name", "code", "location_type", "is_default"]
+        read_only_fields = fields
+
+
+class ContextScopedRelatedField(serializers.PrimaryKeyRelatedField):
+    """
+    Base for related fields whose valid choices depend on who is asking and in
+    which organization.
+
+    Reads `organization` and `actor_membership` from the serializer context
+    (the views supply both). Without them nothing is selectable, so a
+    misconfigured view fails closed instead of exposing every row. An id the
+    caller may not use fails with DRF's normal "does not exist" error, so the
+    API never confirms that a row exists elsewhere.
+
+    Subclasses set `model` and implement `choices_for`.
+    """
+
+    model: type[Model]
+
+    def choices_for(self, organization, actor_membership):
+        raise NotImplementedError
+
+    def get_queryset(self):
+        organization = self.context.get("organization")
+        actor_membership = self.context.get("actor_membership")
+        if organization is None or actor_membership is None:
+            return self.model.objects.none()
+        return self.choices_for(organization, actor_membership)
+
+
+class AssignableRoleField(ContextScopedRelatedField):
+    """A role the current caller may assign in the current organization."""
+
+    model = Role
+    default_error_messages = {
+        "does_not_exist": "Select a valid role for this organization.",
+        "incorrect_type": "Invalid role identifier.",
+    }
+
+    def choices_for(self, organization, actor_membership):
+        return assignable_roles(organization, actor_membership)
+
+@extend_schema_field(OpenApiTypes.INT)
+class AssignableLocationField(ContextScopedRelatedField):
+    """A location the current caller may assign in the current organization."""
+
+    model = Warehouse
+    default_error_messages = {
+        "does_not_exist": "Select a valid location for this organization.",
+        "incorrect_type": "Invalid location identifier.",
+    }
+
+    def choices_for(self, organization, actor_membership):
+        return assignable_locations(organization, actor_membership)
+
+
+class LocationScopeMixin(serializers.Serializer):
+    """
+    Where a person may work: every location, or a chosen list. Exactly one of
+    the two must be given. Shared by invitations and membership changes so the
+    rule cannot drift between them.
+    """
+
+    all_locations = serializers.BooleanField(
+        default=False,
+        help_text="true = access to every location, including ones added later.",
+    )
+    locations = AssignableLocationField(
+        many=True,
+        required=False,
+        allow_empty=True,
+        help_text=(
+            "Location ids from GET /organizations/{id}/invitations/assignable-locations/. "
+            "Required when all_locations is false; leave empty when it is true."
+        ),
+    )
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        has_locations = bool(attrs.get("locations"))
+
+        if attrs["all_locations"] and has_locations:
+            raise serializers.ValidationError(
+                {"locations": "Send either all_locations or a list of locations, not both."}
+            )
+        if not attrs["all_locations"] and not has_locations:
+            raise serializers.ValidationError(
+                {"locations": "Choose at least one location, or set all_locations."}
+            )
+        return attrs
+
+
+class MembershipLocationsSerializer(LocationScopeMixin):
+    """
+    Body of PUT /memberships/{id}/locations/.
+
+    Context required: `organization` (the membership's organization) and
+    `actor_membership` (the caller's membership there).
+    """
+
+
+# ===========================================================================
+# 4. Members and roles  (organization actions)
 # ===========================================================================
 class OrganizationMemberSerializer(serializers.ModelSerializer):
     """
-    One row of GET /organizations/{id}/members/. Pending invitations have no
-    user yet, so `user` falls back to the invited email; `accepted` tells them
-    apart. Load rows with Membership.objects.with_user_and_role().
+    One row of GET /organizations/{id}/members/. Every row is a real member:
+    pending invitations are a separate resource. Load rows with
+    Membership.objects.with_user_and_role().prefetch_related("locations").
     """
 
-    user = serializers.SerializerMethodField(
-        help_text="Email of the member, or the invited email for a pending invite"
+    user = serializers.EmailField(source="user.email", read_only=True, help_text="The member's email.")
+    user_name = serializers.CharField(source="user.name", read_only=True, help_text="The member's full name.")
+    role = serializers.CharField(source="role.name", read_only=True, help_text="Role name, e.g. Administrator.")
+    active = serializers.BooleanField(
+        source="is_active", read_only=True, help_text="false = removed or suspended; has no access."
     )
-    role = serializers.CharField(
-        source="role.name", read_only=True, help_text="Role name, e.g. Administrator"
-    )
-    active = serializers.BooleanField(source="is_active", read_only=True)
     joined_at = serializers.DateTimeField(source="created_at", read_only=True)
+    locations = LocationOptionSerializer(
+        many=True,
+        read_only=True,
+        help_text="Locations the member is limited to. Empty when all_locations is true.",
+    )
 
     class Meta:
         model = Membership
-        fields = ["id", "user", "role", "active", "joined_at"]
+        fields = ["id", "user", "user_name", "role", "active", "joined_at", "all_locations", "locations"]
         read_only_fields = fields
-
-    @extend_schema_field(serializers.EmailField())
-    def get_user(self, obj):
-        return obj.user.email if obj.user_id else obj.invited_email
 
 
 class RoleSerializer(serializers.ModelSerializer):
-    """Roles an organization can assign (feeds the invite-team role picker)."""
+    """A role an organization can assign (built-in or custom)."""
 
     class Meta:
         model = Role
@@ -465,14 +546,19 @@ class RoleSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class RoleOptionSerializer(RoleSerializer):
+    """Feeds the "Assign Role" dropdown. Use with `assignable_roles()`."""
+
+
 # ===========================================================================
-# 4. Memberships
+# 5. Memberships
 # ===========================================================================
 class MembershipSerializer(serializers.ModelSerializer):
     """
     Membership detail (read-only). Every row is a real member; pending
     invitations are a separate resource. Load with
-    Membership.objects.with_user_and_role().select_related("organization").
+    Membership.objects.with_user_and_role().select_related("organization")
+    .prefetch_related("locations").
     """
 
     user_name = serializers.CharField(source="user.name", read_only=True)
@@ -480,6 +566,11 @@ class MembershipSerializer(serializers.ModelSerializer):
     organization_name = serializers.CharField(source="organization.name", read_only=True)
     role_name = serializers.CharField(source="role.name", read_only=True)
     role_slug = serializers.CharField(source="role.slug", read_only=True)
+    locations = LocationOptionSerializer(
+        many=True,
+        read_only=True,
+        help_text="Locations the member is limited to. Empty when all_locations is true.",
+    )
 
     class Meta:
         model = Membership
@@ -494,6 +585,8 @@ class MembershipSerializer(serializers.ModelSerializer):
             "role_name",
             "role_slug",
             "is_active",
+            "all_locations",
+            "locations",
             "created_at",
         ]
         read_only_fields = fields
@@ -503,7 +596,7 @@ class MembershipUpdateSerializer(serializers.ModelSerializer):
     """
     Body of PUT/PATCH /memberships/{id}/: change a member's role and/or active
     flag. Who may change whom is enforced in services.update_membership.
-    (Unchanged: `role` and `is_active` still exist on Membership.)
+    Location access has its own endpoint (MembershipLocationsSerializer).
     """
 
     class Meta:
@@ -532,29 +625,10 @@ class MembershipUpdateSerializer(serializers.ModelSerializer):
         return MembershipSerializer(instance, context=self.context).data
 
 
-class AssignableRoleField(serializers.PrimaryKeyRelatedField):
-    """
-    A role the current caller may assign in the current organization.
-
-    The queryset is resolved per request from the serializer context
-    (`organization`, `actor_membership`), using the same function that feeds
-    the "Assign Role" dropdown. Without that context nothing is assignable.
-    """
-
-    default_error_messages = {
-        "does_not_exist": "Select a valid role for this organization.",
-        "incorrect_type": "Invalid role identifier.",
-    }
-
-    def get_queryset(self):
-        organization = self.context.get("organization")
-        actor_membership = self.context.get("actor_membership")
-        if organization is None or actor_membership is None:
-            return Role.objects.none()
-        return assignable_roles(organization, actor_membership)
-
-
-class InvitationCreateSerializer(serializers.Serializer):
+# ===========================================================================
+# 6. Invitations: team side
+# ===========================================================================
+class InvitationCreateSerializer(LocationScopeMixin):
     """
     Body of POST /organizations/{organization_id}/invitations/.
 
@@ -562,73 +636,125 @@ class InvitationCreateSerializer(serializers.Serializer):
     `organization` and `actor_membership` through the serializer context.
     """
 
-    name = serializers.CharField(max_length=255, trim_whitespace=True)
-    email = serializers.EmailField()
-    role = AssignableRoleField()
+    name = serializers.CharField(
+        max_length=255,
+        trim_whitespace=True,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        default="",
+        help_text="Optional. The invitee's display name; an empty string when omitted.",
+    )
+    email = serializers.EmailField(help_text="Lower-cased and trimmed. The invitee must sign in with this address.")
+    role = AssignableRoleField(help_text="A role id from GET .../invitations/assignable-roles/.")
+
+    def validate_name(self, value: str | None) -> str:
+        # DRF still calls this hook with None when the client sends "name": null.
+        return (value or "").strip()
 
     def validate_email(self, value: str) -> str:
         return value.strip().lower()
 
 
 class InvitationSerializer(serializers.ModelSerializer):
-    """Staff-side list/detail. Never exposes the token or its hash."""
+    """
+    Staff-side list/detail. Never exposes the token or its hash. Load with
+    select_related("role", "invited_by").prefetch_related("locations").
+    """
 
     role_name = serializers.CharField(source="role.name", read_only=True)
     invited_by_name = serializers.CharField(source="invited_by.name", read_only=True, allow_null=True)
-    status = serializers.CharField(source="display_status", read_only=True)
+    status = serializers.CharField(
+        source="display_status",
+        read_only=True,
+        help_text="pending, accepted, revoked or expired (derived from expires_at).",
+    )
+    locations = LocationOptionSerializer(
+        many=True,
+        read_only=True,
+        help_text="Locations the invitee is limited to. Empty when all_locations is true.",
+    )
 
     class Meta:
         model = Invitation
         fields = [
-            "id", "name", "email", "role", "role_name", "status",
-            "expires_at", "last_sent_at", "invited_by_name",
-            "accepted_at", "revoked_at", "created_at",
+            "id",
+            "name",
+            "email",
+            "role",
+            "role_name",
+            "status",
+            "all_locations",
+            "locations",
+            "expires_at",
+            "last_sent_at",
+            "invited_by_name",
+            "accepted_at",
+            "revoked_at",
+            "created_at",
         ]
         read_only_fields = fields
 
 
 class InvitationRevokeSerializer(serializers.Serializer):
-    """Optional body of POST .../invitations/{id}/revoke/; the reason goes to the audit log."""
+    """Optional body of POST .../invitations/{id}/revoke/; the reason goes to the audit log only."""
 
     reason = serializers.CharField(max_length=500, required=False, allow_blank=True, default="")
 
 
-class RoleOptionSerializer(serializers.ModelSerializer):
-    """Feeds the "Assign Role" dropdown. Use with `assignable_roles()`."""
-
-    class Meta:
-        model = Role
-        fields = ["id", "name", "slug", "description", "is_system"]
-        read_only_fields = fields
-
-
 # ===========================================================================
-# Invitations: public side (token holder)
+# 7. Invitations: public side (token holder)
 # ===========================================================================
 class InvitationPreviewSerializer(serializers.ModelSerializer):
     """
     Public preview shown before the invitee signs up or logs in. Deliberately
-    minimal: no ids, no token, no other members, and a masked email.
+    minimal: no ids, no token, no other members, a masked email and location
+    names only.
     """
 
     organization = serializers.CharField(source="organization.name", read_only=True)
     role = serializers.CharField(source="role.name", read_only=True)
-    invited_email = serializers.SerializerMethodField()
+    invited_email = serializers.SerializerMethodField(help_text="Masked, e.g. a***@example.com.")
+    account_exists = serializers.SerializerMethodField(
+        help_text="true = the invited email already has an account: send the user to log in, otherwise to sign up."
+    )
+    locations = serializers.SerializerMethodField(
+        help_text="Names of the locations the invitee is limited to. Empty when all_locations is true."
+    )
 
     class Meta:
         model = Invitation
-        fields = ["organization", "role", "name", "invited_email", "expires_at"]
+        fields = [
+            "organization",
+            "role",
+            "name",
+            "invited_email",
+            "account_exists",
+            "all_locations",
+            "locations",
+            "expires_at",
+        ]
         read_only_fields = fields
 
     @extend_schema_field(serializers.CharField())
     def get_invited_email(self, obj):
         return mask_email(obj.email)
 
+    @extend_schema_field(serializers.BooleanField())
+    def get_account_exists(self, obj):
+        # Safe to reveal: the caller already holds the single-use token that was emailed to this address.
+        return User.objects.filter(email__iexact=obj.email).exists()
+
+    @extend_schema_field(serializers.ListField(child=serializers.CharField()))
+    def get_locations(self, obj):
+        return [location.name for location in obj.locations.all()]
+
 
 class AcceptInvitationSerializer(serializers.Serializer):
     """
-    Body of POST /invitations/accept/. Shape only: every rule (verified email,
-    matching address, expiry, seats) lives in services.accept_invitation.
+    Body of POST /invitations/accept/ and /invitations/validate/. Shape only:
+    every rule (verified email, matching address, expiry, seats) lives in the
+    invitation services.
     """
 
     token = serializers.RegexField(
@@ -645,19 +771,21 @@ class InvitationAcceptedSerializer(serializers.ModelSerializer):
     organization_id = serializers.ReadOnlyField()
     organization_name = serializers.CharField(source="organization.name", read_only=True)
     role = serializers.CharField(source="role.name", read_only=True)
+    locations = LocationOptionSerializer(
+        many=True,
+        read_only=True,
+        help_text="Locations the new member is limited to. Empty when all_locations is true.",
+    )
 
     class Meta:
         model = Membership
-        fields = ["membership_id", "organization_id", "organization_name", "role"]
+        fields = ["membership_id", "organization_id", "organization_name", "role", "all_locations", "locations"]
         read_only_fields = fields
 
 
-class ErrorSerializer(serializers.Serializer):
-    """Shape of every business-rule error (PRD §46). Used for API docs only."""
-
-    code = serializers.CharField()
-    detail = serializers.CharField()
-
+# ===========================================================================
+# 8. Reference data and API-documentation helpers
+# ===========================================================================
 class OptionSerializer(serializers.Serializer):
     code = serializers.CharField()
     name = serializers.CharField()
@@ -678,6 +806,14 @@ class StatesQuerySerializer(serializers.Serializer):
             msg = "Unknown country code."
             raise serializers.ValidationError(msg)
         return value
+
+
+class ErrorSerializer(serializers.Serializer):
+    """Shape of every business-rule error (PRD §46). Used for API docs only."""
+
+    code = serializers.CharField()
+    detail = serializers.CharField()
+
 
 class ValidationErrorSerializer(serializers.Serializer):
     """Shape of a field-validation error (400). Used for API docs only."""

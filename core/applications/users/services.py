@@ -36,6 +36,7 @@ from core.applications.users.models import Permission
 from core.applications.users.models import Role
 from core.applications.users.models import RolePermission
 from core.applications.users.models import State
+from core.applications.warehouse.services import create_default_location
 from core.helper.enums import PermissionCode
 from core.helper.utils import default_invite_expiry
 from core.helper.utils import send_invitation_email
@@ -212,6 +213,13 @@ def create_organization(
         role=roles[OWNER_ROLE_SLUG],  # is_active defaults to True; no `accepted`, no invitation
     )
     OwnerMembershipDetail.objects.create(membership=membership)
+
+    create_default_location(
+        organization=organization,
+        business_type=business_type,
+        actor=user,
+        audit_context=audit_context,
+    )
 
     provision_organization_documents(organization)
 

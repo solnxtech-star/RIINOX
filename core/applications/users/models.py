@@ -415,7 +415,7 @@ class Invitation(RoleOrganizationMatchMixin, TimeBasedModel):
     organization = auto_prefetch.ForeignKey(
         "users.Organization", on_delete=CASCADE, related_name="invitations"
     )
-    name = CharField(_("Invitee name"), max_length=255)
+    name = CharField(_("Invitee name"), max_length=255, null=True, blank=True, help_text=_("Optional; if not provided, the email will be used."))
     email = EmailField(_("Invitee email"))  # normalized to lowercase in save()
     role = auto_prefetch.ForeignKey(
         "users.Role", on_delete=PROTECT, related_name="invitations"
@@ -436,6 +436,16 @@ class Invitation(RoleOrganizationMatchMixin, TimeBasedModel):
     accepted_by = auto_prefetch.ForeignKey(
         "users.User", on_delete=SET_NULL, null=True, blank=True,
         related_name="accepted_invitations",
+    )
+    all_locations = BooleanField(
+        default=True,
+        help_text=_("True = access to every location. Otherwise see `locations`."),
+    )
+    locations = ManyToManyField(
+        "warehouse.Warehouse",
+        through="users.InvitationLocation",
+        related_name="invitations",
+        blank=True,
     )
     accepted_at = DateTimeField(null=True, blank=True)
     revoked_at = DateTimeField(null=True, blank=True)
@@ -518,6 +528,13 @@ class Membership(RoleOrganizationMatchMixin, TimeBasedModel):
         blank=True,
         related_name="membership",
     )
+    all_locations = BooleanField(default=True)
+    locations = ManyToManyField(
+        "warehouse.Warehouse",
+        through="users.MembershipLocation",
+        related_name="memberships",
+        blank=True,
+    )
 
     objects = MembershipManager()
 
@@ -596,3 +613,40 @@ class State(Model):
 
     def __str__(self):
         return f"{self.name} ({self.country})"
+
+class LocationOrganizationMatchMixin:
+    """The location must belong to the same organization as its parent."""
+
+    def clean(self):
+        super().clean()
+        parent = self.invitation if hasattr(self, "invitation") else self.membership
+        if self.location.organization_id != parent.organization_id:
+            raise ValidationError({"location": _("Location must belong to the same organization.")})
+
+
+class InvitationLocation(LocationOrganizationMatchMixin, TimeBasedModel):
+    invitation = auto_prefetch.ForeignKey(
+        "users.Invitation", on_delete=CASCADE, related_name="invitation_locations"
+    )
+    location = auto_prefetch.ForeignKey(
+        "warehouse.Warehouse", on_delete=PROTECT, related_name="invitation_links"
+    )
+
+    class Meta(auto_prefetch.Model.Meta):
+        constraints = [
+            UniqueConstraint(fields=["invitation", "location"], name="unique_location_per_invitation"),
+        ]
+
+
+class MembershipLocation(LocationOrganizationMatchMixin, TimeBasedModel):
+    membership = auto_prefetch.ForeignKey(
+        "users.Membership", on_delete=CASCADE, related_name="membership_locations"
+    )
+    location = auto_prefetch.ForeignKey(
+        "warehouse.Warehouse", on_delete=PROTECT, related_name="membership_links"
+    )
+
+    class Meta(auto_prefetch.Model.Meta):
+        constraints = [
+            UniqueConstraint(fields=["membership", "location"], name="unique_location_per_membership"),
+        ]

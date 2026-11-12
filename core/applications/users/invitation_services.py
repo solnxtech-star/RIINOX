@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+from collections.abc import Iterable
 from dataclasses import dataclass
 from dataclasses import field
 from datetime import timedelta
@@ -20,11 +21,14 @@ from core.applications.users.email import deliver_invitation_email
 from core.applications.users.errors import InvitationErrorCode as Err
 from core.applications.users.errors import fail
 from core.applications.users.models import Invitation
+from core.applications.users.models import InvitationLocation
 from core.applications.users.models import Membership
+from core.applications.users.models import MembershipLocation
 from core.applications.users.models import Organization
 from core.applications.users.models import Role
 from core.applications.users.services import get_seat_limit
 from core.applications.users.services import seats_in_use
+from core.applications.warehouse.models import Warehouse
 from core.helper.enums import InvitationStatus
 from core.helper.enums import PermissionCode
 
@@ -75,7 +79,7 @@ def mask_email(email: str) -> str:
 # --------------------------------------------------------------------------- #
 def _lock_organization(
     organization_id, *, error: Err = Err.ORGANIZATION_NOT_FOUND
-    ) -> Organization:
+) -> Organization:
     try:
         return Organization.objects.select_for_update().get(pk=organization_id, is_active=True)
     except Organization.DoesNotExist:
@@ -146,12 +150,6 @@ def _get_organization_invitation(organization, invitation_id) -> Invitation:
     return invitation
 
 
-# def _dispatch_email(invitation_id, raw_token: str) -> None:
-#     from core.applications.users.tasks import send_invitation_email  # written in Step 6
-
-#     send_invitation_email.delay(str(invitation_id), raw_token)
-
-
 def _send_after_commit(invitation: Invitation, raw_token: str) -> None:
     # Never email for a transaction that rolled back.
     transaction.on_commit(
@@ -190,19 +188,88 @@ def _retire_expired_pending(organization, email: str, *, actor, now, audit_conte
 
 
 # --------------------------------------------------------------------------- #
+# Assignable choices (feed the invite form dropdowns and validate input)
+# --------------------------------------------------------------------------- #
+def assignable_roles(organization, actor_membership):
+    """
+    Roles this actor may offer in an invitation. Feeds the "Assign Role"
+    dropdown and validates create input; _assert_role_assignable stays as the
+    final server-side guard.
+    """
+    roles = Role.objects.for_organization(organization).exclude(
+        is_system=True, slug=OWNER_ROLE_SLUG
+    )
+    if not _is_owner(actor_membership):
+        roles = roles.exclude(is_system=True, slug=ADMINISTRATOR_ROLE_SLUG)
+    return roles
+
+
+def assignable_locations(organization, actor_membership):
+    """
+    Locations this actor may put an invitee into. Feeds the "Assign Location"
+    dropdown and validates create input. An actor limited to some locations
+    can't grant others (no privilege escalation).
+    """
+    queryset = Warehouse.objects.filter(organization=organization, is_active=True).order_by(
+        "-is_default", "name"
+    )
+    if not actor_membership.all_locations:
+        queryset = queryset.filter(pk__in=actor_membership.locations.values("pk"))
+    return queryset
+
+
+def _resolve_location_scope(organization, actor_membership, role, *, all_locations, locations):
+    """
+    Returns (all_locations, [Warehouse, ...]). The serializer already checks
+    shape; this is the real boundary, so it re-checks tenant and scope rules.
+    """
+    requested = {location.pk: location for location in locations}
+
+    if all_locations and requested:
+        raise fail(Err.INVALID_LOCATION, "Send either all_locations or a list of locations, not both.")
+    if not all_locations and not requested:
+        raise fail(Err.LOCATION_REQUIRED, "Choose at least one location, or all locations.")
+
+    is_admin_role = role.is_system and role.slug == ADMINISTRATOR_ROLE_SLUG
+    if is_admin_role and not all_locations:
+        raise fail(Err.LOCATION_SCOPE_NOT_ALLOWED, "Administrators always have access to all locations.")
+
+    if all_locations:
+        if not actor_membership.all_locations:
+            raise fail(Err.LOCATION_SCOPE_NOT_ALLOWED, "You can't grant access to locations you don't have.")
+        return True, []
+
+    allowed_ids = set(
+        assignable_locations(organization, actor_membership)
+        .filter(pk__in=requested)
+        .values_list("pk", flat=True)
+    )
+    if allowed_ids != set(requested):
+        raise fail(Err.INVALID_LOCATION, "One or more locations are invalid or not available to you.")
+    return False, [requested[pk] for pk in allowed_ids]
+
+
+# --------------------------------------------------------------------------- #
 # Team side (authenticated, organization-scoped)
 # --------------------------------------------------------------------------- #
 @transaction.atomic
 def create_invitation(
-    *, organization,
-    inviter, name: str,
+    *,
+    organization,
+    inviter,
     email: str,
     role,
-    audit_context: AuditContext | None = None
+    name: str = "",
+    all_locations: bool = False,
+    locations: Iterable[Warehouse] = (),
+    audit_context: AuditContext | None = None,
 ) -> IssuedInvitation:
     org = _lock_organization(organization.pk)
     actor = _authorize(org, inviter, PermissionCode.INVITE_TEAM_MEMBER)
     _assert_role_assignable(actor, role, org)
+    all_locations, location_list = _resolve_location_scope(
+        org, actor, role, all_locations=all_locations, locations=locations
+    )
 
     email = email.strip().lower()
     now = timezone.now()
@@ -214,13 +281,17 @@ def create_invitation(
     raw_token, token_hash = _generate_token()
     invitation = Invitation.objects.create(
         organization=org,
-        name=name.strip(),
+        name=(name or "").strip(),
         email=email,
         role=role,
+        all_locations=all_locations,
         token_hash=token_hash,
         expires_at=now + INVITATION_TTL,
         last_sent_at=now,
         invited_by=inviter,
+    )
+    InvitationLocation.objects.bulk_create(
+        [InvitationLocation(invitation=invitation, location=loc) for loc in location_list]
     )
 
     audit.record(
@@ -232,6 +303,8 @@ def create_invitation(
             "email": invitation.email,
             "name": invitation.name,
             "role": role.slug,
+            "all_locations": all_locations,
+            "locations": sorted(str(loc.pk) for loc in location_list),
             "expires_at": invitation.expires_at.isoformat(),
         },
         context=audit_context,
@@ -331,11 +404,13 @@ def get_invitation_preview(token: str) -> Invitation:
 @transaction.atomic
 def accept_invitation(*, token: str, user, audit_context: AuditContext | None = None) -> Membership:
     """
-    Consumes the invitation and creates the Membership, atomically. Replaying
-    the same accept for the same user returns the existing membership (PRD §45).
-    this is the only path that can create a membership without an existing one,
-    so it is the only path that can check the seat limit. The invitation is locked to
-    the organization
+    Consumes the invitation and creates the Membership (and its location
+    links), atomically. Replaying the same accept for the same user returns the
+    existing membership (PRD §45).
+
+    This is the only path that creates a membership without an existing one,
+    so it is the only path that must check the seat limit. The organization
+    row is locked first, like every other member/invitation operation.
     """
     token_hash = hash_token(token)
 
@@ -377,6 +452,19 @@ def accept_invitation(*, token: str, user, audit_context: AuditContext | None = 
     if invitation.role.organization_id != org.pk:
         raise fail(Err.INVALID_ROLE)
 
+    # Self-healing: a membership already points at this still-pending invitation
+    # (an earlier run created it but never marked the invitation accepted).
+    # Membership.invitation is one-to-one, so creating another would crash.
+    linked = Membership.objects.filter(invitation=invitation).first()
+    if linked is not None:
+        if linked.user_id != user.pk:
+            raise fail(Err.INVITATION_INVALID)
+        invitation.status = InvitationStatus.ACCEPTED
+        invitation.accepted_by = user
+        invitation.accepted_at = invitation.accepted_at or timezone.now()
+        invitation.save()
+        return linked
+
     # This invitation already occupies a seat and becomes a member's seat, so the
     # count doesn't change on accept. Only block if the plan has since dropped
     # below current usage (e.g. a downgrade).
@@ -384,12 +472,28 @@ def accept_invitation(*, token: str, user, audit_context: AuditContext | None = 
     if limit is not None and seats_in_use(org) > limit:
         raise fail(Err.USER_LIMIT_REACHED, limit=limit)
 
+    # Re-check locations at accept time: they may have been deactivated since the invite was sent.
+    if invitation.all_locations:
+        locations = []
+    else:
+        locations = list(
+            Warehouse.objects.filter(
+                organization=org, is_active=True, invitation_links__invitation=invitation
+            )
+        )
+        if not locations:
+            raise fail(Err.INVITATION_LOCATIONS_UNAVAILABLE)
+
     membership = Membership.objects.create(
         user=user,
         organization=org,
         role=invitation.role,
         invitation=invitation,
+        all_locations=invitation.all_locations,
         is_active=True,
+    )
+    MembershipLocation.objects.bulk_create(
+        [MembershipLocation(membership=membership, location=loc) for loc in locations]
     )
 
     invitation.status = InvitationStatus.ACCEPTED
@@ -397,8 +501,8 @@ def accept_invitation(*, token: str, user, audit_context: AuditContext | None = 
     invitation.accepted_at = timezone.now()
     invitation.save()
 
-    # The invite form collected a name; use it if the new account has none.
-    if not user.name:
+    # The invite form may have collected a name; use it if the new account has none.
+    if not user.name and invitation.name:
         user.name = invitation.name
         user.save(update_fields=["name"])
 
@@ -407,27 +511,12 @@ def accept_invitation(*, token: str, user, audit_context: AuditContext | None = 
         organization=org,
         actor=user,
         resource=invitation,
-        new_values={"membership_id": str(membership.pk), "role": invitation.role.slug},
+        new_values={
+            "membership_id": str(membership.pk),
+            "role": invitation.role.slug,
+            "all_locations": invitation.all_locations,
+            "locations": sorted(str(loc.pk) for loc in locations),
+        },
         context=audit_context,
     )
     return membership
-
-
-def assignable_roles(organization, actor_membership):
-    """
-    Roles this actor may offer in an invitation. Feeds the "Assign Role"
-    dropdown and validates create input; _assert_role_assignable stays as the
-    final server-side guard.
-    """
-    print("ORGANIZATION:", organization.id)
-    print("ACTOR MEMBERSHIP:", actor_membership.id)
-    print("ACTOR ROLE:", actor_membership.role)
-    print("ACTOR ROLE ID:", actor_membership.role_id)
-    print("ACTOR ROLE SLUG:", actor_membership.role.slug if actor_membership.role else None)
-    print("IS OWNER:", _is_owner(actor_membership))
-    roles = Role.objects.for_organization(organization).exclude(
-        is_system=True, slug=OWNER_ROLE_SLUG
-    )
-    if not _is_owner(actor_membership):
-        roles = roles.exclude(is_system=True, slug=ADMINISTRATOR_ROLE_SLUG)
-    return roles
