@@ -51,3 +51,4 @@ class AuditAction:
     CUSTOMER_DEACTIVATED = "customer.deactivated"
     CUSTOMER_DELETED = "customer.deleted"
     CUSTOMER_CREDIT_ADJUSTED = "customer.credit_adjusted"
+    LOCATION_CREATED = "location.created"

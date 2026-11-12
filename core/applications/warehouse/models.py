@@ -3,11 +3,10 @@ from django.conf import settings
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
+from core.applications.warehouse.queryset import StockLocationQuerySet
+from core.applications.warehouse.queryset import WarehouseQuerySet
+from core.helper.enums import LocationType
 from core.helper.models import TimeBasedModel
-from core.applications.warehouse.queryset import (
-    WarehouseQuerySet,
-    StockLocationQuerySet,
-)
 
 
 class Warehouse(TimeBasedModel):
@@ -45,6 +44,15 @@ class Warehouse(TimeBasedModel):
         related_name="managed_warehouses",
         help_text=_("User responsible for this warehouse's day-to-day operations."),
     )
+    location_type = models.CharField(
+        max_length=20,
+        choices=LocationType.choices,
+        default=LocationType.BRANCH,
+    )
+    is_default = models.BooleanField(
+        default=False,
+        help_text=_("The organization's primary location. Exactly one per organization."),
+    )
     is_active = models.BooleanField(
         default=True,
         help_text=_("Inactive warehouses are hidden from new-purchase/invoice pickers."),
@@ -55,6 +63,14 @@ class Warehouse(TimeBasedModel):
         verbose_name_plural = _("Warehouses")
         unique_together = ("organization", "code")
         ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(fields=["organization", "code"], name="unique_location_code_per_org"),
+            models.UniqueConstraint(
+                fields=["organization"],
+                condition=models.Q(is_default=True),
+                name="unique_default_location_per_org",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.name} ({self.code})"

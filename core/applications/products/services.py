@@ -25,7 +25,6 @@ from core.applications.subscriptions.services.entitlements import (
 )
 from core.applications.subscriptions.services.usage import consume_usage
 from core.applications.subscriptions.services.usage import release_usage
-from core.applications.users.services import has_org_permission
 from core.helper.enums import PermissionCode
 from core.helper.enums import ProductStatusChoices
 from core.helper.enums import UsageMetric
@@ -66,6 +65,7 @@ def _validate_relation_cost_permissions(
     organization: Organization,
     relations: ProductRelationsInput,
 ) -> None:
+    from core.applications.users.services import has_org_permission
     if relations.batches and any(
         b.get("cost_price") is not None for b in relations.batches
     ):
@@ -95,6 +95,7 @@ def _validate_product_permissions(
     product_fields: dict[str, Any],
     existing_product: Product | None = None,
 ) -> None:
+    from core.applications.users.services import has_org_permission
     if existing_product is None:
         if not has_org_permission(user, organization, PermissionCode.CREATE_PRODUCT):
             raise PermissionDenied(
@@ -326,6 +327,7 @@ def archive_product(
     Soft-archives a product, releases its quota slot, and records an audit event (PRD §44).
     Retains inventory and transaction history while retiring it from active sale.
     """
+    from core.applications.users.services import has_org_permission
     if product is None:
         product = kwargs.get("product")
     if user is None:
@@ -367,6 +369,7 @@ def restore_product(
     """
     Restores an archived product to active status, enforcing plan limits and recording audit event (PRD §44).
     """
+    from core.applications.users.services import has_org_permission
     if product is None:
         product = kwargs.get("product")
     if user is None:
@@ -403,6 +406,7 @@ def delete_product(*, product: Product, user: User) -> None:
     """
     Hard-deletes a product, ensuring permissions and releasing its slot if active.
     """
+    from core.applications.users.services import has_org_permission
     if not has_org_permission(
         user, product.organization, PermissionCode.DELETE_PRODUCT
     ):
