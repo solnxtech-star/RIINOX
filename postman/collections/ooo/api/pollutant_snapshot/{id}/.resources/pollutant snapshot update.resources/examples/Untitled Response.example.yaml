@@ -1,0 +1,36 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/api/pollutant_snapshot/:id/"
+  method: PUT
+  headers:
+    Content-Type: application/json
+    Accept: application/json
+  pathVariables:
+    id: ""
+  body:
+    type: json
+    content: |-
+      {
+        "device": "<string>",
+        "pollutant": "<string>",
+        "value": "<double>",
+        "id": 6886448.988080621,
+        "pollutant_state": true
+      }
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "device": "<string>",
+        "id": "<string>",
+        "pollutant": "<string>",
+        "pollutant_state": "<string>",
+        "summary": "<string>",
+        "value": "<double>"
+      }
+order: 1000

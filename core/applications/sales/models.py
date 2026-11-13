@@ -65,6 +65,10 @@ class Sale(TimeBasedModel):
     subtotal = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     discount_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     tax_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    # Snapshot of the organization's setting when the sale was made: True means
+    # `tax_amount` is contained in the prices (total = subtotal - discount),
+    # False means it was added on top (total = subtotal - discount + tax).
+    prices_include_tax = models.BooleanField(default=False)
     total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     notes = models.TextField(blank=True, null=True)
 
@@ -154,7 +158,9 @@ class SaleItem(TimeBasedModel):
             return Decimal("0.00")
         discount = self.discount or Decimal("0.00")
         tax = self.tax or Decimal("0.00")
-        return (self.quantity * self.unit_price) - discount + tax
+        net = (self.quantity * self.unit_price) - discount
+        # With tax-inclusive prices the tax is already inside the price.
+        return net if self.sale.prices_include_tax else net + tax
 
 class SaleReturn(TimeBasedModel):
     objects = SaleReturnQuerySet.as_manager()

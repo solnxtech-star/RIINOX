@@ -1,0 +1,70 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/api/v1/account/?page=<integer>"
+  method: GET
+  headers:
+    - key: Accept
+      value: application/json
+    - key: sessionid
+      value: <API Key>
+      description: "Added as a part of security scheme: apikey"
+  queryParams:
+    - key: page
+      value: <integer>
+      description: A page number within the paginated result set.
+response:
+  statusCode: 202
+  statusText: Accepted
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "count": "<integer>",
+        "next": "<uri>",
+        "previous": "<uri>",
+        "results": [
+          {
+            "devices_dict": [
+              {
+                "current_unit": "<string>",
+                "disco_id": "<string>",
+                "id": "<string>",
+                "meter_no": "<string>",
+                "status": "<string>"
+              },
+              {
+                "current_unit": "<string>",
+                "disco_id": "<string>",
+                "id": "<string>",
+                "meter_no": "<string>",
+                "status": "<string>"
+              }
+            ],
+            "id": "<string>",
+            "name": "<string>"
+          },
+          {
+            "devices_dict": [
+              {
+                "current_unit": "<string>",
+                "disco_id": "<string>",
+                "id": "<string>",
+                "meter_no": "<string>",
+                "status": "<string>"
+              },
+              {
+                "current_unit": "<string>",
+                "disco_id": "<string>",
+                "id": "<string>",
+                "meter_no": "<string>",
+                "status": "<string>"
+              }
+            ],
+            "id": "<string>",
+            "name": "<string>"
+          }
+        ]
+      }
+order: 1000

@@ -3,13 +3,18 @@ import json
 from cryptography.fernet import Fernet
 from cryptography.fernet import MultiFernet
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import models
 
 
 def _fernet() -> MultiFernet:
     # First key encrypts; all keys decrypt, so keys rotate without downtime.
-    return MultiFernet([Fernet(k) for k in settings.FIELD_ENCRYPTION_KEYS])
+    keys = getattr(settings, "FIELD_ENCRYPTION_KEYS", None)
+    if not keys:
+        msg = "FIELD_ENCRYPTION_KEYS is not set: encrypted fields can't be read or written."
+        raise ImproperlyConfigured(msg)
+    return MultiFernet([Fernet(k) for k in keys])
 
 
 def _encrypt(text: str) -> str:

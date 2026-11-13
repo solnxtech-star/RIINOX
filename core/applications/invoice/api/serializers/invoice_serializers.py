@@ -589,7 +589,9 @@ class InvoiceItemSerializer(serializers.Serializer):
 
     @extend_schema_field(serializers.DecimalField(**MONEY))
     def get_line_total(self, item: Any) -> str:
-        total = item.quantity * item.unit_price - item.discount_amount + item.tax_amount
+        net = item.quantity * item.unit_price - item.discount_amount
+        # With tax-inclusive prices the tax is already inside the price.
+        total = net if item.invoice.prices_include_tax else net + item.tax_amount
         return str(total.quantize(CENT))
 
 
@@ -658,6 +660,13 @@ class InvoiceDetailSerializer(InvoiceListSerializer):
     subtotal = serializers.DecimalField(read_only=True, **MONEY)
     discount_amount = serializers.DecimalField(read_only=True, **MONEY)
     tax_amount = serializers.DecimalField(read_only=True, **MONEY)
+    prices_include_tax = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "true: `tax_amount` is included in the prices (print \"VAT included\"; total = subtotal - "
+            "discount). false: tax is added on top (total = subtotal - discount + tax)."
+        ),
+    )
 
     notes = serializers.CharField(read_only=True, allow_null=True)
     extra_data = serializers.DictField(read_only=True)

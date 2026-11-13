@@ -1,0 +1,14 @@
+$kind: http-request
+url: https://thrifto-backend-g8sw.onrender.com/api/login/
+method: POST
+body:
+  type: json
+  content: "{\r
+
+    \    \"email\": \"mastergentility5@gmail.com\",\r
+
+    \    \"password\": \"thanks123\"\r
+
+    }"
+settings: {}
+order: 1000

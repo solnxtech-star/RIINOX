@@ -1,0 +1,22 @@
+$kind: http-request
+description: Add a beneficiary to your account.
+url: "{{baseUrl}}/api/v1/account/add_beneficiary/"
+method: POST
+headers:
+  Content-Type: application/x-www-form-urlencoded
+  Accept: application/json
+body:
+  type: urlencoded
+  content:
+    - key: meter_no
+      value: <string>
+      description: "(Required) "
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/Add beneficiary to your account.resources/examples
+order: 1000

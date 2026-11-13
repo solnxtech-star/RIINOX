@@ -1,0 +1,37 @@
+$kind: http-request
+name: Used to report a fault
+description: |-
+  This topic is used to tell the server that the meter has been tampered with,
+  this inturn can be used to report a fault to the meter which can be
+  used to deactivate the meter.
+url: "{{baseUrl}}/okupower/:id/fault/"
+method: POST
+headers:
+  Content-Type: application/x-www-form-urlencoded
+  Accept: application/json
+pathVariables:
+  - key: id
+    value: <string>
+    description: (Required) A unique value identifying this device.
+body:
+  type: urlencoded
+  content:
+    - key: code
+      value: "1002"
+      description: |-
+        (Required) * `1001` - 1001
+        * `1002` - 1002
+    - key: message
+      value: The content of the request body contains errors, kindly fix
+      description: |-
+        (Required) * `The meter id requested does not correspond to any available prepaid meter` - The meter id requested does not correspond to any available prepaid meter
+        * `The content of the request body contains errors, kindly fix` - The content of the request body contains errors, kindly fix
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/Used to report a fault-1.resources/examples
+order: 2000

@@ -1,0 +1,24 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/api/users/metadatas/"
+  method: POST
+  headers:
+    - key: Content-Type
+      value: multipart/form-data
+    - key: Authorization
+      value: Bearer <token>
+      description: "Added as a part of security scheme: bearer"
+  body:
+    type: formdata
+    content:
+      - type: text
+        key: url
+        value: "32878747.329112694"
+        description: "(Required) "
+response:
+  statusCode: 204
+  statusText: No Content
+  body:
+    type: text
+    content: ""
+order: 1000

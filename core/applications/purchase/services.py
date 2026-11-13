@@ -4,8 +4,24 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import connection
 from django.db import transaction
+from django.db.models import Case
+from django.db.models import FloatField
+from django.db.models.functions import Cast
+from django.db.models import Count
+from django.db.models import DecimalField
+from django.db.models import Exists
+from django.db.models import ExpressionWrapper
+from django.db.models import F
+from django.db.models import OuterRef
+from django.db.models import Q
+from django.db.models import Subquery
 from django.db.models import Sum
+from django.db.models import Value
+from django.db.models import When
+from django.db.models.functions import Coalesce
+from django.db.models.functions import Greatest
 from django.utils import timezone
 
 from core.applications.inventory.services import (
@@ -48,8 +64,9 @@ from core.helper.enums import (
     PurchaseStatusChoices,
 )
 
+from core.applications.invoice.models import PurchaseInvoice
+
 if TYPE_CHECKING:
-    from core.applications.invoice.models import PurchaseInvoice
     from core.applications.payment.models import PurchasePayment
     from core.applications.users.models import Organization, User
 
@@ -694,68 +711,121 @@ def create_purchase_return(
     return purchase_return
 
 
-def get_purchase_summary(organization: Organization) -> dict[str, Any]:
+def _fractional(expression):
+    """
+    Make the division that follows keep its fraction. PostgreSQL divides `numeric`
+    exactly. SQLite stores whole-valued decimals (10.00) as integers and would
+    integer-divide (10 / 3 = 3), so there the numerator is cast to REAL first; the
+    result is quantized to cents afterwards, so the float step can't show.
+    """
+    if connection.vendor == "sqlite":
+        return Cast(expression, output_field=FloatField())
+    return expression
+
+
+def get_purchase_summary(organization: Organization, *, queryset=None) -> dict[str, Any]:
     """
     Computes the KPI summary cards for the Purchase Order List screen (UI Pages 4-6).
+
+    `queryset` lets the caller pass purchases already narrowed to what the caller
+    may see (e.g. their locations, PRD §35). It must belong to `organization`.
+
+    Computed entirely in the database: per-purchase values come from correlated
+    subqueries over the items and supplier invoices, then a single aggregate
+    pass. Memory and round trips stay constant however many purchases exist.
+    The arithmetic mirrors the Purchase / PurchaseItem properties exactly
+    (ordered_value, total_value, balance_due); test_purchase_summary_matches_model
+    keeps the two in step.
     """
-    purchases = list(
-        Purchase.objects.for_organization(organization)
-        .prefetch_related("items", "purchase_invoices")
+    money = DecimalField(max_digits=20, decimal_places=4)
+    zero = Value(Decimal("0"), output_field=money)
+    s, p = PurchaseStatusChoices, PurchasePaymentStatusChoices
+
+    # Per item, mirroring PurchaseItem.ordered_value / received_value.
+    item_ordered = Greatest(
+        ExpressionWrapper(F("quantity_ordered") * F("purchase_cost") - F("discount"), output_field=money), zero
+    )
+    item_received = Greatest(
+        ExpressionWrapper(
+            F("quantity_received") * F("purchase_cost")
+            - Case(
+                When(
+                    quantity_ordered__gt=0,
+                    then=_fractional(F("discount") * F("quantity_received")) / F("quantity_ordered"),
+                ),
+                default=zero,
+                output_field=money,
+            ),
+            output_field=money,
+        ),
+        zero,
     )
 
-    total_purchase_orders = len(purchases)
-    pending_delivery_count = 0
-    partially_received_count = 0
-    received_count = 0
-    cancelled_count = 0
-    unpaid_orders_count = 0
-    partially_paid_orders_count = 0
-    paid_orders_count = 0
-    total_spend = Decimal("0.00")
-    total_ordered_value = Decimal("0.00")
-    total_paid = Decimal("0.00")
-    total_payable_balance = Decimal("0.00")
+    def item_sum(expression):
+        rows = (
+            PurchaseItem.objects.filter(purchase=OuterRef("pk"))
+            .order_by()
+            .values("purchase")
+            .annotate(total=Sum(expression, output_field=money))
+            .values("total")[:1]
+        )
+        return Coalesce(Subquery(rows, output_field=money), zero)
 
-    for po in purchases:
-        if po.status in (PurchaseStatusChoices.DRAFT, PurchaseStatusChoices.ORDERED):
-            pending_delivery_count += 1
-        elif po.status == PurchaseStatusChoices.PARTIALLY_RECEIVED:
-            partially_received_count += 1
-        elif po.status == PurchaseStatusChoices.RECEIVED:
-            received_count += 1
-        elif po.status == PurchaseStatusChoices.CANCELLED:
-            cancelled_count += 1
+    # The active (newest non-voided) supplier invoice, as Purchase.balance_due picks it.
+    active_invoice_total = Subquery(
+        PurchaseInvoice.objects.filter(purchase=OuterRef("pk"))
+        .exclude(status=InvoiceStatusChoices.CANCELLED)
+        .order_by("-created_at")
+        .values("total")[:1],
+        output_field=money,
+    )
+    extras = ExpressionWrapper(F("other_costs") - F("discount"), output_field=money)
 
-        if po.status == PurchaseStatusChoices.CANCELLED:
-            continue
+    base = queryset if queryset is not None else Purchase.objects.all()
+    per_purchase = (
+        base.for_organization(organization)
+        .order_by()
+        .annotate(
+            _ordered=ExpressionWrapper(item_sum(item_ordered) + extras, output_field=money),
+            _received=ExpressionWrapper(item_sum(item_received) + extras, output_field=money),
+            _has_received=Exists(PurchaseItem.objects.filter(purchase=OuterRef("pk"), quantity_received__gt=0)),
+            _invoice_total=active_invoice_total,
+        )
+        .annotate(
+            _payable=Case(
+                When(_invoice_total__isnull=False, then=F("_invoice_total")),
+                When(_has_received=True, then=F("_received")),
+                default=F("_ordered"),
+                output_field=money,
+            ),
+        )
+        .annotate(
+            _balance=Greatest(
+                ExpressionWrapper(F("_payable") - Coalesce(F("amount_paid"), zero), output_field=money), zero
+            ),
+        )
+    )
 
-        if po.payment_status == PurchasePaymentStatusChoices.UNPAID:
-            unpaid_orders_count += 1
-        elif po.payment_status == PurchasePaymentStatusChoices.PARTIALLY_PAID:
-            partially_paid_orders_count += 1
-        elif po.payment_status == PurchasePaymentStatusChoices.PAID:
-            paid_orders_count += 1
+    live = ~Q(status=s.CANCELLED)
+    totals = per_purchase.aggregate(
+        total_purchase_orders=Count("pk"),
+        pending_delivery_count=Count("pk", filter=Q(status__in=[s.DRAFT, s.ORDERED])),
+        partially_received_count=Count("pk", filter=Q(status=s.PARTIALLY_RECEIVED)),
+        received_count=Count("pk", filter=Q(status=s.RECEIVED)),
+        cancelled_count=Count("pk", filter=Q(status=s.CANCELLED)),
+        unpaid_orders_count=Count("pk", filter=live & Q(payment_status=p.UNPAID)),
+        partially_paid_orders_count=Count("pk", filter=live & Q(payment_status=p.PARTIALLY_PAID)),
+        paid_orders_count=Count("pk", filter=live & Q(payment_status=p.PAID)),
+        total_spend=Sum("_received", filter=live & Q(_has_received=True), output_field=money),
+        total_ordered_value=Sum("_ordered", filter=live, output_field=money),
+        total_paid=Sum(Coalesce(F("amount_paid"), zero), filter=live, output_field=money),
+        total_payable_balance=Sum("_balance", filter=live, output_field=money),
+    )
 
-        total_ordered_value += Decimal(str(po.ordered_value))
-        if any(item.quantity_received > 0 for item in po.items.all()):
-            total_spend += Decimal(str(po.total_value))
-        total_paid += Decimal(str(po.amount_paid or 0))
-        total_payable_balance += po.balance_due
-
-    return {
-        "total_purchase_orders": total_purchase_orders,
-        "pending_delivery_count": pending_delivery_count,
-        "partially_received_count": partially_received_count,
-        "received_count": received_count,
-        "cancelled_count": cancelled_count,
-        "unpaid_orders_count": unpaid_orders_count,
-        "partially_paid_orders_count": partially_paid_orders_count,
-        "paid_orders_count": paid_orders_count,
-        "total_spend": total_spend.quantize(Decimal("0.01")),
-        "total_ordered_value": total_ordered_value.quantize(Decimal("0.01")),
-        "total_paid": total_paid.quantize(Decimal("0.01")),
-        "total_payable_balance": total_payable_balance.quantize(Decimal("0.01")),
-    }
+    cent = Decimal("0.01")
+    for key in ("total_spend", "total_ordered_value", "total_paid", "total_payable_balance"):
+        totals[key] = Decimal(str(totals[key] or 0)).quantize(cent)
+    return totals
 
 
 def get_purchase_available_actions(purchase: Purchase) -> list[str]:
@@ -789,4 +859,3 @@ def get_purchase_available_actions(purchase: Purchase) -> list[str]:
         actions.append("create_return")
 
     return actions
-

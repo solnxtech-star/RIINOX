@@ -226,3 +226,53 @@ class WarehouseAPITest(APITestCase):
         results = own_list.data.get("results", []) if isinstance(own_list.data, dict) else own_list.data
         wh_ids = [str(r["id"]).replace("-", "") for r in results]
         self.assertNotIn(str(self.warehouse.id).replace("-", ""), wh_ids)
+
+    # -------------------------------------------------------------------------
+    # Default location
+    # -------------------------------------------------------------------------
+    def _make_default(self, warehouse):
+        Warehouse.objects.filter(organization=self.org).update(is_default=False)
+        Warehouse.objects.filter(pk=warehouse.pk).update(is_default=True)
+
+    def test_detail_exposes_location_type_and_is_default(self):
+        response = self.client.get(self.detail_url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("location_type", response.data)
+        self.assertIn("is_default", response.data)
+
+    def test_is_default_is_read_only_on_update(self):
+        response = self.client.patch(self.detail_url, {"is_default": True}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.warehouse.refresh_from_db()
+        self.assertFalse(self.warehouse.is_default)
+
+    def test_set_default_switches_default(self):
+        old_default = Warehouse.objects.create(organization=self.org, name="Main Branch", code="MAIN")
+        self._make_default(old_default)
+
+        response = self.client.post(f"{self.detail_url}set-default/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertTrue(response.data["is_default"])
+        old_default.refresh_from_db()
+        self.assertFalse(old_default.is_default)
+
+    def test_set_default_requires_manage_locations(self):
+        self.client.force_authenticate(user=self.inventory_staff)
+
+        response = self.client.post(f"{self.detail_url}set-default/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_default_location_cannot_be_deactivated_or_deleted(self):
+        self._make_default(self.warehouse)
+
+        patch = self.client.patch(self.detail_url, {"is_active": False}, format="json")
+        delete = self.client.delete(self.detail_url)
+
+        self.assertEqual(patch.status_code, status.HTTP_409_CONFLICT, patch.content)
+        self.assertEqual(delete.status_code, status.HTTP_409_CONFLICT, delete.content)
+        self.warehouse.refresh_from_db()
+        self.assertTrue(self.warehouse.is_active)

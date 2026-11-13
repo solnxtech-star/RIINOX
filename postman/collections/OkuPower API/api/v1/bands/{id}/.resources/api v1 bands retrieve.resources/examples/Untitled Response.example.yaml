@@ -1,0 +1,39 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/api/v1/bands/:id/"
+  method: GET
+  headers:
+    - key: Accept
+      value: application/json
+    - key: sessionid
+      value: <API Key>
+      description: "Added as a part of security scheme: apikey"
+  pathVariables:
+    id: ""
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "active_devices_arrow_direction": "<string>",
+        "active_devices_percentage_increase": "<integer>",
+        "consumption_arrow_direction": "<string>",
+        "consumption_percentage_increase": "<integer>",
+        "device_arrow_direction": "<string>",
+        "device_percentage_increase": "<integer>",
+        "fault_arrow_direction": "<string>",
+        "fault_percentage_increase": "<integer>",
+        "id": "<string>",
+        "name": "<string>",
+        "total_active_devices": "<integer>",
+        "total_consumption": "<integer>",
+        "total_devices": "<integer>",
+        "total_faults": "<integer>",
+        "tariff": "41939728211194494405712815950526108265643523881.",
+        "bonus": "64630301021243926114240507586123281919166"
+      }
+order: 1000

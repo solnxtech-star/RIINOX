@@ -1,0 +1,10 @@
+$kind: http-request
+url: http://127.0.0.1:8000/api/stockist_package_viewSet/
+method: GET
+headers:
+  Authorization: "{{bearer_token_126a}}"
+body:
+  type: json
+  content: ""
+settings: {}
+order: 1000

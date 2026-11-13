@@ -1,0 +1,13 @@
+$kind: http-request
+description: ViewSet for managing pollutant snapshots
+url: "{{baseUrl}}/api/pollutant_snapshot/:id/"
+method: GET
+headers:
+  Accept: application/json
+pathVariables:
+  - key: id
+    value: <string>
+    description: (Required) A unique value identifying this PollutantSnapShot.
+settings: {}
+examples: ./.resources/pollutant snapshot retrieve.resources/examples
+order: 1000

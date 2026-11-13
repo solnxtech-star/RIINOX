@@ -1,0 +1,34 @@
+$kind: http-request
+description: This viewset handles consumer related actions on devices
+url: "{{baseUrl}}/api/v1/device/consumer/:id/"
+method: PATCH
+headers:
+  Content-Type: application/x-www-form-urlencoded
+  Accept: application/json
+pathVariables:
+  - key: id
+    value: <string>
+    description: (Required) A unique value identifying this device.
+body:
+  type: urlencoded
+  content:
+    - key: id
+      value: <string>
+    - key: type
+      value: THREE_PHASE
+      description: |-
+        * `ONE_PHASE` - ONE_PHASE
+        * `THREE_PHASE` - THREE_PHASE
+    - key: batch_no
+      value: <string>
+    - key: meter_no
+      value: <string>
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/api v1 device consumer partial update.resources/examples
+order: 2000

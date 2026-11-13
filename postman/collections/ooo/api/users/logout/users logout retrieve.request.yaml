@@ -1,0 +1,12 @@
+$kind: http-request
+url: "{{baseUrl}}/api/users/logout/"
+method: GET
+headers:
+  Accept: application/json
+auth:
+  type: bearer
+  credentials:
+    token: "{{bearerToken}}"
+settings: {}
+examples: ./.resources/users logout retrieve.resources/examples
+order: 1000

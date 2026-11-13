@@ -1,0 +1,8 @@
+$kind: collection
+variables:
+  - key: supabase_service_role_api_key_0l6p
+    secret: true
+    disabled: false
+  - key: bearer_token_0nwl
+    secret: true
+    disabled: false

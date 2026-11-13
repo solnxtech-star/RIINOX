@@ -1,0 +1,40 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/okupower/:id/error/"
+  method: POST
+  headers:
+    - key: Content-Type
+      value: application/x-www-form-urlencoded
+    - key: Accept
+      value: application/json
+    - key: sessionid
+      value: <API Key>
+      description: "Added as a part of security scheme: apikey"
+  pathVariables:
+    id: ""
+  body:
+    type: urlencoded
+    content:
+      - key: code
+        value: "1002"
+        description: |-
+          (Required) * `1001` - 1001
+          * `1002` - 1002
+      - key: message
+        value: The content of the request body contains errors, kindly fix
+        description: |-
+          (Required) * `The meter id requested does not correspond to any available prepaid meter` - The meter id requested does not correspond to any available prepaid meter
+          * `The content of the request body contains errors, kindly fix` - The content of the request body contains errors, kindly fix
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "code": "1002",
+        "message": "The content of the request body contains errors, kindly fix"
+      }
+order: 1000

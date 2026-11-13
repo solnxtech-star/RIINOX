@@ -1,0 +1,24 @@
+$kind: http-request
+description: Get the daily usage data for this users device.
+url: "{{baseUrl}}/api/v1/account/usage_trend/?page=<integer>&account=f6c89a3ce0&meter_id=2a322bdcbb"
+method: GET
+headers:
+  Accept: application/json
+  Authorization: "{{bearer_token_17cg}}"
+queryParams:
+  - key: page
+    value: <integer>
+    description: A page number within the paginated result set.
+  - key: account
+    value: f6c89a3ce0
+  - key: meter_id
+    value: 2a322bdcbb
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/Daily usage trend for a device.resources/examples
+order: 1000

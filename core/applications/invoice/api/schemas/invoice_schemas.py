@@ -13,6 +13,7 @@ from drf_spectacular.utils import extend_schema
 from drf_spectacular.utils import extend_schema_view
 from rest_framework import status
 
+from core.applications.warehouse.api.schemas import LOCATION_ACCESS_NOTE
 from core.applications.invoice.api.constants import EXPORT_COLUMNS
 from core.applications.invoice.api.constants import MAX_EXPORT_ROWS
 from core.applications.invoice.api.serializers.invoice_serializers import (
@@ -478,6 +479,12 @@ of paging very deep.
 
 The summary cards above the table take these same filters (see
 `GET .../summary/`), so the cards always match the rows.
+
+**Locations.** On this endpoint the location filter is `warehouse=<id>`
+(other lists call it `location`; same meaning). List, summary, export, detail
+and audit only include invoices of the caller's locations.
+
+{LOCATION_ACCESS_NOTE}
 """,
             PERM_INVOICE_VIEW,
         ),
@@ -669,7 +676,7 @@ server-owned field is a `400`.
 | Field | Required | Rules |
 |---|---|---|
 | `customer_id` | yes | A customer of this organization. |
-| `warehouse_id` | yes | The warehouse the goods are supplied from. |
+| `warehouse_id` | yes | The warehouse the goods are supplied from. Must be one of the caller's locations, otherwise `403 LOCATION_ACCESS_DENIED` (PRD §35). Pre-fill it with the branch switcher's location, or the default location (`is_default`). |
 | `lines` | yes | 1 to {MAX_INVOICE_LINES} lines. See below. |
 | `due_date` | no | A date. When omitted the server applies its default. |
 | `discount` | no | Whole-invoice discount, a non-negative amount. Defaults to `0`. Cannot exceed the subtotal. Large discounts can require `discount_approval_id`. |

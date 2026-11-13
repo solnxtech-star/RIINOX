@@ -1,0 +1,36 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/api/v1/bands/give_multiple_band_bonus/"
+  method: PUT
+  headers:
+    - key: Content-Type
+      value: application/x-www-form-urlencoded
+    - key: Accept
+      value: application/json
+    - key: sessionid
+      value: <API Key>
+      description: "Added as a part of security scheme: apikey"
+  body:
+    type: urlencoded
+    content:
+      - key: bands
+        value: <string>
+        description: "(Required) "
+      - key: bands
+        value: <string>
+        description: "(Required) "
+      - key: bonus
+        value: "29208572884818670961290767694874710194918415250266502355762025962919928736"
+        description: "(Required) "
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "detail": "<string>"
+      }
+order: 1000

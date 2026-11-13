@@ -1,0 +1,7 @@
+name: Riinox
+values:
+  - key: local_base_url
+    value: ''
+  - key: org_id
+    value: ''
+color: 240

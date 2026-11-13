@@ -1,0 +1,29 @@
+$kind: http-request
+description: Update an existing device for the current user.
+url: "{{baseUrl}}/api/devices/:id/"
+method: PATCH
+headers:
+  Content-Type: application/json
+  Accept: application/json
+pathVariables:
+  - key: id
+    value: <string>
+    description: (Required) A unique value identifying this Device.
+body:
+  type: json
+  content: |-
+    {
+      "name": "<string>",
+      "location": "<string>",
+      "status": "SAFE",
+      "state": "OFF"
+    }
+auth:
+  type: apikey
+  credentials:
+    key: __Secure-sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/update device.resources/examples
+order: 4000

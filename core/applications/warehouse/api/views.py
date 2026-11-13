@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema_view
 from rest_framework import viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
 
+from core.applications.notification.audit.context import AuditContext
 from core.applications.subscriptions.services.entitlements import (
     ensure_subscription_active,
 )
@@ -12,6 +17,8 @@ from core.applications.warehouse.api.permissions import (
     WarehousePermission,
 )
 from core.applications.warehouse.api.schemas import (
+    ORGANIZATION_PATH_PARAM,
+    SET_DEFAULT_DESCRIPTION,
     stock_location_schema,
     warehouse_schema,
 )
@@ -24,6 +31,7 @@ from core.applications.warehouse.services import (
     deactivate_warehouse,
     delete_warehouse,
     reactivate_warehouse,
+    set_default_location,
 )
 
 
@@ -41,9 +49,14 @@ class WarehouseViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
         org = self.organization
         if not org:
             return Warehouse.objects.none()
-        return Warehouse.objects.for_organization(org).for_user(user)
+        queryset = Warehouse.objects.for_organization(org).for_user(user).order_by("-is_default", "name")
+        # Only the caller's locations (PRD §35). No ?location= here: this *is* the location list.
+        return self.location_scope.apply(queryset, field="pk")
 
     def perform_create(self, serializer):
+        # A new location is organization-wide; a member limited to some locations
+        # couldn't even see it afterwards.
+        self.location_scope.require_all_locations()
         serializer.save(organization=self.organization)
 
     def perform_update(self, serializer):
@@ -58,6 +71,25 @@ class WarehouseViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
 
     def perform_destroy(self, instance):
         delete_warehouse(warehouse=instance, user=self.request.user)
+
+    @extend_schema(
+        tags=["Warehouses"],
+        summary="Make this the default location",
+        description=SET_DEFAULT_DESCRIPTION,
+        parameters=[ORGANIZATION_PATH_PARAM],
+        request=None,
+        responses=WarehouseSerializer,
+    )
+    @action(detail=True, methods=["post"], url_path="set-default")
+    def set_default(self, request, *args, **kwargs):
+        location = self.get_object()
+        self.location_scope.require_all_locations()
+        location = set_default_location(
+            location=location,
+            actor=request.user,
+            audit_context=AuditContext.from_request(request),
+        )
+        return Response(self.get_serializer(location).data)
 
 
 @stock_location_schema
@@ -74,9 +106,35 @@ class StockLocationViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
         org = self.organization
         if not org:
             return StockLocation.objects.none()
-        return StockLocation.objects.for_organization(org).for_user(user)
+        queryset = StockLocation.objects.for_organization(org).for_user(user).select_related("warehouse")
+        return self.scope_to_locations(queryset, field="warehouse")
 
     def perform_create(self, serializer):
         ensure_subscription_active(self.organization)
+        self.location_scope.require(serializer.validated_data["warehouse"])
         serializer.save()
 
+    def perform_update(self, serializer):
+        # Moving a storage area to another location needs access to that location too.
+        if "warehouse" in serializer.validated_data:
+            self.location_scope.require(serializer.validated_data["warehouse"])
+        serializer.save()
+
+
+@extend_schema_view(
+    **{
+        action_name: extend_schema(
+            deprecated=True,
+            # Own section, so "Stock Locations" only lists the active endpoints.
+            tags=["Stock Locations (deprecated URL)"],
+            description=(
+                "**Deprecated:** use `/organizations/{organization_id}/storage-areas/` instead "
+                "(identical behaviour). In the rest of the API, \"location\" means a branch."
+            ),
+            parameters=[ORGANIZATION_PATH_PARAM],
+        )
+        for action_name in ("list", "create", "retrieve", "update", "partial_update", "destroy")
+    }
+)
+class LegacyStockLocationViewSet(StockLocationViewSet):
+    """`/locations/`: the old URL for storage areas, kept as an alias."""

@@ -1,0 +1,4 @@
+$kind: collection
+description: Documentation of API endpoints of AirSyn
+variables:
+  baseUrl: https://airsyn-012g.onrender.com/

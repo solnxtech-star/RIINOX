@@ -1,0 +1,71 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/api/v1/notifications/?ordering=<string>&page=<integer>&search=<string>"
+  method: GET
+  headers:
+    - key: Accept
+      value: application/json
+    - key: sessionid
+      value: <API Key>
+      description: "Added as a part of security scheme: apikey"
+  queryParams:
+    - key: ordering
+      value: <string>
+      description: Which field to use when ordering the results.
+    - key: page
+      value: <integer>
+      description: A page number within the paginated result set.
+    - key: search
+      value: <string>
+      description: A search term.
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "count": "<integer>",
+        "next": "<uri>",
+        "previous": "<uri>",
+        "results": [
+          {
+            "account": "<string>",
+            "created_at": "<dateTime>",
+            "id": "<string>",
+            "thumbnail": "<string>",
+            "thumbnail_url": "<string>",
+            "title": "<string>",
+            "updated_at": "<dateTime>",
+            "user": "<string>",
+            "visible": "<boolean>",
+            "type": "SUCCESS",
+            "actions": {
+              "etf5a": {}
+            },
+            "message": "<string>",
+            "read": "<boolean>"
+          },
+          {
+            "account": "<string>",
+            "created_at": "<dateTime>",
+            "id": "<string>",
+            "thumbnail": "<string>",
+            "thumbnail_url": "<string>",
+            "title": "<string>",
+            "updated_at": "<dateTime>",
+            "user": "<string>",
+            "visible": "<boolean>",
+            "type": "WARNING",
+            "actions": {
+              "Loremc": {},
+              "sed94a": {}
+            },
+            "message": "<string>",
+            "read": "<boolean>"
+          }
+        ]
+      }
+order: 1000

@@ -1,0 +1,7 @@
+$kind: http-request
+url: http://127.0.0.1:8000/api/notifications/
+method: GET
+headers:
+  Authorization: "{{bearer_token_02qo}}"
+settings: {}
+order: 1000

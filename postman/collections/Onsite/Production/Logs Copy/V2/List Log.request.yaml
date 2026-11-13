@@ -1,0 +1,17 @@
+$kind: http-request
+url: http://localhost:8000/api/logs/v2/
+method: GET
+headers:
+  Authorization: "{{bearer_token_0cvl}}"
+queryParams:
+  - key: ordering
+    value: oldest
+    disabled: true
+  - key: search
+    value: LOG-001
+    disabled: true
+  - key: group_by
+    value: day
+    disabled: true
+settings: {}
+order: 1000

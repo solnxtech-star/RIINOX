@@ -1,0 +1,29 @@
+$kind: http-request
+description: Give multiple device bonus to multiple device
+url: "{{baseUrl}}/api/v1/bands/:id/give_multiple_device_bonus/"
+method: PATCH
+headers:
+  Content-Type: application/x-www-form-urlencoded
+  Accept: application/json
+pathVariables:
+  - key: id
+    value: <string>
+    description: (Required) A unique value identifying this band.
+body:
+  type: urlencoded
+  content:
+    - key: devices
+      value: <string>
+    - key: devices
+      value: <string>
+    - key: bonus
+      value: "-56330482615073610444536528176336568991905500661970561962811333767633"
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/Give multiple device bonus.resources/examples
+order: 1000

@@ -76,6 +76,7 @@ def build_sale_snapshot(sale: Sale) -> SaleSnapshot:
         ),
         billing_address=sale.billing_address or "",
         shipping_address=sale.shipping_address or "",
+        prices_include_tax=sale.prices_include_tax,
     )
 
 

@@ -1,0 +1,19 @@
+$kind: http-request
+description: This topic is used to tell the server that the credit unit was successfully added
+url: "{{baseUrl}}/okupower/:id/error/"
+method: GET
+headers:
+  Accept: application/json
+pathVariables:
+  - key: id
+    value: <string>
+    description: (Required) A unique value identifying this device.
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/Error reporting and feedback.resources/examples
+order: 1000

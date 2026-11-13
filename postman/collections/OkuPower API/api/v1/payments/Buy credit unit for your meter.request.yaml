@@ -1,0 +1,24 @@
+$kind: http-request
+description: Buy credit unit for your meter
+url: "{{baseUrl}}/api/v1/payments/"
+method: POST
+headers:
+  Content-Type: application/x-www-form-urlencoded
+  Accept: application/json
+body:
+  type: urlencoded
+  content:
+    - key: amount
+      value: <double>
+      description: "(Required) "
+    - key: key
+      value: pk_test_e227b3cd175144808f1d8afb6f808883eea0f44b
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/Buy credit unit for your meter.resources/examples
+order: 8000

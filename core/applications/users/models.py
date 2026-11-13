@@ -1,15 +1,19 @@
 import uuid
+from decimal import Decimal
 from typing import ClassVar
 
 import auto_prefetch
 from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator
+from django.core.validators import MinValueValidator
 from django.db.models import CASCADE
 from django.db.models import PROTECT
 from django.db.models import SET_NULL
 from django.db.models import BooleanField
 from django.db.models import CharField
 from django.db.models import DateTimeField
+from django.db.models import DecimalField
 from django.db.models import EmailField
 from django.db.models import ImageField
 from django.db.models import Index
@@ -263,6 +267,24 @@ class Organization(TimeBasedModel):
     timezone = CharField(max_length=64, blank=True)
     tax_id = CharField(max_length=100, blank=True)
     registration_number = CharField(max_length=100, blank=True)
+    # Tax (PRD §7 "tax info", §13, §39). Products are taxed at their own
+    # `tax_rate` when set, else at this default; exempt/non-taxable products at 0.
+    default_tax_rate = DecimalField(
+        _("Default tax rate (%)"),
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
+        help_text=_("Percentage applied to taxable products without their own rate. 0 = no tax."),
+    )
+    prices_include_tax = BooleanField(
+        _("Prices include tax"),
+        default=False,
+        help_text=_(
+            "True: selling prices already contain tax (tax is extracted, the total is unchanged). "
+            "False: tax is added on top of prices."
+        ),
+    )
 
     is_active = BooleanField(_("Active"), default=True)
 

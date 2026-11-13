@@ -1,0 +1,19 @@
+$kind: http-request
+description: Download receipt
+url: "{{baseUrl}}/api/v1/disco/payments/:id/receipt/"
+method: GET
+headers:
+  Accept: application/json
+pathVariables:
+  - key: id
+    value: <string>
+    description: (Required) A unique value identifying this Payment.
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/api v1 disco payments receipt retrieve.resources/examples
+order: 1000

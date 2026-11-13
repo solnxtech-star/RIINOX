@@ -1,0 +1,41 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/api/users/"
+  method: POST
+  headers:
+    - key: Content-Type
+      value: multipart/form-data
+    - key: Accept
+      value: application/json
+    - key: __Secure-sessionid
+      value: <API Key>
+      description: "Added as a part of security scheme: apikey"
+  body:
+    type: formdata
+    content:
+      - type: text
+        key: email
+        value: <email>
+        description: "(Required) "
+      - type: text
+        key: password
+        value: <string>
+        description: "(Required) "
+      - type: text
+        key: re_password
+        value: <string>
+        description: "(Required) "
+response:
+  statusCode: 201
+  statusText: Created
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "email": "<email>",
+        "password": "anim elit aute",
+        "re_password": "nulla commodo pariatur aliquip exercitation"
+      }
+order: 1000

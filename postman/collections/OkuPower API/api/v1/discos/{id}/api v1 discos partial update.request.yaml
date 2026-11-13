@@ -1,0 +1,36 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/discos/:id/"
+method: PATCH
+headers:
+  Content-Type: application/x-www-form-urlencoded
+  Accept: application/json
+pathVariables:
+  - key: id
+    value: <string>
+    description: (Required) A unique value identifying this disco.
+body:
+  type: urlencoded
+  content:
+    - key: tick
+      value: <string>
+    - key: logo
+      value: <uri>
+    - key: address
+      value: <string>
+    - key: phone_no
+      value: <string>
+    - key: bank_name
+      value: <string>
+      description: The name of the bank
+    - key: bank_account_no
+      value: <string>
+      description: Bank account number
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/api v1 discos partial update.resources/examples
+order: 3000

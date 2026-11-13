@@ -98,20 +98,27 @@ class TransactionAPITest(APITestCase):
         self.assertEqual(len(response.data["financial_entries"]), 1)
         self.assertEqual(response.data["financial_entries"][0]["account_name"], AccountNameChoices.CASH_BANK)
 
-    def test_create_transaction(self):
-        """Owner can create a transaction."""
-        data = {
-            "transaction_type": TransactionTypeChoices.PURCHASE,
-            "status": TransactionStatusChoices.COMPLETED,
-            "notes": "Direct vendor procurement transaction",
-        }
-        response = self.client.post(self.trx_base_url, data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        new_trx_id = response.data["id"]
+    def test_transactions_are_read_only(self):
+        """
+        Transactions are written only by the business services (PRD §15, §44). The API
+        must never create, edit or delete them; deleting would also erase ledger lines.
+        """
+        count_before = Transaction.objects.count()
 
-        new_trx = Transaction.objects.get(id=new_trx_id)
-        self.assertEqual(str(new_trx.organization_id).replace("-", ""), str(self.org.id).replace("-", ""))
-        self.assertEqual(new_trx.transaction_type, TransactionTypeChoices.PURCHASE)
+        create = self.client.post(
+            self.trx_base_url,
+            {"transaction_type": TransactionTypeChoices.PURCHASE, "status": TransactionStatusChoices.COMPLETED},
+            format="json",
+        )
+        update = self.client.patch(self.trx_detail_url, {"notes": "tampered"}, format="json")
+        delete = self.client.delete(self.trx_detail_url)
+
+        self.assertEqual(create.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertEqual(update.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertEqual(delete.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertEqual(Transaction.objects.count(), count_before)
+        self.transaction.refresh_from_db()
+        self.assertNotEqual(self.transaction.notes, "tampered")
 
     def test_role_based_permissions(self):
         """Staff user without VIEW_FINANCIAL_REPORTS receives 403 Forbidden."""

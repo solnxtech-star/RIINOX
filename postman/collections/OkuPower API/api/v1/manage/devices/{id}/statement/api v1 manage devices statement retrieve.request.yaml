@@ -1,0 +1,19 @@
+$kind: http-request
+description: Provides a url to download payment statement for a device/user within a given period of time
+url: "{{baseUrl}}/api/v1/manage/devices/:id/statement/"
+method: GET
+headers:
+  Accept: application/json
+pathVariables:
+  - key: id
+    value: <string>
+    description: (Required) A unique value identifying this device.
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/api v1 manage devices statement retrieve.resources/examples
+order: 1000

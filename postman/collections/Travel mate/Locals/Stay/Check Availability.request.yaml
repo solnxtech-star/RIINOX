@@ -1,0 +1,26 @@
+$kind: http-request
+url: http://localhost:8000/api/hotels/search/?hotelIds=MCLONRPK&checkInDate=2025-05-10&checkOutDate=2025-05-12
+method: GET
+headers:
+  Authorization: "{{bearer_token_07wq}}"
+queryParams:
+  - key: hotelIds
+    value: MCLONRPK
+  - key: checkInDate
+    value: 2025-05-10
+  - key: checkOutDate
+    value: 2025-05-12
+  - key: adults
+    value: "3"
+    disabled: true
+  - key: roomQuantity
+    value: "2"
+    disabled: true
+  - key: countryOfResidence
+    value: NG
+    disabled: true
+  - key: priceRange
+    value: 100-2000
+    disabled: true
+settings: {}
+order: 2000

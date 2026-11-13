@@ -1,7 +1,7 @@
 from django.conf import settings
 from django.test import TestCase
 
-from core.applications.subscriptions.default import DEFAULT_PLAN_NAME
+from core.applications.subscriptions.default import DEFAULT_PLAN_CODE
 from core.applications.subscriptions.default import FEATURES
 from core.applications.subscriptions.models import Plan
 from core.applications.users.defaults import DEFAULT_ROLE_PERMISSIONS
@@ -21,7 +21,7 @@ class SeedingTests(TestCase):
     def test_migrate_leaves_the_catalog_in_place(self):
         self.assertEqual(Permission.objects.count(), len(PermissionCode))
         self.assertEqual(State.objects.filter(country="NG").count(), len(NIGERIAN_STATES))
-        self.assertTrue(Plan.objects.filter(name__iexact=DEFAULT_PLAN_NAME).exists())
+        self.assertTrue(Plan.objects.filter(code=DEFAULT_PLAN_CODE).exists())
 
     def test_a_second_run_changes_nothing(self):
         run_seeds(skip=SKIP)
@@ -34,9 +34,9 @@ class SeedingTests(TestCase):
         self.assertEqual(Permission.objects.get(code="VIEW_SALES").name, "View Sales")
 
     def test_business_owned_plan_is_never_overwritten(self):
-        Plan.objects.filter(name__iexact=DEFAULT_PLAN_NAME).update(max_users=99)
+        Plan.objects.filter(code=DEFAULT_PLAN_CODE).update(max_users=99)
         run_seeds(only=["default_plan"])
-        self.assertEqual(Plan.objects.get(name__iexact=DEFAULT_PLAN_NAME).max_users, 99)
+        self.assertEqual(Plan.objects.get(code=DEFAULT_PLAN_CODE).max_users, 99)
 
     def test_every_permission_code_has_a_module(self):
         self.assertFalse(set(PermissionCode.values) - set(MODULE_BY_CODE))
@@ -53,4 +53,4 @@ class SeedingTests(TestCase):
         self.assertLess(names.index("features"), names.index("default_plan"))
 
     def test_custom_templates_feature_is_defined(self):
-        self.assertIn("CUSTOM_TEMPLATES", {feature["code"] for feature in FEATURES})
+        self.assertIn("CUSTOM_TEMPLATES", {feature.code for feature in FEATURES})

@@ -32,7 +32,7 @@ from core.applications.subscriptions.providers.errors import ProviderConfigurati
 from core.applications.subscriptions.providers.errors import ProviderRejectedError
 from core.applications.subscriptions.providers.errors import ProviderUnavailableError
 from core.applications.subscriptions.providers.registry import provider_for_currency
-from core.applications.subscriptions.services import effective_status
+from core.applications.subscriptions.services.entitlements import effective_status
 from core.applications.subscriptions.services.periods import checkout_reference
 from core.applications.subscriptions.services.periods import prorated_credit_minor
 from core.helper.enums import BillingInterval

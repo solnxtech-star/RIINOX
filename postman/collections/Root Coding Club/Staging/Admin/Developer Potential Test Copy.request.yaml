@@ -1,0 +1,24 @@
+$kind: http-request
+url: http://localhost:8000/api/screening/admin/tests/
+method: POST
+headers:
+  Authorization: Bearer {{supabase_service_role_api_key_0l6p}}
+body:
+  type: json
+  content: "{\r
+
+    \  \"title\": \"2026 Second Test\",\r
+
+    \  \"slug\": \"2026-second-test\",\r
+
+    \  \"instructions\": \"this is the second test for 2026\",\r
+
+    \  \"duration_minutes\": 70,\r
+
+    \  \"pass_mark_percent\": 70,\r
+
+    \  \"is_active\": true\r
+
+    }"
+settings: {}
+order: 1000

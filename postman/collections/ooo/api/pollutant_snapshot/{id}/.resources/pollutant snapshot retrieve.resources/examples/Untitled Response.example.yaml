@@ -1,0 +1,25 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/api/pollutant_snapshot/:id/"
+  method: GET
+  headers:
+    Accept: application/json
+  pathVariables:
+    id: ""
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "device": "<string>",
+        "id": "<string>",
+        "pollutant": "<string>",
+        "pollutant_state": "<string>",
+        "summary": "<string>",
+        "value": "<double>"
+      }
+order: 1000

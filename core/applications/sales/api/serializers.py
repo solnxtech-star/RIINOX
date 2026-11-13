@@ -3,11 +3,34 @@ from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
 from core.applications.sales.models import Sale, SaleItem, SaleReturn, SaleReturnItem
 
+
+def _nonzero(value) -> bool:
+    if value in (None, ""):
+        return False
+    try:
+        return Decimal(str(value)) != 0
+    except Exception:  # noqa: BLE001 - any non-numeric value is "sent"
+        return True
+
+
+def _client_tax_fields(data) -> list[str]:
+    """Names of tax fields the client sent with a non-zero value."""
+    sent = []
+    if hasattr(data, "get"):
+        if _nonzero(data.get("tax_amount")):
+            sent.append("tax_amount")
+        items = data.get("items") or []
+        for index, item in enumerate(items if isinstance(items, list) else []):
+            for field in ("tax", "tax_rate"):
+                if hasattr(item, "get") and _nonzero(item.get(field)):
+                    sent.append(f"items[{index}].{field}")
+    return sent
+
 class SaleItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = SaleItem
         fields = [
-            'id', 'sale', 'product', 'variant', 'product_name', 'product_sku', 
+            'id', 'sale', 'product', 'variant', 'product_name', 'product_sku',
             'quantity', 'returned_quantity', 'unit_name', 'unit_multiplier',
             'unit_price', 'discount', 'discount_type', 'tax', 'tax_rate', 'total'
         ]
@@ -16,9 +39,10 @@ class SaleItemSerializer(serializers.ModelSerializer):
 class SaleItemCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = SaleItem
+        # No tax fields: tax is calculated by the server (PRD §39), see SaleCreateSerializer.
         fields = [
-            'product', 'variant', 'quantity', 
-            'unit_name', 'unit_price', 'discount', 'discount_type', 'tax_rate'
+            'product', 'variant', 'quantity',
+            'unit_name', 'unit_price', 'discount', 'discount_type',
         ]
         extra_kwargs = {
             'variant': {'required': False, 'allow_null': True},
@@ -26,7 +50,6 @@ class SaleItemCreateSerializer(serializers.ModelSerializer):
             'unit_price': {'required': False},
             'discount': {'required': False},
             'discount_type': {'required': False},
-            'tax_rate': {'required': False},
         }
 
 class SaleSerializer(serializers.ModelSerializer):
@@ -36,10 +59,10 @@ class SaleSerializer(serializers.ModelSerializer):
     class Meta:
         model = Sale
         fields = [
-            'id', 'sale_id', 'organization', 'customer', 'warehouse', 'location', 
+            'id', 'sale_id', 'organization', 'customer', 'warehouse', 'location',
             'sales_rep', 'payment_status', 'fulfillment_status', 'currency',
             'reference_number', 'due_date', 'billing_address', 'shipping_address',
-            'subtotal', 'discount_amount', 'tax_amount', 'total', 'change_due', 'notes', 
+            'subtotal', 'discount_amount', 'tax_amount', 'prices_include_tax', 'total', 'change_due', 'notes',
             'cancelled_at', 'cancelled_by', 'cancel_reason',
             'items', 'created_at'
         ]
@@ -73,10 +96,10 @@ class SaleCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Sale
         fields = [
-            'organization', 'customer', 'warehouse', 'location', 
+            'organization', 'customer', 'warehouse', 'location',
             'sales_rep', 'currency',
             'reference_number', 'due_date', 'billing_address', 'shipping_address',
-            'discount_amount', 'tax_amount', 'notes', 'items', 'payment'
+            'discount_amount', 'notes', 'items', 'payment'
         ]
         extra_kwargs = {
             'organization': {'required': False},
@@ -85,6 +108,23 @@ class SaleCreateSerializer(serializers.ModelSerializer):
             'location': {'required': False, 'allow_null': True},
             'currency': {'required': False, 'default': 'NGN'},
         }
+
+    def to_internal_value(self, data):
+        # Tax is calculated by the server from the products' and organization's tax
+        # settings (PRD §39). DRF would silently drop these fields, hiding a client
+        # bug, so a non-zero value is refused explicitly. 0 / null / absent are fine.
+        sent = _client_tax_fields(data)
+        if sent:
+            raise serializers.ValidationError(
+                {
+                    field: [
+                        "Tax is calculated by the server; don't send it. Configure tax on the "
+                        "product (tax_config, tax_rate) or the organization (default_tax_rate)."
+                    ]
+                    for field in sent
+                }
+            )
+        return super().to_internal_value(data)
 
 
     def validate(self, attrs):

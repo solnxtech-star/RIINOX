@@ -1,0 +1,19 @@
+$kind: http-request
+description: This topic is used to top the current unit in the meter
+url: "{{baseUrl}}/okupower/:id/credit/"
+method: GET
+headers:
+  Accept: application/json
+pathVariables:
+  - key: id
+    value: <string>
+    description: (Required) A unique value identifying this device.
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/Credit unit top up.resources/examples
+order: 1000

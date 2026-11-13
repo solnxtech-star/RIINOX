@@ -1,0 +1,46 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/api/pollutant/?ordering=<string>&page=<integer>&search=<string>"
+  method: GET
+  headers:
+    Accept: application/json
+  queryParams:
+    - key: ordering
+      value: <string>
+      description: Which field to use when ordering the results.
+    - key: page
+      value: <integer>
+      description: A page number within the paginated result set.
+    - key: search
+      value: <string>
+      description: A search term.
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "count": "<integer>",
+        "results": [
+          {
+            "id": "<string>",
+            "name": "<string>",
+            "symbol": "<string>",
+            "threshold": "<double>",
+            "who_structure": "<string>"
+          },
+          {
+            "id": "<string>",
+            "name": "<string>",
+            "symbol": "<string>",
+            "threshold": "<double>",
+            "who_structure": "<string>"
+          }
+        ],
+        "next": "<uri>",
+        "previous": "<uri>"
+      }
+order: 1000

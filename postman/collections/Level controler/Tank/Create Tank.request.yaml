@@ -1,0 +1,30 @@
+$kind: http-request
+url: http://localhost:8000/api/tanks/
+method: POST
+headers:
+  Authorization: "{{bearer_token_0at8}}"
+body:
+  type: json
+  content: "{\r
+
+    \  \"name\": \"tank 1\",\r
+
+    \  \"station\": \"c7b51b293e\",\r
+
+    \  \"capacity\": 100,\r
+
+    \  \"alert_high_threshold\": 100,\r
+
+    \  \"alert_high_message\": \"message one\",\r
+
+    \  \"alert_normal_threshold\": 50,\r
+
+    \  \"alert_normal_message\": \"no message\",\r
+
+    \  \"alert_low_threshold\": 0,\r
+
+    \  \"alert_low_message\": \"no message too\"\r
+
+    }"
+settings: {}
+order: 1000

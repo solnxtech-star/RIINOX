@@ -1,0 +1,24 @@
+$kind: http-request
+name: List all devices in a branch
+description: |-
+  List all devices in a branch
+
+  retun:
+  https://www.figma.com/file/rvLtP87CkfW698kA2IHmxy/OKUPOWER?type=design&node-id=492-1194&mode=design&t=tk50rpKaeGKp7N7B-4
+url: "{{baseUrl}}/api/v1/branches/:id/devices/"
+method: DELETE
+headers:
+  Accept: application/json
+pathVariables:
+  - key: id
+    value: <string>
+    description: (Required) A unique value identifying this branch.
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/List all devices in a branch-3.resources/examples
+order: 4000

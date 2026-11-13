@@ -1,0 +1,28 @@
+$kind: http-request
+description: Partially update a band.
+url: "{{baseUrl}}/api/v1/branches/:id/"
+method: PATCH
+headers:
+  Content-Type: application/x-www-form-urlencoded
+  Accept: application/json
+pathVariables:
+  - key: id
+    value: <string>
+    description: (Required) A unique value identifying this branch.
+body:
+  type: urlencoded
+  content:
+    name: <string>
+    address: <string>
+    phone_no: <string>
+    email: <email>
+    default: <boolean>
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/Partial Update Branch.resources/examples
+order: 6000

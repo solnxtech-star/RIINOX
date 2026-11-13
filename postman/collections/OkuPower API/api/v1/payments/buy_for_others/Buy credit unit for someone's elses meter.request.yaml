@@ -1,0 +1,30 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/payments/buy_for_others/?account=f6c89a3ce0&meter_no=2a322bdcbb"
+method: POST
+headers:
+  Accept: application/json
+  Authorization: "{{bearer_token_17cg}}"
+queryParams:
+  account: f6c89a3ce0
+  meter_no: 2a322bdcbb
+body:
+  type: formdata
+  content:
+    - type: text
+      key: amount
+      value: "1000"
+    - type: text
+      key: meter_no
+      value: 01d81f7a05
+    - type: text
+      key: add_beneficiary
+      value: "true"
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/Buy credit unit for someone's elses meter.resources/examples
+order: 1000

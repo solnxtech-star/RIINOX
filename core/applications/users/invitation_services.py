@@ -26,6 +26,7 @@ from core.applications.users.models import Membership
 from core.applications.users.models import MembershipLocation
 from core.applications.users.models import Organization
 from core.applications.users.models import Role
+from core.applications.users.services import _lock_manageable_membership
 from core.applications.users.services import get_seat_limit
 from core.applications.users.services import seats_in_use
 from core.applications.warehouse.models import Warehouse
@@ -223,7 +224,9 @@ def _resolve_location_scope(organization, actor_membership, role, *, all_locatio
     Returns (all_locations, [Warehouse, ...]). The serializer already checks
     shape; this is the real boundary, so it re-checks tenant and scope rules.
     """
-    requested = {location.pk: location for location in locations}
+    # Normalize pks: a freshly created instance holds a hex string, DB rows hold a UUID.
+    to_pk = Warehouse._meta.pk.to_python
+    requested = {to_pk(location.pk): location for location in locations}
 
     if all_locations and requested:
         raise fail(Err.INVALID_LOCATION, "Send either all_locations or a list of locations, not both.")
@@ -517,6 +520,82 @@ def accept_invitation(*, token: str, user, audit_context: AuditContext | None = 
             "all_locations": invitation.all_locations,
             "locations": sorted(str(loc.pk) for loc in locations),
         },
+        context=audit_context,
+    )
+    return membership
+
+
+# --------------------------------------------------------------------------- #
+# Member location access
+# --------------------------------------------------------------------------- #
+@transaction.atomic
+def update_membership_locations(
+    *,
+    membership: Membership,
+    actor,
+    all_locations: bool,
+    locations: Iterable[Warehouse] = (),
+    audit_context: AuditContext | None = None,
+) -> Membership:
+    """
+    Replace the locations a member may work in (PUT /memberships/{id}/locations/).
+
+    The same rules as inviting apply (_resolve_location_scope): locations must be
+    active and in this organization, the actor can't grant access they don't have,
+    and Administrators always keep all locations. Who may edit whom follows
+    update_membership (_lock_manageable_membership). Only the difference is
+    written, so unchanged links keep their history.
+    """
+    org = _lock_organization(membership.organization_id)  # lock order: organization first
+    membership, _ = _lock_manageable_membership(membership, actor)
+    actor_membership = (
+        Membership.objects.effective()
+        .for_organization(org)
+        .for_user(actor)
+        .select_related("role")
+        .first()
+    )
+    if actor_membership is None:
+        raise fail(Err.NOT_ORGANIZATION_MEMBER)
+
+    all_locations, location_list = _resolve_location_scope(
+        org, actor_membership, membership.role, all_locations=all_locations, locations=locations
+    )
+
+    def key(pk) -> str:
+        # One canonical form: a fresh instance holds a hex string pk, DB rows hold a UUID.
+        return str(Warehouse._meta.pk.to_python(pk))
+
+    previous_ids = {
+        key(pk)
+        for pk in MembershipLocation.objects.filter(membership=membership).values_list("location_id", flat=True)
+    }
+    new_ids = {key(location.pk) for location in location_list}
+    previous_all = membership.all_locations
+    if previous_all == all_locations and previous_ids == new_ids:
+        return membership  # nothing to change, nothing to audit
+
+    removed = previous_ids - new_ids
+    if removed:
+        MembershipLocation.objects.filter(membership=membership, location_id__in=removed).delete()
+    MembershipLocation.objects.bulk_create(
+        [
+            MembershipLocation(membership=membership, location=location)
+            for location in location_list
+            if key(location.pk) not in previous_ids
+        ]
+    )
+    if previous_all != all_locations:
+        membership.all_locations = all_locations
+        membership.save(update_fields=["all_locations", "updated_at"])
+
+    audit.record(
+        action=AuditAction.MEMBERSHIP_LOCATIONS_CHANGED,
+        organization=org,
+        actor=actor,
+        resource=membership,
+        previous_values={"all_locations": previous_all, "locations": sorted(previous_ids)},
+        new_values={"all_locations": all_locations, "locations": sorted(new_ids)},
         context=audit_context,
     )
     return membership

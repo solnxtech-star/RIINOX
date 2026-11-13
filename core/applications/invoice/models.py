@@ -106,6 +106,9 @@ class Invoice(TimeBasedModel):
     subtotal = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     discount_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     tax_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    # Snapshot (see Sale.prices_include_tax): whether `tax_amount` is inside the
+    # prices or added on top. Printed documents say "VAT included" accordingly.
+    prices_include_tax = models.BooleanField(default=False)
     total = models.DecimalField(
         max_digits=12,
         decimal_places=2,
@@ -209,10 +212,16 @@ class Invoice(TimeBasedModel):
                 name="invoice_discount_within_subtotal",
             ),
             models.CheckConstraint(
-                condition=models.Q(
-                    total=models.F("subtotal")
-                    - models.F("discount_amount")
-                    + models.F("tax_amount")
+                # Tax adds to the total only when it isn't already inside the prices.
+                condition=(
+                    models.Q(
+                        prices_include_tax=False,
+                        total=models.F("subtotal") - models.F("discount_amount") + models.F("tax_amount"),
+                    )
+                    | models.Q(
+                        prices_include_tax=True,
+                        total=models.F("subtotal") - models.F("discount_amount"),
+                    )
                 ),
                 name="invoice_total_matches_components",
             ),

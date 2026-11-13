@@ -1,0 +1,28 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/api/schema/?format=json&lang=tg"
+  method: GET
+  headers:
+    - key: Accept
+      value: application/vnd.oai.openapi
+    - key: __Secure-sessionid
+      value: <API Key>
+      description: "Added as a part of security scheme: apikey"
+  queryParams:
+    format: json
+    lang: tg
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "exe9d": {},
+        "sit_d7f": {},
+        "adipisicing_d_": {},
+        "culpaa52": {}
+      }
+order: 1000

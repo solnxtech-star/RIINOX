@@ -1,0 +1,38 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/api/v1/payments/"
+  method: POST
+  headers:
+    - key: Content-Type
+      value: application/x-www-form-urlencoded
+    - key: Accept
+      value: application/json
+    - key: sessionid
+      value: <API Key>
+      description: "Added as a part of security scheme: apikey"
+  body:
+    type: urlencoded
+    content:
+      - key: amount
+        value: <double>
+        description: "(Required) "
+      - key: key
+        value: pk_test_e227b3cd175144808f1d8afb6f808883eea0f44b
+response:
+  statusCode: 201
+  statusText: Created
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "data": {
+          "access_code": "0peioxfhpn",
+          "authorization_url": "https://checkout.paystack.com/0peioxfhpn",
+          "reference": "reference"
+        },
+        "message": "<boolean>",
+        "status": "<boolean>"
+      }
+order: 1000

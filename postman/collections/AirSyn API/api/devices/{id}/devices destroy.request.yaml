@@ -1,0 +1,17 @@
+$kind: http-request
+description: This is a view set that will manage device objects
+url: "{{baseUrl}}/api/devices/:id/"
+method: DELETE
+pathVariables:
+  - key: id
+    value: <string>
+    description: (Required) A unique value identifying this Device.
+auth:
+  type: apikey
+  credentials:
+    key: __Secure-sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/devices destroy.resources/examples
+order: 5000

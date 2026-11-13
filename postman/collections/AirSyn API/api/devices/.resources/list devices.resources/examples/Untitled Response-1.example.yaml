@@ -1,0 +1,33 @@
+$kind: http-example
+name: Untitled Response
+request:
+  url: "{{baseUrl}}/api/devices/?ordering=<string>&page=<integer>&search=<string>"
+  method: GET
+  headers:
+    - key: Accept
+      value: application/json
+    - key: __Secure-sessionid
+      value: <API Key>
+      description: "Added as a part of security scheme: apikey"
+  queryParams:
+    - key: ordering
+      value: <string>
+      description: Field to order the results by
+    - key: page
+      value: <integer>
+      description: A page number within the paginated result set.
+    - key: search
+      value: <string>
+      description: Search term for device name or state
+response:
+  statusCode: 307
+  statusText: Temporary Redirect (since HTTP/1.1)
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "detail": "<string>"
+      }
+order: 2000

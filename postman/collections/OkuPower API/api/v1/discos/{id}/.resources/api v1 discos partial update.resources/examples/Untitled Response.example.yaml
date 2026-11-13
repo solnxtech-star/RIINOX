@@ -1,0 +1,48 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/api/v1/discos/:id/"
+  method: PATCH
+  headers:
+    - key: Content-Type
+      value: application/x-www-form-urlencoded
+    - key: Accept
+      value: application/json
+    - key: sessionid
+      value: <API Key>
+      description: "Added as a part of security scheme: apikey"
+  pathVariables:
+    id: ""
+  body:
+    type: urlencoded
+    content:
+      - key: tick
+        value: <string>
+      - key: logo
+        value: <uri>
+      - key: address
+        value: <string>
+      - key: phone_no
+        value: <string>
+      - key: bank_name
+        value: <string>
+        description: The name of the bank
+      - key: bank_account_no
+        value: <string>
+        description: Bank account number
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "tick": "<string>",
+        "logo": "<uri>",
+        "address": "<string>",
+        "phone_no": "<string>",
+        "bank_name": "<string>",
+        "bank_account_no": "<string>"
+      }
+order: 1000

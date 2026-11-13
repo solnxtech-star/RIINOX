@@ -1,0 +1,34 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/users/?account=f6c89a3ce0&meter_no=2a322bdcbb"
+method: POST
+headers:
+  Content-Type: application/x-www-form-urlencoded
+  Accept: application/json
+  Authorization: "{{bearer_token_17cg}}"
+queryParams:
+  account: f6c89a3ce0
+  meter_no: 2a322bdcbb
+body:
+  type: urlencoded
+  content:
+    - key: email
+      value: douglaschiemela@gmail.com
+      description: "(Required) "
+    - key: password
+      value: password@123
+      description: "(Required) "
+    - key: re_password
+      value: password@123
+      description: "(Required) "
+    - key: ""
+      value: ""
+      disabled: true
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/api v1 users create.resources/examples
+order: 13000

@@ -1,0 +1,11 @@
+$kind: http-request
+url: http://127.0.0.1:8000/api/pollutant/
+method: GET
+headers:
+  Authorization: "{{bearer_token_02qo}}"
+queryParams:
+  - key: ""
+    value: null
+    disabled: true
+settings: {}
+order: 1000

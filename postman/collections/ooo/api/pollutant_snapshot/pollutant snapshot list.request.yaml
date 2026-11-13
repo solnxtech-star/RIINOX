@@ -1,0 +1,13 @@
+$kind: http-request
+description: ViewSet for managing pollutant snapshots
+url: "{{baseUrl}}/api/pollutant_snapshot/?page=<integer>"
+method: GET
+headers:
+  Accept: application/json
+queryParams:
+  - key: page
+    value: <integer>
+    description: A page number within the paginated result set.
+settings: {}
+examples: ./.resources/pollutant snapshot list.resources/examples
+order: 2000

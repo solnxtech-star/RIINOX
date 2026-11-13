@@ -80,7 +80,10 @@ class PurchaseViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
         org = self.organization
         if not org:
             return Purchase.objects.none()
-        return Purchase.objects.for_organization(org).for_user(user).with_details()
+        queryset = Purchase.objects.for_organization(org).for_user(user).with_details()
+        # Every action (receive, invoice, payments, returns) goes through get_object(),
+        # so this one line also scopes them to the caller's locations.
+        return self.scope_to_locations(queryset, field="warehouse")
 
     def get_serializer_class(self):
         is_post = self.request.method == "POST"
@@ -107,6 +110,7 @@ class PurchaseViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
         ordered_by = validated_data.pop("ordered_by", None) or request.user
         vendor = validated_data.pop("vendor")
         warehouse = validated_data.pop("warehouse")
+        self.location_scope.require(warehouse)  # goods are received into this location
 
         purchase = create_purchase_order(
             organization=self.organization,
@@ -128,6 +132,8 @@ class PurchaseViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
         validated_data = dict(serializer.validated_data)
         items_data = validated_data.pop("items", None)
         validated_data.pop("organization", None)
+        if validated_data.get("warehouse") is not None:
+            self.location_scope.require(validated_data["warehouse"])  # moving it needs the new location too
 
         purchase = update_purchase_order(
             purchase=instance,
@@ -150,7 +156,11 @@ class PurchaseViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
 
     @action(detail=False, methods=["get"], url_path="summary")
     def summary(self, request, *args, **kwargs):
-        data = get_purchase_summary(self.organization)
+        # Same scope as the list beside it: the caller's locations (and ?location=).
+        data = get_purchase_summary(
+            self.organization,
+            queryset=self.scope_to_locations(Purchase.objects.all(), field="warehouse"),
+        )
         serializer = PurchaseSummarySerializer(data)
         return Response(serializer.data, status=status.HTTP_200_OK)
 

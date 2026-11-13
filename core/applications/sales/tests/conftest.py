@@ -16,6 +16,12 @@ class TestInvoicePorts:
     def authorize(self, actor, organization, permission) -> None:
         pass
 
+    def location_scope(self, actor, organization):
+        # The real rules: location access is cheap to compute and worth exercising.
+        from core.applications.warehouse.access import LocationScope
+
+        return LocationScope.for_user(actor, organization)
+
     def validate_discount(self, *, actor, organization, subtotal, discount, approval_id=None) -> None:
         pass
 
@@ -67,6 +73,7 @@ class TestInvoicePorts:
             ),
             billing_address=sale.billing_address or "",
             shipping_address=sale.shipping_address or "",
+            prices_include_tax=sale.prices_include_tax,
         )
 
     def cancel_sale(self, invoice, *, actor, reason) -> None:

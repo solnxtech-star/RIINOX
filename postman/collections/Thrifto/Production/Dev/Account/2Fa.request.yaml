@@ -1,0 +1,14 @@
+$kind: http-request
+url: https://thrifto-backend-g8sw.onrender.com/api/2FAlogin/
+method: POST
+body:
+  type: json
+  content: "{\r
+
+    \    \"two_fa_code\": \"808868\",\r
+
+    \    \"user_id\": \"9929fb8f-8547-4b49-9efb-9d3438e88106\"\r
+
+    }"
+settings: {}
+order: 2000

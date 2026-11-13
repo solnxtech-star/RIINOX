@@ -1,0 +1,42 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/api/v1/users/reset_password_confirm/"
+  method: POST
+  headers:
+    - key: Content-Type
+      value: application/x-www-form-urlencoded
+    - key: Accept
+      value: application/json
+    - key: sessionid
+      value: <API Key>
+      description: "Added as a part of security scheme: apikey"
+  body:
+    type: urlencoded
+    content:
+      - key: email
+        value: <email>
+        description: "(Required) "
+      - key: new_password
+        value: <string>
+        description: "(Required) "
+      - key: re_new_password
+        value: <string>
+        description: "(Required) "
+      - key: token
+        value: <string>
+        description: "(Required) "
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "email": "<email>",
+        "new_password": "<string>",
+        "re_new_password": "<string>",
+        "token": "<string>"
+      }
+order: 1000

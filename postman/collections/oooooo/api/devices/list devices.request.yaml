@@ -1,0 +1,25 @@
+$kind: http-request
+description: Retrieve a list of all devices for the current user.
+url: "{{baseUrl}}/api/devices/?ordering=<string>&page=<integer>&search=<string>"
+method: GET
+headers:
+  Accept: application/json
+queryParams:
+  - key: ordering
+    value: <string>
+    description: Field to order the results by
+  - key: page
+    value: <integer>
+    description: A page number within the paginated result set.
+  - key: search
+    value: <string>
+    description: Search term for device name or state
+auth:
+  type: apikey
+  credentials:
+    key: __Secure-sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/list devices.resources/examples
+order: 2000

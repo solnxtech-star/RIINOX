@@ -1,0 +1,35 @@
+$kind: http-request
+description: Update a branch.
+url: "{{baseUrl}}/api/v1/branches/:id/"
+method: PUT
+headers:
+  Content-Type: application/x-www-form-urlencoded
+  Accept: application/json
+pathVariables:
+  - key: id
+    value: <string>
+    description: (Required) A unique value identifying this branch.
+body:
+  type: urlencoded
+  content:
+    - key: address
+      value: <string>
+      description: "(Required) "
+    - key: name
+      value: <string>
+      description: "(Required) "
+    - key: phone_no
+      value: <string>
+    - key: email
+      value: <email>
+    - key: default
+      value: <boolean>
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/Update a branch.resources/examples
+order: 5000

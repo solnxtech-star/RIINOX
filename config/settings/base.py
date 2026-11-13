@@ -369,7 +369,15 @@ REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "core.helper.pagination.CustomPagination",
     "PAGE_SIZE": 10,
 
-    "DEFAULT_THROTTLE_RATES": {"invitation_lookup": "30/min", "invitation_accept": "10/min"},
+    "DEFAULT_THROTTLE_RATES": {
+        "invitation_lookup": "30/min",
+        "invitation_accept": "10/min",
+        # Each checkout creates a provider session; legitimate use is a handful.
+        "billing_checkout": "10/min",
+        # Per source IP: providers deliver in bursts, forged traffic is refused at
+        # signature check but still costs a request.
+        "billing_webhook": "600/min",
+    },
     "NUM_PROXIES": 1,
 
 }
@@ -533,3 +541,32 @@ SEEDING_SKIP = set()         # names of seeds to skip after migrate
 
 BILLING_GRACE_PERIOD_DAYS = 7
 BILLING_RENEWAL_LEEWAY_HOURS = 24
+
+# ------------------------------------------------------------------------------
+# Billing providers (core.applications.subscriptions.providers)
+# ------------------------------------------------------------------------------
+# Which provider charges each currency; "*" is the fallback.
+BILLING_PROVIDER_BY_CURRENCY = env.dict(
+    "BILLING_PROVIDER_BY_CURRENCY", default={"NGN": "paystack", "*": "paystack"}
+)
+# Hosts the frontend may ask the provider to redirect back to after checkout.
+# Anything else is refused (INVALID_CALLBACK_URL), so checkout can't be turned
+# into an open redirect.
+BILLING_ALLOWED_CALLBACK_HOSTS = env.list("BILLING_ALLOWED_CALLBACK_HOSTS", default=[])
+PAYSTACK_SECRET_KEY = env("PAYSTACK_SECRET_KEY", default="")
+# True: a verified webhook is settled right after the request commits. False:
+# only the `billing.process_webhook_backlog` task settles it (higher throughput).
+BILLING_WEBHOOK_PROCESS_INLINE = env.bool("BILLING_WEBHOOK_PROCESS_INLINE", default=True)
+
+# ------------------------------------------------------------------------------
+# Billing background jobs (core.applications.subscriptions.tasks). Synced into
+# django-celery-beat's database schedule when beat starts. Every job works in
+# bounded batches and takes a lock, so overlapping runs can't double-charge.
+# ------------------------------------------------------------------------------
+CELERY_BEAT_SCHEDULE = {
+    "billing-renewals": {"task": "billing.run_renewals", "schedule": 15 * 60},
+    "billing-period-ends": {"task": "billing.run_period_ends", "schedule": 15 * 60},
+    "billing-expirations": {"task": "billing.run_expirations", "schedule": 15 * 60},
+    "billing-reconciliation": {"task": "billing.run_reconciliation", "schedule": 30 * 60},
+    "billing-webhook-backlog": {"task": "billing.process_webhook_backlog", "schedule": 5 * 60},
+}

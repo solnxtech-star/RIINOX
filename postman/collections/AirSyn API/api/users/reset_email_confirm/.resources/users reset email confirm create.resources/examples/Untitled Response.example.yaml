@@ -1,0 +1,31 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/api/users/reset_email_confirm/"
+  method: POST
+  headers:
+    - key: Content-Type
+      value: multipart/form-data
+    - key: Accept
+      value: application/json
+    - key: __Secure-sessionid
+      value: <API Key>
+      description: "Added as a part of security scheme: apikey"
+  body:
+    type: formdata
+    content:
+      - type: text
+        key: new_email
+        value: <email>
+        description: "(Required) "
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "new_email": "<email>"
+      }
+order: 1000

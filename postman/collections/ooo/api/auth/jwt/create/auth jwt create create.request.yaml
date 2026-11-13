@@ -1,0 +1,23 @@
+$kind: http-request
+description: |-
+  Takes a set of user credentials and returns an access and refresh JSON web
+  token pair to prove the authentication of those credentials.
+url: "{{baseUrl}}/api/auth/jwt/create/"
+method: POST
+headers:
+  Content-Type: multipart/form-data
+  Accept: application/json
+body:
+  type: formdata
+  content:
+    - type: text
+      key: email
+      value: <string>
+      description: "(Required) "
+    - type: text
+      key: password
+      value: <string>
+      description: "(Required) "
+settings: {}
+examples: ./.resources/auth jwt create create.resources/examples
+order: 1000

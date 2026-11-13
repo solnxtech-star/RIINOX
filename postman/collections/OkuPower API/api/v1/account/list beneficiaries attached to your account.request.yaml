@@ -1,0 +1,24 @@
+$kind: http-request
+description: List all beneficiaries.
+url: "{{baseUrl}}/api/v1/account/?page=<integer>&account=f6c89a3ce0&meter_no=2a322bdcbb"
+method: GET
+headers:
+  Accept: application/json
+  Authorization: "{{bearer_token_17cg}}"
+queryParams:
+  - key: page
+    value: <integer>
+    description: A page number within the paginated result set.
+  - key: account
+    value: f6c89a3ce0
+  - key: meter_no
+    value: 2a322bdcbb
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/list beneficiaries attached to your account.resources/examples
+order: 7000

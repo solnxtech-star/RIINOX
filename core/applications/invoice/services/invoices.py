@@ -194,6 +194,8 @@ class _Totals:
     discount: Decimal
     tax: Decimal
     total: Decimal
+    # True: `tax` is contained in the prices, so it doesn't add to `total`.
+    prices_include_tax: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,6 +221,11 @@ class _Row(NamedTuple):
 # --------------------------------------------------------------------------- #
 # Generic helpers
 # --------------------------------------------------------------------------- #
+
+
+def _document_total(subtotal: Decimal, discount: Decimal, tax: Decimal, *, prices_include_tax: bool) -> Decimal:
+    """What the customer pays. With tax-inclusive prices the tax is already inside them."""
+    return subtotal - discount if prices_include_tax else subtotal - discount + tax
 
 
 def _decimal(value: Any, step: Decimal, *, field: str) -> Decimal:
@@ -583,7 +590,11 @@ def _enforce_credit_limit(
 # --------------------------------------------------------------------------- #
 
 
-def _load_warehouse(organization: Organization, warehouse_id: Any):
+def _load_warehouse(organization: Organization, warehouse_id: Any, *, actor: Any = None):
+    """
+    The tenant's warehouse. With `actor`, it must also be one of the actor's
+    locations (PRD §35): LOCATION_ACCESS_DENIED otherwise.
+    """
     warehouse = _get_or_none(
         _model("warehouse", "Warehouse").objects.filter(organization=organization),
         pk=warehouse_id,
@@ -591,18 +602,23 @@ def _load_warehouse(organization: Organization, warehouse_id: Any):
     if warehouse is None:
         msg = "Warehouse not found."
         raise InvoiceValidationError(msg, detail={"warehouse_id": str(warehouse_id)})
+    if actor is not None:
+        get_invoice_ports().location_scope(actor, organization).require(warehouse)
     return warehouse
 
 
-def _lock_invoice(organization: Organization, invoice_id: Any) -> Invoice:
+def _lock_invoice(organization: Organization, invoice_id: Any, *, actor: Any = None) -> Invoice:
     """
     Fetch the invoice scoped to the tenant with a row lock on the invoice only.
-    A cross-tenant id is indistinguishable from a missing one.
+    A cross-tenant id is indistinguishable from a missing one. With `actor`, an
+    invoice at a location the actor can't access is "not found" too (PRD §35).
     """
+    queryset = Invoice.objects.for_organization(organization)
+    if actor is not None:
+        queryset = get_invoice_ports().location_scope(actor, organization).apply(queryset, "warehouse")
     try:
         return (
-            Invoice.objects.for_organization(organization)
-            .select_related("warehouse")
+            queryset.select_related("warehouse")
             .select_for_update(of=("self",))
             .get(pk=invoice_id)
         )
@@ -893,11 +909,12 @@ def _calculate_totals(
     if tax < 0:
         msg = "Tax cannot be negative."
         raise InvoiceValidationError(msg, detail={"tax": str(tax)})
-    total = taxable + tax
+    inclusive = bool(getattr(organization, "prices_include_tax", False))
+    total = _document_total(subtotal, discount, tax, prices_include_tax=inclusive)
     if total > MAX_MONEY:
         msg = "The invoice total is too large."
         raise InvoiceValidationError(msg, detail={"total": str(total)})
-    return _Totals(subtotal=subtotal, discount=discount, tax=tax, total=total)
+    return _Totals(subtotal=subtotal, discount=discount, tax=tax, total=total, prices_include_tax=inclusive)
 
 
 def _allocate_line_amounts(
@@ -1015,7 +1032,8 @@ def _validate_sale_snapshot(
         discount += line_discount
         tax += line_tax
 
-    total = subtotal - discount + tax
+    inclusive = bool(getattr(snapshot, "prices_include_tax", False))
+    total = _document_total(subtotal, discount, tax, prices_include_tax=inclusive)
     if subtotal > MAX_MONEY or total > MAX_MONEY:
         msg = "The invoice total is too large."
         raise InvoiceValidationError(
@@ -1045,7 +1063,7 @@ def _validate_sale_snapshot(
                 "computed": {k: str(v) for k, v in computed.items()},
             },
         )
-    return _Totals(subtotal=subtotal, discount=discount, tax=tax, total=total)
+    return _Totals(subtotal=subtotal, discount=discount, tax=tax, total=total, prices_include_tax=inclusive)
 
 
 def _assert_sale_references(
@@ -1172,6 +1190,7 @@ def issue_invoice_for_sale(
                 subtotal=totals.subtotal,
                 discount_amount=totals.discount,
                 tax_amount=totals.tax,
+                prices_include_tax=totals.prices_include_tax,
                 total=totals.total,
                 issued_at=timezone.now(),
                 notes=(snapshot.notes or "").strip() or None,
@@ -1309,7 +1328,7 @@ def create_invoice(
             raise InvoiceValidationError(msg, detail={"replaces": str(replaces.pk)})
 
     customer = load_active_customer(organization, customer_id)
-    warehouse = _load_warehouse(organization, warehouse_id)
+    warehouse = _load_warehouse(organization, warehouse_id, actor=actor)
     invoice_currency = _resolve_currency(organization, currency)
     due = _resolve_due_date(customer, _today(organization), due_date)
     items = _price_lines(organization, lines)
@@ -1339,6 +1358,7 @@ def create_invoice(
                 subtotal=totals.subtotal,
                 discount_amount=totals.discount,
                 tax_amount=totals.tax,
+                prices_include_tax=totals.prices_include_tax,
                 total=totals.total,
                 replaces=replaces,
                 notes=(notes or "").strip() or None,
@@ -1404,7 +1424,7 @@ def update_draft_invoice(
     ports = get_invoice_ports()
     ports.authorize(actor, organization, PERM_INVOICE_CREATE)
 
-    invoice = _lock_invoice(organization, invoice_id)
+    invoice = _lock_invoice(organization, invoice_id, actor=actor)
     _require_status(invoice, (_S.DRAFT,), "edited")
     if invoice.is_sale_origin:
         msg = "An invoice issued for a sale cannot be edited."
@@ -1433,6 +1453,7 @@ def update_draft_invoice(
     invoice.subtotal = totals.subtotal
     invoice.discount_amount = totals.discount
     invoice.tax_amount = totals.tax
+    invoice.prices_include_tax = totals.prices_include_tax
     invoice.total = totals.total
     invoice.due_date = due
     if notes is not None:
@@ -1442,6 +1463,7 @@ def update_draft_invoice(
             "subtotal",
             "discount_amount",
             "tax_amount",
+            "prices_include_tax",
             "total",
             "due_date",
             "notes",
@@ -1504,7 +1526,7 @@ def confirm_invoice(
     ports = get_invoice_ports()
     ports.authorize(actor, organization, PERM_INVOICE_CONFIRM)
 
-    invoice = _lock_invoice(organization, invoice_id)
+    invoice = _lock_invoice(organization, invoice_id, actor=actor)
     _require_status(invoice, CONFIRMABLE_STATUSES, "confirmed")
     if invoice.is_sale_origin:
         msg = "An invoice issued for a sale is already confirmed with its sale."
@@ -1517,7 +1539,12 @@ def confirm_invoice(
     _assert_lines_match_header(invoice, rows)
     stock_lines = _stock_lines_from(rows)
 
-    total = invoice.subtotal - invoice.discount_amount + invoice.tax_amount
+    total = _document_total(
+        invoice.subtotal,
+        invoice.discount_amount,
+        invoice.tax_amount,
+        prices_include_tax=invoice.prices_include_tax,
+    )
     paid_now = _validate_upfront_payment(upfront_payment, total)
 
     # The status is checked on the locked row, not on the draft-time read.
@@ -1628,7 +1655,7 @@ def void_invoice(
         msg = f"A reason of at least {MIN_VOID_REASON_LENGTH} characters is required."
         raise InvoiceValidationError(msg, detail={"reason": reason})
 
-    invoice = _lock_invoice(organization, invoice_id)
+    invoice = _lock_invoice(organization, invoice_id, actor=actor)
     if invoice.status in PAID_STATUSES or invoice.amount_paid > 0:
         raise InvoiceHasPaymentsError(
             detail={"invoice_id": str(invoice.pk), "status": str(invoice.status)}
@@ -1804,7 +1831,7 @@ def archive_invoice(
     ports = get_invoice_ports()
     ports.authorize(actor, organization, PERM_INVOICE_ARCHIVE)
 
-    invoice = _lock_invoice(organization, invoice_id)
+    invoice = _lock_invoice(organization, invoice_id, actor=actor)
     if invoice.archived_at is not None:
         return invoice
     _require_status(invoice, ARCHIVABLE_STATUSES, "archived")
@@ -1851,7 +1878,7 @@ def unarchive_invoice(
     ports = get_invoice_ports()
     ports.authorize(actor, organization, PERM_INVOICE_ARCHIVE)
 
-    invoice = _lock_invoice(organization, invoice_id)
+    invoice = _lock_invoice(organization, invoice_id, actor=actor)
     if invoice.archived_at is None:
         return invoice
 
@@ -1970,8 +1997,9 @@ def mark_overdue_invoices(
 def get_invoice(organization: Organization, invoice_id: Any, *, actor: Any) -> Invoice:
     """One invoice with parties, items and products loaded in a fixed number of queries."""
     get_invoice_ports().authorize(actor, organization, PERM_INVOICE_VIEW)
+    scope = get_invoice_ports().location_scope(actor, organization)
     invoice = _get_or_none(
-        Invoice.objects.for_organization(organization).for_detail(),
+        scope.apply(Invoice.objects.for_organization(organization), "warehouse").for_detail(),
         pk=invoice_id,
     )
     if invoice is None:
@@ -1992,7 +2020,7 @@ def list_invoices(
     `cursor` to get the next page; cost does not grow with depth.
     """
     get_invoice_ports().authorize(actor, organization, PERM_INVOICE_VIEW)
-    qs = _filtered_invoices(organization, filters or InvoiceFilters())
+    qs = _filtered_invoices(organization, filters or InvoiceFilters(), actor=actor)
     return list(qs.for_list().page_after(cursor, max(1, min(limit, MAX_PAGE_SIZE))))
 
 def invoice_queryset(
@@ -2012,7 +2040,7 @@ def invoice_queryset(
     that walk the whole table.
     """
     get_invoice_ports().authorize(actor, organization, PERM_INVOICE_VIEW)
-    qs = _filtered_invoices(organization, filters or InvoiceFilters())
+    qs = _filtered_invoices(organization, filters or InvoiceFilters(), actor=actor)
     return qs.for_list().ordered_by(ordering)
 
 def get_invoice_summary(
@@ -2038,7 +2066,7 @@ def get_invoice_summary(
     get_invoice_ports().authorize(actor, organization, PERM_INVOICE_VIEW)
     filters = filters or InvoiceFilters()
     scope = "archived" if filters.archived == "archived" else "all"
-    matching = _filtered_invoices(organization, replace(filters, archived=scope))
+    matching = _filtered_invoices(organization, replace(filters, archived=scope), actor=actor)
     summary = matching.confirmed_sales().totals(today=_today(organization))
     summary.update(matching.pipeline_counts())
     return summary
@@ -2079,13 +2107,17 @@ def available_actions(invoice: Invoice, permissions: Collection[str]) -> list[st
     return actions
 
 
-def _filtered_invoices(organization: Organization, f: InvoiceFilters):
+def _filtered_invoices(organization: Organization, f: InvoiceFilters, *, actor: Any = None):
     """
     The tenant's invoices narrowed by `f`. A malformed id matches nothing.
     Issue-date filters and "overdue" use the organization's own calendar.
     Archived invoices are hidden unless `f.archived` says otherwise.
+    With `actor`, only invoices of the actor's locations (PRD §35); a
+    `warehouse_id` filter outside them simply matches nothing.
     """
     qs = Invoice.objects.for_organization(organization)
+    if actor is not None:
+        qs = get_invoice_ports().location_scope(actor, organization).apply(qs, "warehouse")
     try:
         if f.customer_id is not None:
             qs = qs.filter(customer_id=f.customer_id)
@@ -2124,8 +2156,9 @@ def get_invoice_audit_trail(
     from invoice access because audit data is sensitive.
     """
     get_invoice_ports().authorize(actor, organization, PERM_AUDIT_VIEW)
+    scope = get_invoice_ports().location_scope(actor, organization)
     invoice = _get_or_none(
-        Invoice.objects.for_organization(organization).only("pk"),
+        scope.apply(Invoice.objects.for_organization(organization), "warehouse").only("pk"),
         pk=invoice_id,
     )
     if invoice is None:

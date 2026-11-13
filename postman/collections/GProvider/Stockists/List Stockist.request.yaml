@@ -1,0 +1,9 @@
+$kind: http-request
+url: http://127.0.0.1:8000/api/stocklists/
+method: GET
+auth:
+  type: bearer
+  credentials:
+    token: "{{json_web_token_0429}}"
+settings: {}
+order: 3000

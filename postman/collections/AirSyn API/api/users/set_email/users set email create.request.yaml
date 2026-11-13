@@ -1,0 +1,26 @@
+$kind: http-request
+url: "{{baseUrl}}/api/users/set_email/"
+method: POST
+headers:
+  Content-Type: multipart/form-data
+  Accept: application/json
+body:
+  type: formdata
+  content:
+    - type: text
+      key: current_password
+      value: <string>
+      description: "(Required) "
+    - type: text
+      key: new_email
+      value: <email>
+      description: "(Required) "
+auth:
+  type: apikey
+  credentials:
+    key: __Secure-sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/users set email create.resources/examples
+order: 1000

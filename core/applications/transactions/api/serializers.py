@@ -1,16 +1,9 @@
 from __future__ import annotations
 
-import uuid
 from rest_framework import serializers
 
-from core.applications.transactions.models import (
-    Transaction,
-    FinancialLedgerEntry,
-)
-from core.applications.transactions.services import (
-    create_transaction,
-    TransactionData,
-)
+from core.applications.transactions.models import FinancialLedgerEntry
+from core.applications.transactions.models import Transaction
 
 
 class FinancialLedgerEntrySerializer(serializers.ModelSerializer):
@@ -25,10 +18,12 @@ class FinancialLedgerEntrySerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "created_at", "updated_at"]
+        read_only_fields = fields
 
 
 class TransactionSerializer(serializers.ModelSerializer):
+    """Read-only: transactions are written by the services that perform the operation."""
+
     financial_entries = FinancialLedgerEntrySerializer(many=True, read_only=True)
 
     class Meta:
@@ -39,6 +34,7 @@ class TransactionSerializer(serializers.ModelSerializer):
             "organization",
             "transaction_type",
             "status",
+            "location",
             "content_type",
             "object_id",
             "created_by",
@@ -47,37 +43,4 @@ class TransactionSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "created_by", "created_at", "updated_at"]
-        extra_kwargs = {
-            "organization": {"required": False},
-            "transaction_id": {"required": False},
-        }
-
-    def to_internal_value(self, data):
-        data = data.copy() if hasattr(data, "copy") else dict(data)
-        if "organization" not in data or not data["organization"]:
-            view = self.context.get("view")
-            url_org = getattr(view, "organization", None) if view else None
-            if url_org:
-                data["organization"] = str(url_org.id)
-        if "transaction_id" not in data or not data["transaction_id"]:
-            data["transaction_id"] = f"TRX-{uuid.uuid4().hex[:8].upper()}"
-        return super().to_internal_value(data)
-
-    def validate(self, attrs):
-        view = self.context.get("view")
-        url_org = getattr(view, "organization", None) if view else None
-        if url_org:
-            body_org = attrs.get("organization")
-            if body_org and body_org != url_org:
-                raise serializers.ValidationError(
-                    {"organization": "Organization in payload does not match URL path tenant."}
-                )
-            attrs["organization"] = url_org
-        return super().validate(attrs)
-
-    def create(self, validated_data):
-        if "created_by" not in validated_data and "request" in self.context:
-            validated_data["created_by"] = self.context["request"].user
-        return Transaction.objects.create(**validated_data)
-
+        read_only_fields = fields

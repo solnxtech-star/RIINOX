@@ -1,0 +1,27 @@
+$kind: http-request
+description: Create a new device for the current user.
+url: "{{baseUrl}}/api/devices/"
+method: POST
+headers:
+  Content-Type: application/json
+  Accept: application/json
+body:
+  type: json
+  content: |-
+    {
+      "slug": "<string>",
+      "status": "SAFE",
+      "name": "<string>",
+      "location": "<string>",
+      "state": "OFF",
+      "specification": "<integer>"
+    }
+auth:
+  type: apikey
+  credentials:
+    key: __Secure-sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/create device.resources/examples
+order: 3000

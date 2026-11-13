@@ -1,0 +1,15 @@
+$kind: http-request
+description: Provides an overview of the disco.
+url: "{{baseUrl}}/api/v1/discos/overview/"
+method: GET
+headers:
+  Accept: application/json
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/api v1 discos overview retrieve.resources/examples
+order: 1000

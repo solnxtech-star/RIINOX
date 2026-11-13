@@ -1,0 +1,29 @@
+$kind: http-request
+description: Create a new branch.
+url: "{{baseUrl}}/api/v1/branches/"
+method: POST
+headers:
+  Content-Type: application/x-www-form-urlencoded
+  Accept: application/json
+body:
+  type: urlencoded
+  content:
+    - key: address
+      value: <string>
+      description: "(Required) "
+    - key: name
+      value: <string>
+      description: "(Required) "
+    - key: phone_no
+      value: <string>
+    - key: email
+      value: <email>
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/create new branch.resources/examples
+order: 4000

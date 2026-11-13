@@ -1,7 +1,11 @@
 import uuid
+from decimal import Decimal
+
 import auto_prefetch
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator
+from django.core.validators import MinValueValidator
 from django.db import models
 from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
@@ -181,7 +185,11 @@ class Product(TimeBasedModel):
         decimal_places=2,
         blank=True,
         null=True,
-        help_text=_("Specific percentage tax rate override, if applicable."),
+        validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
+        help_text=_(
+            "Percentage tax rate for this product, overriding the organization's default. "
+            "Leave empty to use the organization's default_tax_rate."
+        ),
     )
     track_inventory = models.BooleanField(
         default=True,
@@ -240,7 +248,7 @@ class Product(TimeBasedModel):
     @property
     def current_stock(self):
         """
-        Dynamically computed from Inventory records to ensure 
+        Dynamically computed from Inventory records to ensure
         Inventory is the strict single source of truth.
         """
         return sum(inv.quantity for inv in self.inventory_records.all())
@@ -313,7 +321,7 @@ class ProductImage(TimeBasedModel):
         help_text=_("Whether this is the primary image for the product."),
     )
 
-    sort_order = models.PositiveIntegerField( 
+    sort_order = models.PositiveIntegerField(
         default=0,
         help_text=_("Controls the display order of product images."),
     )
@@ -485,4 +493,3 @@ class ProductBatch(TimeBasedModel):
         if not self.batch_number:
             self.batch_number = f"BCH-{uuid.uuid4().hex[:6].upper()}"
         super().save(*args, **kwargs)
-

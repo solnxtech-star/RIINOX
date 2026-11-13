@@ -16,11 +16,15 @@ class WarehouseSerializer(serializers.ModelSerializer):
             "code",
             "address",
             "manager",
+            "location_type",
+            "is_default",
             "is_active",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "created_at", "updated_at"]
+        # is_default changes only through POST .../warehouses/{id}/set-default/,
+        # which keeps "exactly one default per organization" true.
+        read_only_fields = ["id", "is_default", "created_at", "updated_at"]
         extra_kwargs = {
             "organization": {"required": False},
         }

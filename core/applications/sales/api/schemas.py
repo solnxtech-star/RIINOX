@@ -1,3 +1,5 @@
+from core.applications.warehouse.api.schemas import LOCATION_ACCESS_NOTE
+from core.applications.warehouse.api.schemas import LOCATION_FILTER_PARAM
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
@@ -157,6 +159,7 @@ _sale_response_example = OpenApiExample(
         "subtotal": "50000.00",
         "discount_amount": "5000.00",
         "tax_amount": "3375.00",
+        "prices_include_tax": False,
         "total": "48375.00",
         "change_due": "1625.00",
         "notes": "Corporate order for regional branch supply.",
@@ -248,21 +251,14 @@ sale_viewset_schema = extend_schema_view(
             "- Unauthenticated requests return HTTP 401.\n"
             "- Authenticated callers without active membership or `VIEW_SALES` capability receive HTTP 403 Forbidden.\n\n"
             "### Multi-Tenancy & Tenant Boundaries (PRD §6)\n"
-            "- Filtered server-side using `Sale.objects.for_user(user)`.\n"
-            "- Scoped to a specific tenant via the `?organization=<UUID>` query parameter or `X-Organization-ID` header.\n\n"
+            "- Scoped to the organization in the URL path.\n"
+            "- Filter one branch with `?location=<warehouse id>`.\n\n"
+            + LOCATION_ACCESS_NOTE + "\n\n"
             "### Plan Limits & Subscription Invariants (PRD §10, §52)\n"
             "- Read operations require active tenant organization standing.\n"
             "- Querying sales records is read-only and does NOT consume monthly transaction allowances (`max_transactions_per_month`)."
         ),
-        parameters=[
-            OpenApiParameter(
-                name="organization",
-                type=OpenApiTypes.UUID,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description="Filter sales belonging to a specific organization UUID.",
-            ),
-        ],
+        parameters=[LOCATION_FILTER_PARAM],
         responses={
             200: OpenApiResponse(response=SaleSerializer(many=True), description="Successful retrieval of sales list."),
             401: UNAUTHENTICATED_RESPONSE,
@@ -301,15 +297,29 @@ sale_viewset_schema = extend_schema_view(
             "### Warehouse & Stock Location Resolution\n"
             "- **`warehouse`** (UUID, optional): Target warehouse fulfilling the order.\n"
             "- **`location`** (UUID, optional): Specific shelf/bin stock location within the warehouse.\n"
-            "- **Smart Automatic Fallback**: Both fields are optional in the request payload. "
-            "If omitted, the backend automatically resolves and defaults to the organization's primary active warehouse "
-            "(and its default stock location if one exists). For orders containing strictly service or non-inventory items, "
-            "neither warehouse nor location is required.\n\n"
+            "- **Automatic fallback**: both fields are optional for members with access to all locations. "
+            "If omitted, the backend uses the organization's **default location** (`is_default`), or the first active "
+            "location if the default is inactive, and that location's first active storage area.\n"
+            "- **Location access (PRD §35)**: the resulting location (the storage area's location if `location` is sent, "
+            "else `warehouse`) must be one of the caller's locations, otherwise `403 LOCATION_ACCESS_DENIED`. "
+            "Members limited to specific locations **must** send `warehouse` or `location` "
+            "(`400 LOCATION_REQUIRED`). Tip: pre-fill it from the branch switcher.\n\n"
             "### Payment Tender & Cash Change Due (PRD §39)\n"
             "- **Auto 'Pay in Full' (Omitted `amount`)**: If `payment.amount` is omitted or null, the backend automatically records the full outstanding net total as paid without requiring frontend calculation.\n"
             "- **Cash Overpayment & Change Due**: When paying via `cash`, if tendered `amount > total`, the backend records the exact net sale total as received revenue and returns the remaining customer change in `change_due` (e.g. ₦1,000 tendered on a ₦950 sale records ₦950 and returns `change_due: \"50.00\"`).\n"
             "- **Partial Payments**: If tendered `amount < total`, the payment records the partial amount and sets `payment_status: \"partially_paid\"`.\n"
             "- **Non-Cash Overpayment Guard**: Non-cash payment methods (`card`, `bank_transfer`, `pos`) strictly reject overpayments exceeding the payable total with HTTP 400.\n\n"
+            "### Tax (PRD §13, §39): calculated by the server\n"
+            "- **Never send tax.** A non-zero `tax_amount`, or `tax` / `tax_rate` on an item, is a `400`. "
+            "Configure tax instead on the product (`tax_config`, `tax_rate`) and the organization "
+            "(`default_tax_rate`, `prices_include_tax`).\n"
+            "- Each line is taxed on its amount after discounts at the product's rate (or the organization's "
+            "default; exempt / non-taxable products at 0), rounded per line; `tax_amount` is the sum.\n"
+            "- The response's `prices_include_tax` tells how to read it: `true` = tax is **inside** the prices "
+            "(total = subtotal - discount; print \"VAT included\"), `false` = tax is **added** "
+            "(total = subtotal - discount + tax_amount).\n"
+            "- Selling on credit beyond the customer's `credit_limit` needs the `APPROVE_REQUESTS` permission; "
+            "otherwise `403 CREDIT_LIMIT_EXCEEDED`.\n\n"
             "### Required Permissions & Access Control (PRD §28, §55)\n"
             "- **`CREATE_SALE`**: Required to create sales orders.\n"
             "- **`APPLY_DISCOUNT`**: If `discount_amount > 0` or any line item specifies `discount > 0`, the caller "
@@ -466,17 +476,12 @@ sale_return_viewset_schema = extend_schema_view(
             "- Requires **`VIEW_SALES`** permission in the target tenant organization.\n"
             "- Unauthenticated callers receive HTTP 401; unauthorized callers receive HTTP 403 Forbidden.\n\n"
             "### Plan Limits & Subscription Invariants (PRD §10, §52)\n"
-            "- Read operations do NOT consume monthly transaction allowances (`max_transactions_per_month`)."
+            "- Read operations do NOT consume monthly transaction allowances (`max_transactions_per_month`).\n\n"
+            "### Location access\n"
+            "A return belongs to the location of its original sale; `?location=` filters by it.\n\n"
+            + LOCATION_ACCESS_NOTE
         ),
-        parameters=[
-            OpenApiParameter(
-                name="organization",
-                type=OpenApiTypes.UUID,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description="Filter sale returns belonging to a specific organization UUID.",
-            ),
-        ],
+        parameters=[LOCATION_FILTER_PARAM],
         responses={
             200: OpenApiResponse(response=SaleReturnSerializer(many=True), description="Successful retrieval of returns list."),
             401: UNAUTHENTICATED_RESPONSE,
@@ -514,7 +519,8 @@ sale_return_viewset_schema = extend_schema_view(
             "### Required Permissions & Access Control (PRD §28, §55)\n"
             "- Requires **`CREATE_SALE_RETURN`** permission in the target organization.\n"
             "- Roles without return authorization (e.g. standard Sales Representatives) receive HTTP 403 Forbidden.\n"
-            "- If `organization` is omitted from the request body, tenant scope is automatically resolved from `original_sale.organization`.\n\n"
+            "- If `organization` is omitted from the request body, tenant scope is automatically resolved from `original_sale.organization`.\n"
+            "- The original sale's location must be one of the caller's locations (`403 LOCATION_ACCESS_DENIED`).\n\n"
             "### Plan Limits & Subscription Invariants (PRD §10, §52)\n"
             "- **Active Subscription**: Calls `ensure_subscription_active(organization)`. Inactive subscriptions reject return creation.\n"
             "- **Monthly Transactions Quota**: Creates a centralized system `Transaction` (type `RETURN`, status `COMPLETED`), "

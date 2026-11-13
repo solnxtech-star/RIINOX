@@ -77,8 +77,18 @@ class Inventory(TimeBasedModel):
     class Meta(auto_prefetch.Model.Meta):
         verbose_name = _("Inventory")
         verbose_name_plural = _("Inventory")
-        unique_together = ("product", "variant", "batch", "warehouse")
-        indexes = [models.Index(fields=["product", "variant", "batch", "warehouse"])]
+        constraints = [
+            # One balance row per product / variant / batch / location. variant and
+            # batch are usually NULL, and a plain unique constraint treats NULLs as
+            # distinct, which would let concurrent movements create duplicate rows and
+            # split the stock. NULLS NOT DISTINCT (PostgreSQL 15+) closes that gap;
+            # its index also serves every lookup the old separate index did.
+            models.UniqueConstraint(
+                fields=["product", "variant", "batch", "warehouse"],
+                name="unique_inventory_balance",
+                nulls_distinct=False,
+            ),
+        ]
 
     def __str__(self):
         return f"{self.product} @ {self.warehouse}: {self.quantity}"

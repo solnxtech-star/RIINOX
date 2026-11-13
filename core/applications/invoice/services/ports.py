@@ -110,6 +110,8 @@ class SaleSnapshot:
     lines: tuple[SaleLineSnapshot, ...]
     billing_address: str = ""
     shipping_address: str = ""
+    # True: tax_amount is inside the prices (total = subtotal - discount).
+    prices_include_tax: bool = False
 
 
 
@@ -117,6 +119,13 @@ class SaleSnapshot:
 class InvoicePorts(Protocol):
     def authorize(self, actor: Any, organization: Organization, permission: str) -> None:
         """Raise the platform's permission error unless `actor` holds `permission` in `organization`."""
+
+    def location_scope(self, actor: Any, organization: Organization) -> Any:
+        """
+        The locations `actor` may see and act in (PRD §35), as a
+        warehouse.access.LocationScope: `.apply(queryset, field)` narrows a
+        queryset, `.require(location)` raises LOCATION_ACCESS_DENIED.
+        """
 
     def validate_discount(
         self,

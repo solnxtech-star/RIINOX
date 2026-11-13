@@ -7,6 +7,9 @@ from drf_spectacular.utils import extend_schema_view
 
 from core.applications.inventory.api.serializers import InventorySummarySerializer
 
+from core.applications.warehouse.api.schemas import LOCATION_ACCESS_NOTE
+from core.applications.warehouse.api.schemas import LOCATION_FILTER_PARAM
+
 PRODUCT_CREATE_EXAMPLE = {
     "name": "NEW TEST PRODUCT 1",
     "sku": "MED-AMX-500",
@@ -67,65 +70,38 @@ product_schema = extend_schema_view(
 - Users holding `VIEW_PRODUCT_COSTS` (Owner, Admin, Accountant) receive full monetary visibility (`purchase_cost`, `vendor_sale_cost`, and batch `cost_price`).
 - Users without this permission (Sales Rep, Manager, Cashier) have cost fields dynamically stripped from the JSON response.
 
-### Warehouse Filtering:
-- Pass `?warehouse=<uuid>` to filter products stocked at a specific warehouse and dynamically compute `current_stock` for that warehouse.""",
+### Products and locations (PRD §13, §35):
+- **The catalogue is organization-wide.** A product is defined once (name, SKU, price...) and
+  every member sees the same catalogue, whatever their locations.
+- **Stock is per location.** `current_stock` is the on-hand quantity:
+  - with `?location=<warehouse id>`: at that location only (a location the caller can't access gives `0`);
+  - without it: summed over **the caller's** locations (all locations for owners, admins and
+    members with all locations).
+- **Branch view:** `?location=<id>&in_stock=true` lists what that branch actually has.
+- **Reorder list:** `?low_stock=true` lists stock-tracked products whose `current_stock` is at or
+  below `minimum_stock_level` (combine with `?location=` for one branch).
+- For the per-location breakdown of one product, call `GET /inventory/balances/?product=<id>`.
+
+""" + LOCATION_ACCESS_NOTE,
         parameters=[
             PRODUCT_ORGANIZATION_PARAM,
+            LOCATION_FILTER_PARAM,
             OpenApiParameter(
-                "warehouse",
-                OpenApiTypes.UUID,
+                "in_stock",
+                OpenApiTypes.BOOL,
                 OpenApiParameter.QUERY,
-                description="Filter products by warehouse UUID. When provided, `current_stock` reflects on-hand quantity in this warehouse.",
+                required=False,
+                description="`true`: only products with `current_stock > 0` (at `?location=` if given).",
             ),
             OpenApiParameter(
-                "status",
-                OpenApiTypes.STR,
+                "low_stock",
+                OpenApiTypes.BOOL,
                 OpenApiParameter.QUERY,
-                description="Filter products by status ('active', 'draft', 'archived').",
-            ),
-            OpenApiParameter(
-                "category",
-                OpenApiTypes.UUID,
-                OpenApiParameter.QUERY,
-                description="Filter products by category UUID.",
-            ),
-            OpenApiParameter(
-                "brand",
-                OpenApiTypes.UUID,
-                OpenApiParameter.QUERY,
-                description="Filter products by brand UUID.",
-            ),
-            OpenApiParameter(
-                "product_type",
-                OpenApiTypes.STR,
-                OpenApiParameter.QUERY,
-                description="Filter products by product type ('standard', 'service', 'consumable').",
-            ),
-        ],
-    ),
-    summary=extend_schema(
-        tags=["Products"],
-        summary="Get Products & Inventory Summary Metrics",
-        description="""Computes the 4 KPI summary cards for the Products and Inventory dashboard:
-- **`stock_value`**: Total valuation of on-hand inventory at purchase cost (`Σ (quantity × purchase_cost)`).
-- **`potential_sales_value`**: Total valuation of on-hand inventory at retail selling price (`Σ (quantity × customer_sale_price)`).
-- **`profit_to_be_made`**: Projected gross profit (`potential_sales_value - stock_value`).
-- **`stock_requiring_attention`**: Count of active tracked products that are low stock (`current_stock <= minimum_stock_level`) or out of stock (`current_stock == 0`).
-
-### Warehouse Scoping:
-- Omit `warehouse` to retrieve organization-wide metrics across all active branches.
-- Pass `?warehouse=<uuid>` to scope all valuation and attention figures strictly to that warehouse.
-
-### Cost Security (PRD §12, §27, §55):
-- Requires `VIEW_PRODUCTS`.
-- If the caller lacks `VIEW_PRODUCT_COSTS`, `stock_value` and `profit_to_be_made` are returned as `null` (`has_cost_permission: false`).""",
-        parameters=[
-            PRODUCT_ORGANIZATION_PARAM,
-            OpenApiParameter(
-                "warehouse",
-                OpenApiTypes.UUID,
-                OpenApiParameter.QUERY,
-                description="Optional warehouse UUID to scope summary metrics to a single branch.",
+                required=False,
+                description=(
+                    "`true`: only stock-tracked products with `current_stock <= minimum_stock_level` "
+                    "(at `?location=` if given)."
+                ),
             ),
         ],
         responses={
@@ -174,6 +150,9 @@ product_schema = extend_schema_view(
 - Requires `CREATE_PRODUCT`.
 - Setting `purchase_cost` or `vendor_sale_cost` requires `EDIT_PRODUCT_COSTS`. Attempting to set costs without this permission returns HTTP 400 Bad Request.
 - `category`, `brand`, and `warehouse_id` must belong to the specified `organization`. Cross-tenant relations return HTTP 400 Bad Request.
+- The product is created for the whole organization; only its opening stock goes to `warehouse_id`,
+  which must be one of the caller's locations (`403 LOCATION_ACCESS_DENIED`, PRD §35).
+  `warehouse_id` is required when `quantity_in_stock > 0`.
 
 ### Plan Limits & Subscription Invariants (PRD §10, §52):
 - **Active Subscription**: Validates `ensure_subscription_active(organization)`. Inactive/expired subscriptions reject creation with `SUBSCRIPTION_REQUIRED` (HTTP 402/403).

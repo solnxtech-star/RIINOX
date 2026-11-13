@@ -1,0 +1,45 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/api/v1/branches/"
+  method: POST
+  headers:
+    - key: Content-Type
+      value: application/x-www-form-urlencoded
+    - key: Accept
+      value: application/json
+    - key: sessionid
+      value: <API Key>
+      description: "Added as a part of security scheme: apikey"
+  body:
+    type: urlencoded
+    content:
+      - key: address
+        value: <string>
+        description: "(Required) "
+      - key: name
+        value: <string>
+        description: "(Required) "
+      - key: phone_no
+        value: <string>
+      - key: email
+        value: <email>
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "address": "<string>",
+        "id": "<string>",
+        "name": "<string>",
+        "total_consumption": "<integer>",
+        "total_devices": "<integer>",
+        "total_faults": "<integer>",
+        "default": "<boolean>",
+        "email": "<email>",
+        "phone_no": "<string>"
+      }
+order: 1000

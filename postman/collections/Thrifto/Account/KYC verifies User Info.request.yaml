@@ -1,0 +1,61 @@
+$kind: http-request
+url: https://thrifto-backend.onrender.com/api/kyc/
+method: PUT
+headers:
+  - key: Authorization
+    value: "{{bearer_token_17wl}}"
+    $type: |-
+      {
+        "type": "",
+        "format": "",
+        "required": false,
+        "deprecated": false,
+        "default": "",
+        "enum": [],
+        "pattern": "",
+        "minLength": "",
+        "maxLength": "",
+        "minItems": "",
+        "maxItems": "",
+        "minimum": "",
+        "maximum": "",
+        "uniqueItems": false
+      }
+body:
+  type: formdata
+  content:
+    - type: text
+      key: full_name
+      value: John Doe4
+    - type: text
+      key: kyc_email
+      value: john@4example.com
+    - type: text
+      key: phone_number
+      value: "0903121"
+    - type: text
+      key: address
+      value: aba road
+    - type: text
+      key: city
+      value: "1"
+    - type: text
+      key: country
+      value: "1"
+    - type: text
+      key: employer
+      value: "1"
+    - type: text
+      key: salary_range
+      value: "1"
+    - type: file
+      key: proof_of_salary
+      src: postman-cloud:///1f0cc5b8-a3d9-4fb0-ad53-7aa1775fffc8
+    - type: file
+      key: proof_of_employment
+      src: postman-cloud:///1f0cc5b8-a3d9-4fb0-ad53-7aa1775fffc8
+    - type: text
+      key: terms_agreed
+      value: "true"
+settings: {}
+order: 5000

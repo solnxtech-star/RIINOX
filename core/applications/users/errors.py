@@ -67,6 +67,13 @@ _SPECS: dict[str, tuple[int, str]] = {
     _E.INVITATION_EXPIRED: (410, "This invitation has expired."),
     _E.INVITATION_EMAIL_MISMATCH: (403, "This invitation was sent to a different email address."),
     _E.EMAIL_NOT_VERIFIED: (403, "Verify your email address before accepting an invitation."),
+    _E.NOT_AUTHENTICATED: (401, "Sign in to continue."),
+    _E.INVALID_LOCATION: (400, "One or more locations are invalid or not available to you."),
+    _E.LOCATION_REQUIRED: (400, "Choose at least one location, or all locations."),
+    _E.LOCATION_SCOPE_NOT_ALLOWED: (403, "You can't grant this location access."),
+    _E.INVITATION_LOCATIONS_UNAVAILABLE: (
+        409, "The locations on this invitation are no longer available. Ask for a new invitation."
+    ),
 }
 
 

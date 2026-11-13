@@ -1,0 +1,22 @@
+$kind: http-request
+description: |-
+  This topic is used to tell the server that the meter has been tampered with,
+  this inturn can be used to report a fault to the meter which can be
+  used to deactivate the meter.
+url: "{{baseUrl}}/okupower/:id/fault/"
+method: GET
+headers:
+  Accept: application/json
+pathVariables:
+  - key: id
+    value: <string>
+    description: (Required) A unique value identifying this device.
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/Used to report a fault.resources/examples
+order: 1000

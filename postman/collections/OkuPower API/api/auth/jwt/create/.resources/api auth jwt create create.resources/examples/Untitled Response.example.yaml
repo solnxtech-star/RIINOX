@@ -1,0 +1,36 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/api/auth/jwt/create/"
+  method: POST
+  headers:
+    Content-Type: application/x-www-form-urlencoded
+    Accept: application/json
+  body:
+    type: urlencoded
+    content:
+      - key: email
+        value: <string>
+        description: "(Required) "
+      - key: password
+        value: <string>
+        description: "(Required) "
+      - key: account_type
+        value: STAFF
+        description: |-
+          * `CONSUMER` - CONSUMER
+          * `DISCO` - DISCO
+          * `STAFF` - STAFF
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "email": "<string>",
+        "password": "<string>",
+        "account_type": "STAFF"
+      }
+order: 1000

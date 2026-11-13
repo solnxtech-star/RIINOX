@@ -1,0 +1,6 @@
+$kind: http-request
+url: "{{local_base_url}}/api/organizations/"
+method: GET
+headers:
+  Authorization: "{{bearer_token_0rwg}}"
+order: 3000

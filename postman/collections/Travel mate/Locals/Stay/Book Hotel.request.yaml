@@ -1,0 +1,48 @@
+$kind: http-request
+url: http://localhost:8000/api/hotels/book/
+method: POST
+headers:
+  Authorization: "{{bearer_token_0lj0}}"
+body:
+  type: json
+  content: "{\r
+
+    \    \"hotel_id\": \"PRABVASO\",\r
+
+    \    \"room_id\": \"WO59GU7OC4\",\r
+
+    \    \"check_in\": \"2025-07-01\",\r
+
+    \    \"check_out\": \"2025-07-05\",\r
+
+    \    \"guests\": [\r
+
+    \        {\r
+
+    \            \"name\": \"John Doe\",\r
+
+    \            \"contact\": \"john.doe@example.com\"\r
+
+    \        }\r
+
+    \    ],\r
+
+    \    \"payment\": {\r
+
+    \        \"method\": \"creditCard\",\r
+
+    \        \"card\": {\r
+
+    \            \"vendorCode\": \"VI\",\r
+
+    \            \"cardNumber\": \"4111111111111111\",\r
+
+    \            \"expiryDate\": \"2026-07\"\r
+
+    \        }\r
+
+    \    }\r
+
+    }\r\n"
+settings: {}
+order: 5000

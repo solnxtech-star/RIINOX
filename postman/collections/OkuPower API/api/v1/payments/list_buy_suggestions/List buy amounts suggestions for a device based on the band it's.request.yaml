@@ -1,0 +1,16 @@
+$kind: http-request
+name: List buy amounts suggestions for a device based on the band it's in
+description: List buy amounts suggestions for a device based on the band it's in
+url: "{{baseUrl}}/api/v1/payments/list_buy_suggestions/"
+method: GET
+headers:
+  Accept: application/json
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/List buy amounts suggestions for a device based on the band it's.resources/examples
+order: 1000

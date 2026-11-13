@@ -39,7 +39,7 @@ urlpatterns += [
         "api/",
         include(
             "core.applications.users.api.routers",
-            namespace="users",
+            namespace="users-api",
         ),
     ),
     path(
@@ -102,6 +102,13 @@ urlpatterns += [
         include(
             "core.applications.transactions.api.routers",
             namespace="transactions",
+        ),
+    ),
+    path(
+        "api/",
+        include(
+            "core.applications.subscriptions.api.routers",
+            namespace="billing",
         ),
     ),
     path("api/auth/", include("core.applications.users.api.jwt")),

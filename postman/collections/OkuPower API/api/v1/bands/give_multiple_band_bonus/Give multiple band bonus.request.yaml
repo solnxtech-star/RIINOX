@@ -1,0 +1,28 @@
+$kind: http-request
+description: Give multiple band bonus to singular band
+url: "{{baseUrl}}/api/v1/bands/give_multiple_band_bonus/"
+method: PUT
+headers:
+  Content-Type: application/x-www-form-urlencoded
+  Accept: application/json
+body:
+  type: urlencoded
+  content:
+    - key: bands
+      value: <string>
+      description: "(Required) "
+    - key: bands
+      value: <string>
+      description: "(Required) "
+    - key: bonus
+      value: "29208572884818670961290767694874710194918415250266502355762025962919928736"
+      description: "(Required) "
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/Give multiple band bonus.resources/examples
+order: 1000

@@ -1,0 +1,13 @@
+$kind: http-request
+description: Viewset to manage Pollutants.
+url: "{{baseUrl}}/api/pollutant/:id/"
+method: GET
+headers:
+  Accept: application/json
+pathVariables:
+  - key: id
+    value: <string>
+    description: (Required) A unique value identifying this Pollutant.
+settings: {}
+examples: ./.resources/pollutant retrieve.resources/examples
+order: 1000

@@ -1,0 +1,28 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/api/v1/payments/buy_for_others/"
+  method: GET
+  headers:
+    - key: Accept
+      value: application/json
+    - key: sessionid
+      value: <API Key>
+      description: "Added as a part of security scheme: apikey"
+response:
+  statusCode: 201
+  statusText: Created
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "data": {
+          "access_code": "0peioxfhpn",
+          "authorization_url": "https://checkout.paystack.com/0peioxfhpn",
+          "reference": "reference"
+        },
+        "message": "<boolean>",
+        "status": "<boolean>"
+      }
+order: 1000

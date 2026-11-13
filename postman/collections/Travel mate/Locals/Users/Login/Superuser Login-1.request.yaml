@@ -1,0 +1,6 @@
+$kind: http-request
+name: Superuser Login
+url: ""
+method: GET
+settings: {}
+order: 5000

@@ -1,0 +1,11 @@
+$kind: http-request
+description: ViewSet for managing pollutant snapshots
+url: "{{baseUrl}}/api/pollutant_snapshot/:id/"
+method: DELETE
+pathVariables:
+  - key: id
+    value: <string>
+    description: (Required) A unique value identifying this PollutantSnapShot.
+settings: {}
+examples: ./.resources/pollutant snapshot destroy.resources/examples
+order: 4000

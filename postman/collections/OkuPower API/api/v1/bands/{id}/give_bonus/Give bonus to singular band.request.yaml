@@ -1,0 +1,24 @@
+$kind: http-request
+description: Give bonus to singular band
+url: "{{baseUrl}}/api/v1/bands/:id/give_bonus/"
+method: PUT
+headers:
+  Content-Type: application/x-www-form-urlencoded
+  Accept: application/json
+pathVariables:
+  - key: id
+    value: <string>
+    description: (Required) A unique value identifying this band.
+body:
+  type: urlencoded
+  content:
+    bonus: "-328882413120520532374904214724169269549053266213778821846530077270604453390.6"
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/Give bonus to singular band.resources/examples
+order: 1000

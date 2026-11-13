@@ -10,6 +10,12 @@ from .base import env
 # ------------------------------------------------------------------------------
 # https://docs.djangoproject.com/en/dev/ref/settings/#secret-key
 SECRET_KEY = env("DJANGO_SECRET_KEY")
+# Fernet keys for encrypted model fields (saved payment tokens, webhook payloads).
+# Required: startup fails if missing. Comma-separated; the FIRST key encrypts,
+# all keys decrypt, so rotate by prepending a new key and dropping the old one
+# only after re-encrypting. Generate: python -c "from cryptography.fernet import
+# Fernet; print(Fernet.generate_key().decode())"
+FIELD_ENCRYPTION_KEYS = env.list("FIELD_ENCRYPTION_KEYS")
 # https://docs.djangoproject.com/en/dev/ref/settings/#allowed-hosts
 ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=["example.com"])
 

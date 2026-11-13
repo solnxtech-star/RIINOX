@@ -1,0 +1,7 @@
+$kind: http-request
+url: http://localhost:8000/api/2.2/projects/5814ea42-d7c9-4e8c-897a-de216cf8e6eb/log-gallery/4574849d-6b72-4aea-8336-5e23d10dd4e5/
+method: GET
+headers:
+  Authorization: "{{bearer_token_0ps9}}"
+settings: {}
+order: 2000

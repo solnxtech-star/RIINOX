@@ -1,0 +1,7 @@
+$kind: http-request
+url: http://localhost:8000/api/v2/projects/{{project_url}}/logs/2c34b48f-eda5-4f75-a32b-6fc875a1b793/
+method: DELETE
+headers:
+  Authorization: "{{bearer}}"
+settings: {}
+order: 4000

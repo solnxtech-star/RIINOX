@@ -1,0 +1,6 @@
+$kind: http-request
+name: New Request
+url: ""
+method: GET
+settings: {}
+order: 7000

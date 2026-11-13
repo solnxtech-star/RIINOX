@@ -12,6 +12,13 @@ class SubscriptionErrorCode(TextChoices):
     PLAN_IS_FREE = "PLAN_IS_FREE"
     UNSUPPORTED_CURRENCY = "UNSUPPORTED_CURRENCY"
     CHECKOUT_FAILED = "CHECKOUT_FAILED"
+    PLAN_PRICE_NOT_FOUND = "PLAN_PRICE_NOT_FOUND"
+    PLAN_CHANGE_NOT_ALLOWED = "PLAN_CHANGE_NOT_ALLOWED"
+    DUPLICATE_REQUEST = "DUPLICATE_REQUEST"
+    INVALID_CALLBACK_URL = "INVALID_CALLBACK_URL"
+    SUBSCRIPTION_INVALID_STATE = "SUBSCRIPTION_INVALID_STATE"
+    PAYMENT_METHOD_NOT_FOUND = "PAYMENT_METHOD_NOT_FOUND"
+    USAGE_EXCEEDS_PLAN = "USAGE_EXCEEDS_PLAN"
 
 
 _E = SubscriptionErrorCode
@@ -28,6 +35,13 @@ _SPECS: dict[str, tuple[int, str]] = {
     _E.PLAN_IS_FREE: (400, "This plan is free and doesn't require checkout."),
     _E.UNSUPPORTED_CURRENCY: (400, "Payments in this currency aren't supported yet."),
     _E.CHECKOUT_FAILED: (502, "The payment provider could not complete this request."),
+    _E.PLAN_PRICE_NOT_FOUND: (400, "This plan has no price for the selected currency and billing interval."),
+    _E.PLAN_CHANGE_NOT_ALLOWED: (409, "This plan change isn't possible right now."),
+    _E.DUPLICATE_REQUEST: (409, "This request was already made with the same idempotency key."),
+    _E.INVALID_CALLBACK_URL: (400, "The callback URL must be an allowed HTTPS address."),
+    _E.SUBSCRIPTION_INVALID_STATE: (409, "The subscription is not in a state that allows this."),
+    _E.PAYMENT_METHOD_NOT_FOUND: (404, "Payment method not found."),
+    _E.USAGE_EXCEEDS_PLAN: (409, "Your current usage is above this plan's limits. Reduce it first."),
 }
 
 

@@ -1,0 +1,16 @@
+$kind: http-request
+url: "{{baseUrl}}/api/notifications/:id/"
+method: PATCH
+pathVariables:
+  - key: id
+    value: <string>
+    description: (Required) A unique value identifying this Notification.
+auth:
+  type: apikey
+  credentials:
+    key: __Secure-sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/notifications partial update.resources/examples
+order: 3000

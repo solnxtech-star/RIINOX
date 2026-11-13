@@ -1,0 +1,6 @@
+$kind: http-request
+url: "{{local_base_url}}/api/organizations/{{org_id}}/products/"
+method: POST
+headers:
+  Authorization: "{{bearer_token_0rwg}}"
+order: 1000

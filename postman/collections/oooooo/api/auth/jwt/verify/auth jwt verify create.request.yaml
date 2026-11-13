@@ -1,0 +1,19 @@
+$kind: http-request
+description: |-
+  Takes a token and indicates if it is valid.  This view provides no
+  information about a token's fitness for a particular use.
+url: "{{baseUrl}}/api/auth/jwt/verify/"
+method: POST
+headers:
+  Content-Type: multipart/form-data
+  Accept: application/json
+body:
+  type: formdata
+  content:
+    - type: text
+      key: token
+      value: <string>
+      description: "(Required) "
+settings: {}
+examples: ./.resources/auth jwt verify create.resources/examples
+order: 1000

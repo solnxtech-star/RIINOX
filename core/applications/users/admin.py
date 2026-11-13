@@ -81,6 +81,12 @@ class UserAdmin(auth_admin.UserAdmin):
     search_fields = ["email", "name"]
     ordering = ["id"]
     inlines = [UserMembershipInline]
+
+    def get_inlines(self, request, obj):
+        # Like Django's own user admin, adding is a two-step flow: create the
+        # account first, then attach memberships on the change page.
+        return [] if obj is None else super().get_inlines(request, obj)
+
     add_fieldsets = (
         (
             None,
