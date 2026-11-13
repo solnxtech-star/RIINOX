@@ -10,7 +10,10 @@ from core.helper.models import TimeBasedModel
 
 
 class Warehouse(TimeBasedModel):
-    """A physical warehouse/store location (PRD §36)."""
+    """
+    An organization's location / branch: a store, warehouse, office, etc. (PRD §35).
+    Every organization has exactly one default location (`is_default`).
+    """
 
     objects = WarehouseQuerySet.as_manager()
 
@@ -61,7 +64,6 @@ class Warehouse(TimeBasedModel):
     class Meta(auto_prefetch.Model.Meta):
         verbose_name = _("Warehouse")
         verbose_name_plural = _("Warehouses")
-        unique_together = ("organization", "code")
         ordering = ["name"]
         constraints = [
             models.UniqueConstraint(fields=["organization", "code"], name="unique_location_code_per_org"),
@@ -79,7 +81,10 @@ class Warehouse(TimeBasedModel):
 class StockLocation(TimeBasedModel):
     """
     Optional finer-grained location within a warehouse — a shelf, rack,
-    or bin (PRD §36: Warehouse → Shelf/Rack → Product).
+    or bin (PRD §35: Location → Storage Area → Inventory).
+
+    Reached from a location as `warehouse.stock_locations`. Not to be confused with
+    `membership.locations` / `invitation.locations`, which are Warehouse rows.
     """
 
     objects = StockLocationQuerySet.as_manager()
@@ -87,7 +92,7 @@ class StockLocation(TimeBasedModel):
     warehouse = auto_prefetch.ForeignKey(
         "warehouse.Warehouse",
         on_delete=models.CASCADE,
-        related_name="locations",
+        related_name="stock_locations",
         help_text=_("Warehouse this shelf/rack/bin is inside."),
     )
     name = models.CharField(

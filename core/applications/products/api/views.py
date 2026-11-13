@@ -3,8 +3,10 @@ from rest_framework.decorators import action
 from rest_framework.filters import SearchFilter, OrderingFilter
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from django.db.models import F
 from django.db.models import ProtectedError
 from django.shortcuts import get_object_or_404
+from rest_framework.exceptions import ValidationError
 
 from core.applications.products.models import Brand, Category, Product, ProductVariant
 from core.applications.products.api.serializers import (
@@ -29,6 +31,24 @@ from core.helper.enums import ProductStatusChoices, UsageMetric
 from core.applications.notification.audit.services import record as audit_record
 from core.applications.notification.audit.context import AuditContext
 from core.applications.notification.audit.action import AuditAction
+from core.applications.warehouse.access import parse_location_param
+
+_TRUE = {"true", "1", "yes"}
+_FALSE = {"false", "0", "no"}
+
+
+def _flag(params, name: str) -> bool:
+    """A strict boolean query flag: true/false/1/0/yes/no, absent = false, else 400."""
+    raw = params.get(name)
+    if raw is None or raw == "":
+        return False
+    value = raw.strip().lower()
+    if value in _TRUE:
+        return True
+    if value in _FALSE:
+        return False
+    raise ValidationError({name: ["Must be true or false."]})
+
 
 @product_schema
 class ProductViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
@@ -72,8 +92,17 @@ class ProductViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
         if product_type:
             qs = qs.filter(product_type=product_type)
 
+        # Stock per location (PRD §35): the catalogue is organization-wide, stock is
+        # summed over the caller's locations, or one location with ?location=.
+        params = self.request.query_params
+        qs = qs.with_stock(self.location_scope, parse_location_param(params))
+        if _flag(params, "in_stock"):
+            qs = qs.filter(stock_on_hand__gt=0)
+        if _flag(params, "low_stock"):
+            qs = qs.filter(track_inventory=True, stock_on_hand__lte=F("minimum_stock_level"))
+
         return qs
-    
+
     def get_serializer_class(self):
         if self.action in ['create', 'update', 'partial_update']:
             return ProductCreateSerializer
@@ -81,6 +110,11 @@ class ProductViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
         return ProductSerializer
 
     def perform_create(self, serializer):
+        # The product itself is organization-wide; its opening stock lands in one
+        # location, which must be one of the caller's (PRD §35).
+        opening_location = serializer.validated_data.get("warehouse_id")
+        if opening_location is not None:
+            self.location_scope.require(opening_location)
         product = serializer.save(created_by=self.request.user, organization=self.organization)
         audit_record(
             action=AuditAction.PRODUCT_CREATED,
@@ -289,5 +323,3 @@ class BrandViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
                 {"detail": f"Brand '{instance.name}' is referenced and was deactivated instead of deleted."},
                 status=status.HTTP_200_OK,
             )
-
-

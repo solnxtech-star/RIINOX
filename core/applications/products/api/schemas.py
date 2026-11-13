@@ -6,6 +6,9 @@ from drf_spectacular.utils import (
     OpenApiTypes,
 )
 
+from core.applications.warehouse.api.schemas import LOCATION_ACCESS_NOTE
+from core.applications.warehouse.api.schemas import LOCATION_FILTER_PARAM
+
 PRODUCT_CREATE_EXAMPLE = {
     "name": "NEW TEST PRODUCT 1",
     "sku": "MED-AMX-500",
@@ -64,9 +67,41 @@ product_schema = extend_schema_view(
 
 ### Field-Level Security & Cost Redaction (PRD §55):
 - Users holding `VIEW_PRODUCT_COSTS` (Owner, Admin, Accountant) receive full monetary visibility (`purchase_cost`, `vendor_sale_cost`, and batch `cost_price`).
-- Users without this permission (Sales Rep, Manager, Cashier) have cost fields dynamically stripped from the JSON response.""",
+- Users without this permission (Sales Rep, Manager, Cashier) have cost fields dynamically stripped from the JSON response.
+
+### Products and locations (PRD §13, §35):
+- **The catalogue is organization-wide.** A product is defined once (name, SKU, price...) and
+  every member sees the same catalogue, whatever their locations.
+- **Stock is per location.** `current_stock` is the on-hand quantity:
+  - with `?location=<warehouse id>`: at that location only (a location the caller can't access gives `0`);
+  - without it: summed over **the caller's** locations (all locations for owners, admins and
+    members with all locations).
+- **Branch view:** `?location=<id>&in_stock=true` lists what that branch actually has.
+- **Reorder list:** `?low_stock=true` lists stock-tracked products whose `current_stock` is at or
+  below `minimum_stock_level` (combine with `?location=` for one branch).
+- For the per-location breakdown of one product, call `GET /inventory/balances/?product=<id>`.
+
+""" + LOCATION_ACCESS_NOTE,
         parameters=[
             PRODUCT_ORGANIZATION_PARAM,
+            LOCATION_FILTER_PARAM,
+            OpenApiParameter(
+                "in_stock",
+                OpenApiTypes.BOOL,
+                OpenApiParameter.QUERY,
+                required=False,
+                description="`true`: only products with `current_stock > 0` (at `?location=` if given).",
+            ),
+            OpenApiParameter(
+                "low_stock",
+                OpenApiTypes.BOOL,
+                OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "`true`: only stock-tracked products with `current_stock <= minimum_stock_level` "
+                    "(at `?location=` if given)."
+                ),
+            ),
         ],
     ),
     create=extend_schema(
@@ -88,6 +123,9 @@ product_schema = extend_schema_view(
 - Requires `CREATE_PRODUCT`.
 - Setting `purchase_cost` or `vendor_sale_cost` requires `EDIT_PRODUCT_COSTS`. Attempting to set costs without this permission returns HTTP 400 Bad Request.
 - `category`, `brand`, and `warehouse_id` must belong to the specified `organization`. Cross-tenant relations return HTTP 400 Bad Request.
+- The product is created for the whole organization; only its opening stock goes to `warehouse_id`,
+  which must be one of the caller's locations (`403 LOCATION_ACCESS_DENIED`, PRD §35).
+  `warehouse_id` is required when `quantity_in_stock > 0`.
 
 ### Plan Limits & Subscription Invariants (PRD §10, §52):
 - **Active Subscription**: Validates `ensure_subscription_active(organization)`. Inactive/expired subscriptions reject creation with `SUBSCRIPTION_REQUIRED` (HTTP 402/403).
@@ -242,4 +280,3 @@ brand_schema = extend_schema_view(
         parameters=[PRODUCT_ORGANIZATION_PARAM],
     ),
 )
-

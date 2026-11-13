@@ -400,11 +400,20 @@ def request_stock_adjustment(
 
 
 @transaction.atomic
-def approve_stock_adjustment(adjustment_id, admin_user):
+def approve_stock_adjustment(adjustment_id, admin_user, *, organization=None):
     """
     Approves a request, updates inventory, and creates a Ledger Entry.
+
+    `organization`, when given, must own the request (tenant boundary: an id from
+    another organization is "not found"). The request row is locked, so two
+    concurrent approvals can't both apply the stock change.
     """
-    adjustment = StockAdjustmentRequest.objects.select_related('product', 'warehouse').get(id=adjustment_id)
+    queryset = StockAdjustmentRequest.objects.select_for_update(of=("self",)).select_related(
+        "product", "warehouse"
+    )
+    if organization is not None:
+        queryset = queryset.filter(warehouse__organization=organization)
+    adjustment = queryset.get(id=adjustment_id)
     if adjustment.status != ApprovalStatusChoices.PENDING:
         raise ValueError("Only PENDING requests can be approved.")
 
@@ -434,12 +443,14 @@ def approve_stock_adjustment(adjustment_id, admin_user):
         unit_cost=adjustment.product.purchase_cost
     )
 
-    # Update Inventory
+    # Update Inventory atomically in the database (PRD §43): a read-modify-write in
+    # Python would lose a concurrent sale or transfer on the same row.
     inventory, _ = Inventory.objects.get_or_create(
         product=adjustment.product, variant=adjustment.variant, batch=adjustment.batch, warehouse=adjustment.warehouse
     )
-    inventory.quantity += adjustment.requested_quantity_change
-    inventory.save(update_fields=['quantity'])
+    Inventory.objects.filter(pk=inventory.pk).update(
+        quantity=F("quantity") + adjustment.requested_quantity_change
+    )
 
     audit_record(
         action=AuditAction.INVENTORY_ADJUSTED,

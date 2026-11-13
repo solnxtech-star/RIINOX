@@ -10,25 +10,22 @@ class TestUserViewSet:
     def api_rf(self) -> APIRequestFactory:
         return APIRequestFactory()
 
-    def test_get_queryset(self, user: User, api_rf: APIRequestFactory):
-        view = UserViewSet()
+    def _view(self, user: User, api_rf: APIRequestFactory, action: str) -> UserViewSet:
         request = api_rf.get("/fake-url/")
         request.user = user
+        view = UserViewSet(action=action, request=request, format_kwarg=None)
+        return view
 
-        view.request = request
+    def test_get_queryset(self, user: User, api_rf: APIRequestFactory):
+        view = self._view(user, api_rf, action="list")
 
         assert user in view.get_queryset()
 
     def test_me(self, user: User, api_rf: APIRequestFactory):
-        view = UserViewSet()
-        request = api_rf.get("/fake-url/")
-        request.user = user
+        view = self._view(user, api_rf, action="me")
 
-        view.request = request
+        response = view.me(view.request)  # type: ignore[call-arg, arg-type, misc]
 
-        response = view.me(request)  # type: ignore[call-arg, arg-type, misc]
-
-        assert response.data == {
-            "url": f"http://testserver/api/users/{user.pk}/",
-            "name": user.name,
-        }
+        assert response.data["id"] == user.pk
+        assert response.data["email"] == user.email
+        assert response.data["name"] == user.name

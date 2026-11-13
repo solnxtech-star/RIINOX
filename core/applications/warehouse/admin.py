@@ -20,9 +20,9 @@ class WarehouseAdmin(admin.ModelAdmin):
     autocomplete_fields = ("organization", "manager")
     inlines = [StockLocationInline]
 
-    @admin.display(description="Locations")
+    @admin.display(description="Storage areas")
     def location_count(self, obj):
-        return obj.locations.count()
+        return obj.stock_locations.count()
 
 
 @admin.register(StockLocation)

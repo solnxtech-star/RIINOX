@@ -11,6 +11,7 @@ from core.applications.invoice.services import sales_adapters as sales_adapter
 from core.applications.invoice.services.ports import UnitResolution
 from core.applications.products.models import ProductUnitConversion
 from core.applications.users import services as user_services
+from core.applications.warehouse.access import LocationScope
 from core.helper.enums import UnitOfMeasureChoices
 
 _CENT = Decimal("0.01")
@@ -94,6 +95,9 @@ class DefaultInvoicePorts:
         if not user_services.has_org_permission(actor, organization, permission):
             msg = "You do not have permission to perform this action."
             raise PermissionDenied(msg)
+
+    def location_scope(self, actor, organization):
+        return LocationScope.for_user(actor, organization)
 
     # --- background work (later) ---
     def publish(self, event, invoice):

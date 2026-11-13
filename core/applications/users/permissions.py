@@ -12,6 +12,8 @@ from core.applications.users.defaults import MANAGER_ROLE_SLUGS
 from core.applications.users.defaults import OWNER_ROLE_SLUG
 from core.applications.users.models import Membership
 from core.applications.users.models import Organization
+from core.applications.warehouse.access import LocationScope
+from core.applications.warehouse.access import parse_location_param
 
 
 class _HasSystemRole(BasePermission):
@@ -115,6 +117,32 @@ class OrganizationScopedMixin:
             if org_id:
                 return Organization.objects.filter(pk=org_id, is_active=True).first()
         return None
+
+    # -- location access (PRD §35); rules live in warehouse.access ------------ #
+    @property
+    def location_scope(self) -> LocationScope:
+        """The caller's location scope in this organization, resolved once per request."""
+        request = self.request
+        scope = getattr(request, "_location_scope", None)
+        if scope is None:
+            membership = self.membership
+            if membership is not None:
+                scope = LocationScope.for_membership(membership)
+            elif getattr(request.user, "is_superuser", False):
+                scope = LocationScope.everything()
+            else:
+                scope = LocationScope.nothing()
+            request._location_scope = scope
+        return scope
+
+    def scope_to_locations(self, queryset, field: str = "warehouse"):
+        """
+        Limit `queryset` to the caller's locations, then apply `?location=<id>` if
+        the client sent one. Use in every get_queryset whose model has a location.
+        """
+        scope = self.location_scope
+        queryset = scope.apply(queryset, field)
+        return scope.narrow(queryset, parse_location_param(self.request.query_params), field)
 
 
 def resolve_request_organization(

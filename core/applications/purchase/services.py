@@ -676,12 +676,19 @@ def create_purchase_return(
     return purchase_return
 
 
-def get_purchase_summary(organization: Organization) -> dict[str, Any]:
+def get_purchase_summary(organization: Organization, *, queryset=None) -> dict[str, Any]:
     """
     Computes the KPI summary cards for the Purchase Order List screen (UI Pages 4-6).
+
+    `queryset` lets the caller pass purchases already narrowed to what the caller
+    may see (e.g. their locations, PRD §35). It must belong to `organization`.
+
+    TODO(scale): this loads every matching purchase into memory. Replace with
+    database aggregation before organizations reach large purchase volumes.
     """
+    base = queryset if queryset is not None else Purchase.objects.all()
     purchases = list(
-        Purchase.objects.for_organization(organization)
+        base.for_organization(organization)
         .prefetch_related("items", "purchase_invoices")
     )
 
@@ -771,4 +778,3 @@ def get_purchase_available_actions(purchase: Purchase) -> list[str]:
         actions.append("create_return")
 
     return actions
-

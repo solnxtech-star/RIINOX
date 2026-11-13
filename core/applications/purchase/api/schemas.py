@@ -1,3 +1,5 @@
+from core.applications.warehouse.api.schemas import LOCATION_ACCESS_NOTE
+from core.applications.warehouse.api.schemas import LOCATION_FILTER_PARAM
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
@@ -672,7 +674,10 @@ purchase_schema = extend_schema_view(
             "- Strictly scoped under `/api/organizations/{organization_id}/purchases/` via "
             "`Purchase.objects.for_organization(org).for_user(user).with_details()`.\n"
             "- Requesting purchase orders from an unauthorized organization returns HTTP 403/404.\n\n"
+            + LOCATION_ACCESS_NOTE + "\n\n"
             "### Filtering, Search & Ordering\n"
+            "- **Location**: `?location=<warehouse id>` (same as the older `?warehouse=`; prefer `location`, "
+            "it is the name used on every list endpoint).\n"
             "- **Filters**: `?status=`, `?payment_status=`, `?vendor=`, `?warehouse=`, `?order_date_after=`, "
             "`?order_date_before=`, `?delivery_date_after=`, `?delivery_date_before=`.\n"
             "- **Search**: `?search=` matches `purchase_number`, `vendor__company_name`, `vendor_invoice_number`, and `notes`.\n"
@@ -681,7 +686,7 @@ purchase_schema = extend_schema_view(
             "### Plan Limits & Subscription Invariants (PRD §10, §52)\n"
             "- Read operations do NOT consume monthly transaction allowances (`max_transactions_per_month`)."
         ),
-        parameters=PURCHASE_LIST_FILTER_PARAMS,
+        parameters=[*PURCHASE_LIST_FILTER_PARAMS, LOCATION_FILTER_PARAM],
         responses={
             200: OpenApiResponse(
                 response=PurchaseSerializer(many=True),
@@ -743,7 +748,9 @@ purchase_schema = extend_schema_view(
             "### Required Permissions & Access Control (PRD §28, §55)\n"
             "- Requires **`CREATE_PURCHASE`** permission in the target organization.\n"
             "- Cross-tenant foreign keys (`vendor`, `warehouse`, or `items[].product` belonging to another tenant) "
-            "are rejected with HTTP 400 Bad Request.\n\n"
+            "are rejected with HTTP 400 Bad Request.\n"
+            "- `warehouse` (where goods will be received) must be one of the caller's locations: "
+            "`403 LOCATION_ACCESS_DENIED` otherwise (PRD §35). The same applies when an update changes it.\n\n"
             "### Plan Limits & Subscription Invariants (PRD §10, §52)\n"
             "- Enforces active organization subscription standing via `ensure_subscription_active(organization)`.\n"
             "- Inactive or expired subscriptions reject creation with HTTP 402/403 (`SUBSCRIPTION_INACTIVE`)."
@@ -913,7 +920,7 @@ purchase_schema = extend_schema_view(
             "### Required Permissions\n"
             "- Requires **`VIEW_PURCHASES`** permission in the target organization."
         ),
-        parameters=PURCHASE_LIST_FILTER_PARAMS,
+        parameters=[*PURCHASE_LIST_FILTER_PARAMS, LOCATION_FILTER_PARAM],
         responses={
             200: OpenApiResponse(
                 response=OpenApiTypes.BINARY,

@@ -34,5 +34,5 @@ router.register(
 )
 
 
-app_name = f"{PREFIX}"
+app_name = f"{PREFIX}-api"
 urlpatterns = router.urls

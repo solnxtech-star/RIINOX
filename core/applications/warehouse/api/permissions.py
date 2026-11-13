@@ -19,6 +19,7 @@ class WarehousePermission(BaseTenantPermission):
         "update": PermissionCode.MANAGE_LOCATIONS,
         "partial_update": PermissionCode.MANAGE_LOCATIONS,
         "destroy": PermissionCode.MANAGE_LOCATIONS,
+        "set_default": PermissionCode.MANAGE_LOCATIONS,
     }
     default_permission: str = PermissionCode.VIEW_INVENTORY
 

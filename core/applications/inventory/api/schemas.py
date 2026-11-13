@@ -7,22 +7,20 @@ from drf_spectacular.utils import (
     OpenApiResponse,
 )
 from core.applications.inventory.api.serializers import StockTransferSerializer
+from core.applications.warehouse.api.schemas import LOCATION_ACCESS_NOTE
+from core.applications.warehouse.api.schemas import LOCATION_FILTER_PARAM
 
 # ---------------------------------------------------------------------------
-# Query & Header Parameters for Tenant Scoping
+# Query parameters
+# The organization always comes from the URL path; there is no organization
+# query parameter or header on these endpoints.
 # ---------------------------------------------------------------------------
-ORGANIZATION_QUERY_PARAM = OpenApiParameter(
-    "organization",
+PRODUCT_FILTER_PARAM = OpenApiParameter(
+    "product",
     OpenApiTypes.UUID,
     OpenApiParameter.QUERY,
-    description="Explicitly filter inventory records by organization UUID. By default, queries scope to the authenticated user's active organization memberships.",
-)
-
-ORGANIZATION_HEADER_PARAM = OpenApiParameter(
-    "X-Organization-ID",
-    OpenApiTypes.UUID,
-    OpenApiParameter.HEADER,
-    description="Header to explicitly scope requests to a specific organization UUID.",
+    required=False,
+    description="Only rows of this product. Malformed id: 400.",
 )
 
 # ---------------------------------------------------------------------------
@@ -100,6 +98,8 @@ stock_adjustment_approve_schema = extend_schema(
 
 ### Permission Requirements (PRD §28):
 - Requires `APPROVE_STOCK_ADJUSTMENT` or `APPROVE_REQUESTS` (Admin or Owner role). Unauthorized users receive HTTP 403 Forbidden.
+- The request must belong to this organization and one of the caller's locations; otherwise 404.
+- Approving twice at the same time is safe: the request row is locked, the second call gets 400.
 
 ### Plan Limits (PRD §10):
 - Records a system `Transaction` (`transaction_type = 'ADJUSTMENT'`) bounded by the `max_transactions_per_month` plan quota.""",
@@ -127,7 +127,8 @@ stock_adjustment_schema = extend_schema_view(
 - **Locations Quota**: Target warehouse must be active under `max_locations`.
 
 ### Tenant Isolation (PRD §6):
-- The `product`, `warehouse`, and user must all belong to the same organization. Cross-tenant references return HTTP 400 Bad Request.""",
+- The `product`, `warehouse`, and user must all belong to the same organization. Cross-tenant references return HTTP 400 Bad Request.
+- `warehouse` must be one of the caller's locations: `403 LOCATION_ACCESS_DENIED` otherwise.""",
         examples=[stock_adjustment_create_example]
     ),
     list=extend_schema(
@@ -138,9 +139,11 @@ stock_adjustment_schema = extend_schema_view(
 ### Permission Requirements:
 - Requires `VIEW_INVENTORY` or `VIEW_APPROVALS`.
 
-### Tenant Scoping:
-- Scoped strictly to the caller's active organization memberships. Filterable by `?organization=<UUID>` or `X-Organization-ID` header.""",
-        parameters=[ORGANIZATION_QUERY_PARAM, ORGANIZATION_HEADER_PARAM]
+### Scoping:
+- Scoped to the organization in the URL and to the caller's locations.
+
+""" + LOCATION_ACCESS_NOTE,
+        parameters=[LOCATION_FILTER_PARAM, PRODUCT_FILTER_PARAM]
     ),
     retrieve=extend_schema(
         tags=['Inventory'],
@@ -168,6 +171,7 @@ stock_transfer_schema = extend_schema_view(
 ### Permission Requirements (PRD §28):
 - Requires `TRANSFER_STOCK` permission.
 - Both warehouses must belong to the caller's active organization.
+- The caller must have access to **both** locations: `403 LOCATION_ACCESS_DENIED` otherwise.
 
 ### Plan Limits & Subscription Standing (PRD §10, §52):
 - Enforces active subscription standing (`ensure_subscription_active`).
@@ -193,14 +197,19 @@ inventory_schema = extend_schema_view(
 - Requires `VIEW_INVENTORY` permission.
 - For cost details on related products, `purchase_cost` and batch `cost_price` are dynamically masked if the caller lacks `VIEW_PRODUCT_COSTS`.
 
-### Multi-Tenant Scoping (PRD §6):
-- Automatically filtered to the caller's active organizations via `Inventory.objects.for_user(user)`.
-- Accepts `?organization=<UUID>` query parameter and `X-Organization-ID` header.
+### Stock per location (PRD §35):
+- One row per product / variant / batch **per location**. To show "stock at this branch",
+  call with `?location=<warehouse id>`; add `?product=<id>` for one product's stock at
+  each of the caller's locations.
+- For a product list with stock already summed, use `GET /products/?location=` instead
+  (one request, no client-side summing).
 
 ### Plan Limits & Tracking Invariants (PRD §10, §13):
 - Stock is strictly enforced for products with `track_inventory=True` (bounded by `max_products`).
-- Untracked items (services, digital goods) can sell without stock limits.""",
-        parameters=[ORGANIZATION_QUERY_PARAM, ORGANIZATION_HEADER_PARAM]
+- Untracked items (services, digital goods) can sell without stock limits.
+
+""" + LOCATION_ACCESS_NOTE,
+        parameters=[LOCATION_FILTER_PARAM, PRODUCT_FILTER_PARAM]
     ),
     retrieve=extend_schema(
         tags=['Inventory'],
@@ -226,10 +235,8 @@ ledger_entry_schema = extend_schema_view(
 ### Permission Requirements (PRD §28):
 - Requires `VIEW_INVENTORY` or `VIEW_INVENTORY_REPORTS`.
 
-### Multi-Tenant Scoping (PRD §6):
-- Filtered to the caller's active organization memberships via `InventoryLedgerEntry.objects.for_user(user)`.
-- Accepts `?organization=<UUID>` query parameter and `X-Organization-ID` header.""",
-        parameters=[ORGANIZATION_QUERY_PARAM, ORGANIZATION_HEADER_PARAM]
+""" + LOCATION_ACCESS_NOTE,
+        parameters=[LOCATION_FILTER_PARAM, PRODUCT_FILTER_PARAM]
     ),
     retrieve=extend_schema(
         tags=['Inventory'],

@@ -1,3 +1,5 @@
+import uuid
+
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -28,6 +30,7 @@ from core.applications.inventory.models import (
     StockAdjustmentRequest,
 )
 from core.applications.inventory.services import (
+    InsufficientStock,
     StockAdjustmentInput,
     StockTransferInput,
     approve_stock_adjustment,
@@ -58,7 +61,8 @@ class StockAdjustmentViewSet(
         if not self.organization:
             return StockAdjustmentRequest.objects.none()
 
-        return StockAdjustmentRequest.objects.for_organization(self.organization).with_details()
+        queryset = StockAdjustmentRequest.objects.for_organization(self.organization).with_details()
+        return self.scope_to_locations(queryset, field="warehouse")
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data, context={"request": request, "view": self})
@@ -72,6 +76,7 @@ class StockAdjustmentViewSet(
                 raise ValidationError({"warehouse": "Warehouse does not belong to this organization."})
             if product.organization_id != self.organization.id:
                 raise ValidationError({"product": "Product does not belong to this organization."})
+        self.location_scope.require(warehouse)
 
         adj = request_stock_adjustment(
             StockAdjustmentInput(
@@ -93,8 +98,11 @@ class StockAdjustmentViewSet(
 
     @action(detail=True, methods=["post"])
     def approve(self, request, organization_id=None, pk=None):
+        # get_object() scopes to this organization and the caller's locations, so an
+        # id from another tenant or location is a 404 before anything is touched.
+        adjustment = self.get_object()
         try:
-            approve_stock_adjustment(pk, request.user)
+            approve_stock_adjustment(adjustment.pk, request.user, organization=self.organization)
             return Response({"status": "approved"}, status=status.HTTP_200_OK)
         except ValueError as e:
             return Response({"code": "APPROVAL_ERROR", "detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -110,19 +118,28 @@ class StockTransferViewSet(OrganizationScopedMixin, viewsets.ViewSet):
         serializer.is_valid(raise_exception=True)
 
         data = serializer.validated_data
+        org = self.organization
         try:
-            product = Product.objects.get(id=data["product_id"])
-            variant = ProductVariant.objects.get(id=data["variant_id"]) if data.get("variant_id") else None
-            batch = ProductBatch.objects.get(id=data["batch_id"]) if data.get("batch_id") else None
-            source_wh = Warehouse.objects.get(id=data["source_warehouse_id"])
-            dest_wh = Warehouse.objects.get(id=data["destination_warehouse_id"])
+            # Every lookup is tenant-scoped: an id from another organization is "not found".
+            product = Product.objects.get(id=data["product_id"], organization=org)
+            variant = (
+                ProductVariant.objects.get(id=data["variant_id"], product=product)
+                if data.get("variant_id")
+                else None
+            )
+            batch = ProductBatch.objects.get(id=data["batch_id"], product=product) if data.get("batch_id") else None
+            source_wh = Warehouse.objects.get(id=data["source_warehouse_id"], organization=org)
+            dest_wh = Warehouse.objects.get(id=data["destination_warehouse_id"], organization=org)
+        except (Product.DoesNotExist, ProductVariant.DoesNotExist, ProductBatch.DoesNotExist, Warehouse.DoesNotExist):
+            raise ValidationError(
+                {"detail": "Product, variant, batch or warehouse not found in this organization."}
+            ) from None
 
-            if self.organization:
-                if source_wh.organization_id != self.organization.id or dest_wh.organization_id != self.organization.id:
-                    raise ValidationError({"warehouse": "Warehouses must belong to this organization."})
-                if product.organization_id != self.organization.id:
-                    raise ValidationError({"product": "Product must belong to this organization."})
+        # A transfer touches both locations, so the caller needs access to both.
+        self.location_scope.require(source_wh)
+        self.location_scope.require(dest_wh)
 
+        try:
             single_transfer_stock(
                 StockTransferInput(
                     source_warehouse=source_wh,
@@ -135,9 +152,9 @@ class StockTransferViewSet(OrganizationScopedMixin, viewsets.ViewSet):
                 user=request.user,
             )
             return Response({"status": "transfer completed"}, status=status.HTTP_200_OK)
-        except ValidationError as e:
-            raise e
-        except Exception as e:
+        except (InsufficientStock, ValueError) as e:
+            # Business failures only. Plan limits, permissions and validation errors
+            # propagate with their own codes; unexpected errors are 500s, not hidden.
             return Response({"code": "TRANSFER_ERROR", "detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -154,7 +171,9 @@ class InventoryViewSet(OrganizationScopedMixin, viewsets.ReadOnlyModelViewSet):
         if not self.organization:
             return Inventory.objects.none()
 
-        return Inventory.objects.for_organization(self.organization).with_details()
+        queryset = Inventory.objects.for_organization(self.organization).with_details()
+        queryset = _filter_by_product(queryset, self.request.query_params)
+        return self.scope_to_locations(queryset, field="warehouse")
 
 
 @ledger_entry_schema
@@ -170,4 +189,18 @@ class InventoryLedgerEntryViewSet(OrganizationScopedMixin, viewsets.ReadOnlyMode
         if not self.organization:
             return InventoryLedgerEntry.objects.none()
 
-        return InventoryLedgerEntry.objects.for_organization(self.organization).with_details()
+        queryset = InventoryLedgerEntry.objects.for_organization(self.organization).with_details()
+        queryset = _filter_by_product(queryset, self.request.query_params)
+        return self.scope_to_locations(queryset, field="warehouse")
+
+
+def _filter_by_product(queryset, query_params):
+    """`?product=<uuid>`. A malformed id is a 400, never a 500."""
+    raw = query_params.get("product")
+    if not raw:
+        return queryset
+    try:
+        product_id = uuid.UUID(raw.strip())
+    except ValueError:
+        raise ValidationError({"product": ["Must be a valid product id."]}) from None
+    return queryset.filter(product_id=product_id)

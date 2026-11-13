@@ -10,6 +10,7 @@ class AuditAction:
     MEMBERSHIP_ROLE_CHANGED = "membership.role_changed"
     MEMBERSHIP_DEACTIVATED = "membership.deactivated"
     MEMBERSHIP_REACTIVATED = "membership.reactivated"
+    MEMBERSHIP_LOCATIONS_CHANGED = "membership.locations_changed"
     ROLE_PERMISSIONS_CHANGED = "role.permissions_changed"
     INVOICE_VOIDED = "invoice.voided"
     INVOICE_CONFIRMED = "invoice.confirmed"
@@ -51,4 +52,7 @@ class AuditAction:
     CUSTOMER_DEACTIVATED = "customer.deactivated"
     CUSTOMER_DELETED = "customer.deleted"
     CUSTOMER_CREDIT_ADJUSTED = "customer.credit_adjusted"
+
+    # Location Events
     LOCATION_CREATED = "location.created"
+    LOCATION_DEFAULT_CHANGED = "location.default_changed"

@@ -39,7 +39,7 @@ urlpatterns += [
         "api/",
         include(
             "core.applications.users.api.routers",
-            namespace="users",
+            namespace="users-api",
         ),
     ),
     path(

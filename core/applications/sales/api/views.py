@@ -24,6 +24,8 @@ from core.applications.sales.api.serializers import (
 )
 from core.applications.sales.filters import SaleFilterSet, SaleReturnFilterSet
 from core.applications.sales.models import Sale, SaleReturn
+from core.applications.warehouse.errors import LocationErrorCode
+from core.applications.warehouse.errors import fail as location_fail
 from core.applications.sales.services import (
     SaleCancellationError,
     cancel_sale,
@@ -53,7 +55,9 @@ class SaleViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
         if not user.is_authenticated or not self.organization:
             return Sale.objects.none()
 
-        return Sale.objects.for_organization(self.organization).with_details()
+        queryset = Sale.objects.for_organization(self.organization).with_details()
+        # Sales without a location are visible only to members with all locations.
+        return self.scope_to_locations(queryset, field="warehouse")
 
     def get_serializer_class(self):
         if self.action in ["create"]:
@@ -68,9 +72,25 @@ class SaleViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
         data = dict(serializer.validated_data)
         if "organization" not in data and self.organization:
             data["organization"] = self.organization
+        self._check_sale_location(data)
         sale = create_sale(data, actor=request.user)
         response_serializer = SaleSerializer(sale, context={"request": request, "view": self})
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
+    def _check_sale_location(self, data):
+        """
+        The sale's location is the storage area's location if one is given, else the
+        warehouse. It must be one of the caller's locations. Members limited to
+        specific locations must name one; for everyone else the service falls back
+        to the organization's default location.
+        """
+        scope = self.location_scope
+        storage_area = data.get("location")
+        warehouse = storage_area.warehouse if storage_area is not None else data.get("warehouse")
+        if warehouse is not None:
+            scope.require(warehouse)
+        elif not scope.all_locations:
+            raise location_fail(LocationErrorCode.LOCATION_REQUIRED)
 
     def update(self, request, *args, **kwargs):
         return Response(
@@ -132,7 +152,9 @@ class SaleReturnViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
         if not user.is_authenticated or not self.organization:
             return SaleReturn.objects.none()
 
-        return SaleReturn.objects.for_organization(self.organization).with_details()
+        queryset = SaleReturn.objects.for_organization(self.organization).with_details()
+        # A return belongs to the location of the sale it reverses.
+        return self.scope_to_locations(queryset, field="original_sale__warehouse")
 
     def get_serializer_class(self):
         if self.action in ["create"]:
@@ -142,6 +164,10 @@ class SaleReturnViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
     def create(self, request, *args, **kwargs):
         serializer = SaleReturnCreateSerializer(data=request.data, context={"request": request, "view": self})
         serializer.is_valid(raise_exception=True)
+        original_sale = serializer.validated_data.get("original_sale")
+        if original_sale is not None:
+            # Returning stock to a location needs access to that location.
+            self.location_scope.require(original_sale.warehouse_id)
         sale_return = create_sale_return(serializer.validated_data, actor=request.user)
         response_serializer = SaleReturnSerializer(sale_return, context={"request": request, "view": self})
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)

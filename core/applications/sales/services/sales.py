@@ -246,10 +246,17 @@ def create_sale(data: dict[str, Any], *, actor: Any = None) -> Sale:
             raise SaleValidationError(msg, detail={"warehouse_id": str(warehouse.pk)})
     else:
         from core.applications.warehouse.models import Warehouse
-        active_warehouse = Warehouse.objects.for_organization(organization).filter(is_active=True).first()
+        # No location given: use the organization's default location (PRD §35),
+        # falling back to the first active one if the default is inactive.
+        active_warehouse = (
+            Warehouse.objects.for_organization(organization)
+            .filter(is_active=True)
+            .order_by("-is_default", "name")
+            .first()
+        )
         if active_warehouse:
             warehouse = active_warehouse
-            location = active_warehouse.locations.filter(is_active=True).first()
+            location = active_warehouse.stock_locations.filter(is_active=True).first()
 
     has_tracked_items = any(
         getattr(raw.get("product"), "track_inventory", False) for raw in items_data

@@ -1,4 +1,7 @@
 import uuid
+
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from core.applications.products.models import (
@@ -184,7 +187,12 @@ class ProductSerializer(serializers.ModelSerializer):
     bulk_discounts = ProductBulkDiscountSerializer(many=True, read_only=True)
     unit_conversions = ProductUnitConversionSerializer(many=True, read_only=True)
     variants = ProductVariantSerializer(many=True, read_only=True)
-    current_stock = serializers.IntegerField(read_only=True)
+    current_stock = serializers.SerializerMethodField(
+        help_text=(
+            "On-hand stock summed over the caller's locations, or at one location when the "
+            "request has `?location=`. Products are organization-wide; stock is per location."
+        ),
+    )
 
     class Meta:
         model = Product
@@ -198,6 +206,13 @@ class ProductSerializer(serializers.ModelSerializer):
             'current_stock', 'batches', 'bulk_discounts', 'unit_conversions', 'variants'
         ]
         read_only_fields = ['id', 'status', 'organization', 'created_by', 'created_at', 'updated_at']
+
+    @extend_schema_field(OpenApiTypes.INT)
+    def get_current_stock(self, obj) -> int:
+        # Lists and details annotate `stock_on_hand` (scoped, one query per page).
+        # Fallback for objects that weren't loaded through the viewset.
+        annotated = getattr(obj, "stock_on_hand", None)
+        return annotated if annotated is not None else obj.current_stock
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
@@ -233,11 +248,11 @@ class ProductCreateSerializer(serializers.ModelSerializer):
     quantity_in_stock = serializers.IntegerField(write_only=True, required=False, default=0, help_text="Initial opening stock quantity")
     warehouse_id = serializers.PrimaryKeyRelatedField(
         queryset=Warehouse.objects.all(),
-        write_only=True, 
-        required=False, 
+        write_only=True,
+        required=False,
         help_text="Warehouse ID for opening stock"
     )
-    
+
     batches = ProductBatchSerializer(many=True, required=False)
     bulk_discounts = ProductBulkDiscountSerializer(many=True, required=False)
     unit_conversions = ProductUnitConversionSerializer(many=True, required=False)
