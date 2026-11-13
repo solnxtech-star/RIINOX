@@ -25,8 +25,13 @@ from core.applications.transactions.services import (
 )
 from core.applications.transactions.services import record_sale_financial_entries
 from core.applications.transactions.services import record_sale_return_financial_entries
+from core.applications.products.models import Product
+from core.applications.users.services import has_org_permission
+from core.applications.warehouse.models import Warehouse
 from core.helper.enums import ApprovalStatusChoices
+from core.helper.enums import PermissionCode
 from core.helper.enums import PhysicalCountStatusChoices
+from core.helper.enums import ProductStatusChoices
 from core.helper.enums import RestockActionChoices
 from core.helper.enums import TransactionStatusChoices
 from core.helper.enums import TransactionTypeChoices
@@ -1029,3 +1034,136 @@ def get_purchase_stock_activity(purchase: Any):
         .select_related("transaction", "product", "variant", "batch", "warehouse")
         .order_by("-created_at")
     )
+
+
+def get_inventory_summary(
+    organization: Any,
+    warehouse_id: str | uuid.UUID | None = None,
+    user: Any = None,
+) -> dict[str, Any]:
+    """
+    Computes the KPI summary metrics for the Products and Inventory screens:
+      1. stock_value: Total on-hand valuation at purchase cost.
+      2. potential_sales_value: Total on-hand valuation at retail selling price.
+      3. profit_to_be_made: Max(0, potential_sales_value - stock_value).
+      4. stock_requiring_attention: Count of active tracked products with low or zero stock.
+      5. out_of_stock_count: Count of active tracked products with 0 stock.
+      6. low_stock_count: Count of active tracked products with stock > 0 and <= minimum_stock_level.
+      7. total_products: Total count of active products in the organization.
+      8. total_inventory_items: Sum of all on-hand unit quantities in scope.
+      9. warehouses_count: Count of active warehouses in the organization.
+    Supports organization-wide aggregation (default) or scoping by warehouse_id.
+    Redacts cost and profit fields if the requesting user lacks VIEW_PRODUCT_COSTS.
+    """
+    warehouse = None
+    if warehouse_id:
+        try:
+            uuid.UUID(str(warehouse_id))
+        except (ValueError, TypeError) as exc:
+            raise ValidationError({"warehouse": "Invalid warehouse UUID."}) from exc
+
+        warehouse = Warehouse.objects.filter(
+            organization=organization,
+            pk=warehouse_id,
+            is_active=True,
+        ).first()
+        if not warehouse:
+            raise ValidationError(
+                {"warehouse": "Warehouse does not exist or does not belong to this organization."}
+            )
+
+    inventory_queryset = Inventory.objects.filter(
+        product__organization=organization,
+    ).select_related("product", "variant", "batch", "warehouse")
+
+    if warehouse:
+        inventory_queryset = inventory_queryset.filter(warehouse=warehouse)
+
+    stock_value = Decimal("0.00")
+    potential_sales_value = Decimal("0.00")
+    total_inventory_items = 0
+    product_stock_map: dict[uuid.UUID, int] = {}
+
+    for inventory_record in inventory_queryset:
+        quantity = inventory_record.quantity
+        if quantity > 0:
+            total_inventory_items += quantity
+
+            unit_cost = Decimal("0.00")
+            if inventory_record.batch and inventory_record.batch.cost_price is not None:
+                unit_cost = Decimal(str(inventory_record.batch.cost_price))
+            elif inventory_record.variant and inventory_record.variant.purchase_cost is not None:
+                unit_cost = Decimal(str(inventory_record.variant.purchase_cost))
+            elif inventory_record.product and inventory_record.product.purchase_cost is not None:
+                unit_cost = Decimal(str(inventory_record.product.purchase_cost))
+
+            selling_price = Decimal("0.00")
+            if inventory_record.batch and inventory_record.batch.selling_price is not None:
+                selling_price = Decimal(str(inventory_record.batch.selling_price))
+            elif inventory_record.variant and inventory_record.variant.customer_sale_price is not None:
+                selling_price = Decimal(str(inventory_record.variant.customer_sale_price))
+            elif inventory_record.product and inventory_record.product.customer_sale_price is not None:
+                selling_price = Decimal(str(inventory_record.product.customer_sale_price))
+
+            stock_value += Decimal(quantity) * unit_cost
+            potential_sales_value += Decimal(quantity) * selling_price
+
+        product_id = inventory_record.product_id
+        product_stock_map[product_id] = product_stock_map.get(product_id, 0) + max(0, quantity)
+
+    profit_to_be_made = max(Decimal("0.00"), potential_sales_value - stock_value)
+
+    active_products_queryset = Product.objects.filter(
+        organization=organization,
+        status=ProductStatusChoices.ACTIVE,
+    )
+    total_products = active_products_queryset.count()
+
+    if warehouse:
+        products_in_scope = active_products_queryset.filter(
+            inventory_records__warehouse=warehouse,
+        ).distinct()
+    else:
+        products_in_scope = active_products_queryset
+
+    out_of_stock_count = 0
+    low_stock_count = 0
+
+    for product in products_in_scope:
+        if not product.track_inventory:
+            continue
+        current_stock = product_stock_map.get(product.id, 0)
+        minimum_level = product.minimum_stock_level or 0
+        if current_stock <= 0:
+            out_of_stock_count += 1
+        elif current_stock <= minimum_level:
+            low_stock_count += 1
+
+    stock_requiring_attention = out_of_stock_count + low_stock_count
+    warehouses_count = Warehouse.objects.filter(organization=organization, is_active=True).count()
+
+    has_cost_permission = True
+    if user and getattr(user, "is_authenticated", False):
+        has_cost_permission = has_org_permission(
+            user,
+            organization,
+            PermissionCode.VIEW_PRODUCT_COSTS,
+        )
+
+    final_stock_value: Decimal | None = stock_value if has_cost_permission else None
+    final_profit_to_be_made: Decimal | None = profit_to_be_made if has_cost_permission else None
+
+    return {
+        "stock_value": final_stock_value,
+        "potential_sales_value": potential_sales_value,
+        "profit_to_be_made": final_profit_to_be_made,
+        "stock_requiring_attention": stock_requiring_attention,
+        "out_of_stock_count": out_of_stock_count,
+        "low_stock_count": low_stock_count,
+        "total_products": total_products,
+        "total_inventory_items": total_inventory_items,
+        "warehouses_count": warehouses_count,
+        "warehouse_id": warehouse.id if warehouse else None,
+        "warehouse_name": warehouse.name if warehouse else "All Warehouses",
+        "has_cost_permission": has_cost_permission,
+    }

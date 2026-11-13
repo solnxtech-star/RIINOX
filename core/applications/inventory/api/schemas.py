@@ -220,6 +220,57 @@ inventory_schema = extend_schema_view(
 - Requires `VIEW_INVENTORY`.
 - Requesting an inventory record of another organization returns HTTP 404 Not Found.""",
     ),
+    summary=extend_schema(
+        tags=['Inventory'],
+        summary="Get Inventory Stock Valuation & Attention Summary",
+        description="""Computes the 4 KPI summary cards for the Products and Inventory dashboard:
+- **`stock_value`**: Total valuation of on-hand inventory at purchase cost (`Σ (quantity × purchase_cost)`).
+- **`potential_sales_value`**: Total valuation of on-hand inventory at retail selling price (`Σ (quantity × customer_sale_price)`).
+- **`profit_to_be_made`**: Projected gross profit (`potential_sales_value - stock_value`).
+- **`stock_requiring_attention`**: Count of active tracked products that are low stock (`current_stock <= minimum_stock_level`) or out of stock (`current_stock == 0`).
+
+### Warehouse Scoping:
+- Omit `warehouse` to retrieve organization-wide metrics across all active branches.
+- Pass `?warehouse=<uuid>` to scope all valuation and attention figures strictly to that warehouse.
+
+### Cost Security (PRD §12, §27, §55):
+- Requires `VIEW_INVENTORY`.
+- If the caller lacks `VIEW_PRODUCT_COSTS`, `stock_value` and `profit_to_be_made` are returned as `null` (`has_cost_permission: false`).""",
+        parameters=[
+            OpenApiParameter(
+                "warehouse",
+                OpenApiTypes.UUID,
+                OpenApiParameter.QUERY,
+                description="Optional warehouse UUID to scope summary metrics to a single branch.",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=InventorySummarySerializer,
+                description="Inventory valuation and stock attention summary.",
+                examples=[
+                    OpenApiExample(
+                        "Organization-Wide Inventory Summary",
+                        value={
+                            "stock_value": "1250000.00",
+                            "potential_sales_value": "1850000.00",
+                            "profit_to_be_made": "600000.00",
+                            "stock_requiring_attention": 4,
+                            "out_of_stock_count": 1,
+                            "low_stock_count": 3,
+                            "total_products": 45,
+                            "total_inventory_items": 1420,
+                            "warehouses_count": 2,
+                            "warehouse_id": None,
+                            "warehouse_name": "All Warehouses",
+                            "has_cost_permission": True,
+                        },
+                        response_only=True,
+                    )
+                ],
+            )
+        },
+    ),
 )
 
 ledger_entry_schema = extend_schema_view(

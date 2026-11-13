@@ -53,7 +53,9 @@ class IsMembershipManager(BasePermission):
         return bool(request.user and request.user.is_authenticated)
 
     def has_object_permission(self, request, view, obj):
-        return services.has_org_role(request.user, obj.organization, *MANAGER_ROLE_SLUGS)
+        return services.has_org_role(
+            request.user, obj.organization, *MANAGER_ROLE_SLUGS
+        )
 
 
 def resolve_active_membership(request, view):
@@ -93,7 +95,11 @@ def HasOrgPermission(permission_code: str):
             membership = resolve_active_membership(request, view)
             if membership is None:
                 raise NotFound("Organization not found.")
-            return Membership.objects.filter(pk=membership.pk).granting(permission_code).exists()
+            return (
+                Membership.objects.filter(pk=membership.pk)
+                .granting(permission_code)
+                .exists()
+            )
 
     _HasOrgPermission.__name__ = f"HasOrgPermission_{permission_code}"
     return _HasOrgPermission
@@ -113,7 +119,9 @@ class OrganizationScopedMixin:
             return mem.organization
         user = getattr(getattr(self, "request", None), "user", None)
         if user and getattr(user, "is_superuser", False):
-            org_id = self.kwargs.get("organization_id") or self.kwargs.get("organization_pk")
+            org_id = self.kwargs.get("organization_id") or self.kwargs.get(
+                "organization_pk",
+            )
             if org_id:
                 return Organization.objects.filter(pk=org_id, is_active=True).first()
         return None
@@ -175,8 +183,15 @@ def resolve_request_organization(
     if not org_id and hasattr(request, "headers"):
         org_id = request.headers.get("X-Organization-ID")
 
-    if not org_id and view is not None and hasattr(view, "kwargs") and isinstance(view.kwargs, dict):
-        org_id = view.kwargs.get("organization_id") or view.kwargs.get("organization_pk")
+    if (
+        not org_id
+        and view is not None
+        and hasattr(view, "kwargs")
+        and isinstance(view.kwargs, dict)
+    ):
+        org_id = view.kwargs.get("organization_id") or view.kwargs.get(
+            "organization_pk"
+        )
 
     if org_id:
         if isinstance(org_id, Organization):
@@ -210,7 +225,9 @@ class BaseTenantPermission(BasePermission):
             return self.action_permissions[action]
         return self.default_permission
 
-    def _resolve_organization(self, request: Request, view: Any = None, obj: Any = None) -> Organization | None:
+    def _resolve_organization(
+        self, request: Request, view: Any = None, obj: Any = None
+    ) -> Organization | None:
         return resolve_request_organization(request, view=view, obj=obj)
 
     def has_permission(self, request: Request, view: Any) -> bool:
@@ -226,14 +243,22 @@ class BaseTenantPermission(BasePermission):
 
         # When organization is in the URL path, enforce membership and permission strictly
         org_in_url = None
-        if view is not None and hasattr(view, "kwargs") and isinstance(view.kwargs, dict):
-            org_in_url = view.kwargs.get("organization_id") or view.kwargs.get("organization_pk")
+        if (
+            view is not None
+            and hasattr(view, "kwargs")
+            and isinstance(view.kwargs, dict)
+        ):
+            org_in_url = view.kwargs.get("organization_id") or view.kwargs.get(
+                "organization_pk"
+            )
 
         if org_in_url:
             membership = resolve_active_membership(request, view)
             if membership is None:
                 raise NotFound("Organization not found.")
-            return services.has_org_permission(request.user, membership.organization, required_code)
+            return services.has_org_permission(
+                request.user, membership.organization, required_code
+            )
 
         action = getattr(view, "action", None)
 
@@ -269,7 +294,9 @@ class BaseTenantPermission(BasePermission):
         if not required_code:
             return True
 
-        org = getattr(obj, "organization", obj if isinstance(obj, Organization) else None)
+        org = getattr(
+            obj, "organization", obj if isinstance(obj, Organization) else None
+        )
         if org is None and hasattr(obj, "warehouse"):
             org = getattr(obj.warehouse, "organization", None)
         if org is None:

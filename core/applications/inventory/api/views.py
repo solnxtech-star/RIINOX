@@ -21,6 +21,7 @@ from core.applications.inventory.api.schemas import (
 from core.applications.inventory.api.serializers import (
     InventoryLedgerEntrySerializer,
     InventorySerializer,
+    InventorySummarySerializer,
     StockAdjustmentRequestSerializer,
     StockTransferSerializer,
 )
@@ -34,6 +35,7 @@ from core.applications.inventory.services import (
     StockAdjustmentInput,
     StockTransferInput,
     approve_stock_adjustment,
+    get_inventory_summary,
     request_stock_adjustment,
     single_transfer_stock,
 )
@@ -162,6 +164,11 @@ class StockTransferViewSet(OrganizationScopedMixin, viewsets.ViewSet):
 class InventoryViewSet(OrganizationScopedMixin, viewsets.ReadOnlyModelViewSet):
     serializer_class = InventorySerializer
     permission_classes = [IsAuthenticated, InventoryPermission]
+
+    def get_serializer_class(self):
+        if self.action == "summary":
+            return InventorySummarySerializer
+        return InventorySerializer
 
     def get_queryset(self):
         user = self.request.user

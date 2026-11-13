@@ -59,6 +59,7 @@ target-version = "py312"
 extend-exclude = [
     "*/migrations/*.py",
     "staticfiles/*",
+    "__pyrefly_virtual__",
 ]
 
 [tool.ruff.lint]
