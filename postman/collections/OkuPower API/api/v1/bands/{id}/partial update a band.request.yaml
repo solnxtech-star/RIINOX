@@ -1,0 +1,25 @@
+$kind: http-request
+description: Partially update a band.
+url: "{{baseUrl}}/api/v1/bands/:id/"
+method: PATCH
+headers:
+  Content-Type: application/x-www-form-urlencoded
+  Accept: application/json
+pathVariables:
+  - key: id
+    value: <string>
+    description: (Required) A unique value identifying this band.
+body:
+  type: urlencoded
+  content:
+    tariff: "6183544383272221924427738296554795026468653672247651288489307402960839301134750325658599.45"
+    name: <string>
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/partial update a band.resources/examples
+order: 10000

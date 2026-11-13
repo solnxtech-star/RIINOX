@@ -1,0 +1,28 @@
+$kind: http-request
+description: Sends an invitation to a staff member associated with the authenticated user's disco.
+url: "{{baseUrl}}/api/v1/discos/send_invite/"
+method: POST
+headers:
+  Content-Type: application/x-www-form-urlencoded
+  Accept: application/json
+body:
+  type: urlencoded
+  content:
+    - key: email
+      value: <email>
+      description: "(Required) "
+    - key: name
+      value: <string>
+      description: "(Required) "
+    - key: position
+      value: <string>
+      description: "(Required) "
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/Sends an invitation to a staff member.resources/examples
+order: 1000

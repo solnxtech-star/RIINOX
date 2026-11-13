@@ -1,0 +1,31 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/api/auth/jwt/create/"
+  method: POST
+  headers:
+    Content-Type: multipart/form-data
+    Accept: application/json
+  body:
+    type: formdata
+    content:
+      - type: text
+        key: email
+        value: <string>
+        description: "(Required) "
+      - type: text
+        key: password
+        value: <string>
+        description: "(Required) "
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "email": "sed do magna",
+        "password": 49055610
+      }
+order: 1000

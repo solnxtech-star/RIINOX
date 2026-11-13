@@ -1,0 +1,12 @@
+$kind: http-request
+url: "{{baseUrl}}/api/notifications/"
+method: POST
+auth:
+  type: apikey
+  credentials:
+    key: __Secure-sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/notifications create.resources/examples
+order: 5000

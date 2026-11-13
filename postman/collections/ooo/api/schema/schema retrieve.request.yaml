@@ -1,0 +1,22 @@
+$kind: http-request
+description: |-
+  OpenApi3 schema for this API. Format can be selected via content negotiation.
+
+  - YAML: application/vnd.oai.openapi
+  - JSON: application/vnd.oai.openapi+json
+url: "{{baseUrl}}/api/schema/?format=json&lang=tg"
+method: GET
+headers:
+  Accept: application/vnd.oai.openapi
+queryParams:
+  format: json
+  lang: tg
+auth:
+  type: apikey
+  credentials:
+    key: __Secure-sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/schema retrieve.resources/examples
+order: 1000

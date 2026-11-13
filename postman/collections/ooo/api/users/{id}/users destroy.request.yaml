@@ -1,0 +1,27 @@
+$kind: http-request
+description: |-
+  Handles the deletion of an existing user instance.
+
+  Parameters:
+      request: The request object.
+      *args: Variable length argument list.
+      **kwargs: Arbitrary keyword arguments.
+
+  Returns:
+      A response with a status code of 204 (No Content)
+      indicating the deletion was successful.
+url: "{{baseUrl}}/api/users/:id/"
+method: DELETE
+pathVariables:
+  - key: id
+    value: <integer>
+    description: (Required) A unique integer value identifying this user.
+auth:
+  type: apikey
+  credentials:
+    key: __Secure-sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/users destroy.resources/examples
+order: 4000

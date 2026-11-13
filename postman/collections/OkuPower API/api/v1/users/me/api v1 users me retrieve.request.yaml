@@ -1,0 +1,14 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/users/me/"
+method: GET
+headers:
+  Accept: application/json
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/api v1 users me retrieve.resources/examples
+order: 1000

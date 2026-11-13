@@ -103,7 +103,9 @@ class CustomerViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
         """
         customer = self.get_object()
         if hasattr(customer, "sales"):
-            sales_qs = customer.sales.all().order_by("-created_at")
+            # Customers are organization-wide, but their sales belong to locations:
+            # a member limited to some locations only sees sales made there (PRD §35).
+            sales_qs = self.scope_to_locations(customer.sales.all(), field="warehouse").order_by("-created_at")
             page = self.paginate_queryset(sales_qs)
             if page is not None:
                 from core.applications.sales.api.serializers import SaleSerializer

@@ -1,0 +1,24 @@
+$kind: http-request
+description: ViewSet for managing pollutant snapshots
+url: "{{baseUrl}}/api/pollutant_snapshot/:id/"
+method: PUT
+headers:
+  Content-Type: application/json
+  Accept: application/json
+pathVariables:
+  - key: id
+    value: <string>
+    description: (Required) A unique value identifying this PollutantSnapShot.
+body:
+  type: json
+  content: |-
+    {
+      "device": "<string>",
+      "pollutant": "<string>",
+      "value": "<double>",
+      "id": -81919235.82395568,
+      "pollutant_state": true
+    }
+settings: {}
+examples: ./.resources/pollutant snapshot update.resources/examples
+order: 2000

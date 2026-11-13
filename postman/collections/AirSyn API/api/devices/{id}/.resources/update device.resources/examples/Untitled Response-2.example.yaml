@@ -1,0 +1,36 @@
+$kind: http-example
+name: Untitled Response
+request:
+  url: "{{baseUrl}}/api/devices/:id/"
+  method: PATCH
+  headers:
+    - key: Content-Type
+      value: application/json
+    - key: Accept
+      value: application/json
+    - key: __Secure-sessionid
+      value: <API Key>
+      description: "Added as a part of security scheme: apikey"
+  pathVariables:
+    id: ""
+  body:
+    type: json
+    content: |-
+      {
+        "name": "<string>",
+        "location": "<string>",
+        "status": "SAFE",
+        "state": "ON"
+      }
+response:
+  statusCode: 400
+  statusText: Bad Request
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "detail": "<string>"
+      }
+order: 4000

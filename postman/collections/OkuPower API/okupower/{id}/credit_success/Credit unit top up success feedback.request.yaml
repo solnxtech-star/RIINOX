@@ -1,0 +1,29 @@
+$kind: http-request
+description: This topic is used to tell the server that the credit unit was successfully added
+url: "{{baseUrl}}/okupower/:id/credit_success/"
+method: POST
+headers:
+  Content-Type: application/x-www-form-urlencoded
+  Accept: application/json
+pathVariables:
+  - key: id
+    value: <string>
+    description: (Required) A unique value identifying this device.
+body:
+  type: urlencoded
+  content:
+    - key: credit_id
+      value: <string>
+      description: "(Required) "
+    - key: credited
+      value: <boolean>
+      description: "(Required) "
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/Credit unit top up success feedback.resources/examples
+order: 1000

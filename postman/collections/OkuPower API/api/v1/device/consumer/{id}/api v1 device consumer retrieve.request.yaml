@@ -1,0 +1,19 @@
+$kind: http-request
+description: This viewset handles consumer related actions on devices
+url: "{{baseUrl}}/api/v1/device/consumer/:id/"
+method: GET
+headers:
+  Accept: application/json
+pathVariables:
+  - key: id
+    value: <string>
+    description: (Required) A unique value identifying this device.
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/api v1 device consumer retrieve.resources/examples
+order: 1000

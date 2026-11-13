@@ -1,0 +1,80 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/api/v1/device/consumer/activate/"
+  method: PATCH
+  headers:
+    - key: Content-Type
+      value: application/x-www-form-urlencoded
+    - key: Accept
+      value: application/json
+    - key: sessionid
+      value: <API Key>
+      description: "Added as a part of security scheme: apikey"
+  body:
+    type: urlencoded
+    content:
+      - key: id
+        value: <string>
+      - key: meter_no
+        value: <string>
+      - key: branch_name
+        value: <string>
+      - key: band_name
+        value: <string>
+      - key: consumption
+        value: <integer>
+      - key: average_consumption
+        value: <integer>
+      - key: time_left
+        value: <integer>
+      - key: status
+        value: BREACHED
+        description: |-
+          * `CONNECTED` - CONNECTED
+          * `ASSIGNED` - ASSIGNED
+          * `DISCONNECTED` - DISCONNECTED
+          * `BREACHED` - BREACHED
+          * `DEFAULT` - DEFAULT
+      - key: user_address
+        value: <string>
+      - key: user_phone_no
+        value: <string>
+      - key: user_email
+        value: <string>
+      - key: user_name
+        value: <string>
+      - key: on_bonus
+        value: <string>
+      - key: bonus
+        value: "-654545783291826953601613439685656715098571781135957710968033452543236009748330162.14"
+      - key: type
+        value: ONE_PHASE
+        description: |-
+          * `ONE_PHASE` - ONE_PHASE
+          * `THREE_PHASE` - THREE_PHASE
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "average_consumption": "<integer>",
+        "band_name": "<string>",
+        "branch_name": "<string>",
+        "consumption": "<integer>",
+        "id": "<string>",
+        "on_bonus": "<string>",
+        "time_left": "<integer>",
+        "user_address": "<string>",
+        "user_email": "<string>",
+        "user_name": "<string>",
+        "user_phone_no": "<string>",
+        "meter_no": "<string>",
+        "status": "ASSIGNED",
+        "bonus": "",
+        "type": "ONE_PHASE"
+      }
+order: 1000

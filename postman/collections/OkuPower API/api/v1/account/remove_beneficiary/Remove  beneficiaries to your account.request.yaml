@@ -1,0 +1,25 @@
+$kind: http-request
+description: Remove a list of beneficiaries.
+url: "{{baseUrl}}/api/v1/account/remove_beneficiary/"
+method: POST
+headers:
+  Content-Type: application/x-www-form-urlencoded
+  Accept: application/json
+body:
+  type: urlencoded
+  content:
+    - key: accounts
+      value: <string>
+      description: "(Required) "
+    - key: accounts
+      value: <string>
+      description: "(Required) "
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/Remove  beneficiaries to your account.resources/examples
+order: 1000

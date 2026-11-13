@@ -223,6 +223,8 @@ class OrganizationSerializer(serializers.ModelSerializer):
             "business_types",
             "primary_business_type",
             "registration_number",
+            "default_tax_rate",
+            "prices_include_tax",
             "state",
             "address",
             "phone",
@@ -345,6 +347,10 @@ class OrganizationUpdateSerializer(OrganizationProfileValidationMixin, serialize
             "legal_name",
             "registration_number",
             "tax_id",
+            # Tax settings (products.tax). Affect new sales and invoices only;
+            # existing documents keep the setting they were created with.
+            "default_tax_rate",
+            "prices_include_tax",
             "state",
             "address",
             "postal_code",
@@ -619,6 +625,7 @@ class MembershipUpdateSerializer(serializers.ModelSerializer):
                 actor=self.context["request"].user,
                 role=validated_data.get("role"),
                 is_active=validated_data.get("is_active"),
+                audit_context=AuditContext.from_request(self.context["request"]),
             )
 
     def to_representation(self, instance):

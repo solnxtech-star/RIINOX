@@ -58,12 +58,26 @@ class Transaction(TimeBasedModel):
         blank=True,
         related_name="created_transactions",
     )
+    # The location the event happened at (PRD §35), so transactions can be limited
+    # to a member's locations. A transfer records its source location. NULL only
+    # for organization-level events with no location.
+    location = auto_prefetch.ForeignKey(
+        "warehouse.Warehouse",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="transactions",
+    )
     notes = models.TextField(blank=True, null=True)
 
     class Meta(auto_prefetch.Model.Meta):
         verbose_name = _("Transaction")
         verbose_name_plural = _("Transactions")
         ordering = ["-created_at"]
+        indexes = [
+            # The transaction list: one organization, newest first.
+            models.Index(fields=["organization", "-created_at"], name="trx_org_created_idx"),
+        ]
 
     def __str__(self):
         return f"{self.transaction_id} ({self.get_transaction_type_display()})"

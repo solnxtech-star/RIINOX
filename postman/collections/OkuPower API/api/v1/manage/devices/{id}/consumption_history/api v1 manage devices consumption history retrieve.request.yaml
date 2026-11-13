@@ -1,0 +1,21 @@
+$kind: http-request
+description: Payment history trend for a device
+url: "{{baseUrl}}/api/v1/manage/devices/:id/consumption_history/?year=2024"
+method: GET
+headers:
+  Accept: application/json
+queryParams:
+  year: "2024"
+pathVariables:
+  - key: id
+    value: <string>
+    description: (Required) A unique value identifying this device.
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/api v1 manage devices consumption history retrieve.resources/examples
+order: 1000

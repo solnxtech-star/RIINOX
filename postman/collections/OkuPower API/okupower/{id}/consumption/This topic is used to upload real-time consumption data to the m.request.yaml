@@ -1,0 +1,42 @@
+$kind: http-request
+name: This topic is used to upload real-time consumption data to the mqtt server
+description: This topic is used to upload real-time consumption data to the mqtt server
+url: "{{baseUrl}}/okupower/:id/consumption/"
+method: POST
+headers:
+  Content-Type: application/x-www-form-urlencoded
+  Accept: application/json
+pathVariables:
+  - key: id
+    value: <string>
+    description: (Required) A unique value identifying this device.
+body:
+  type: urlencoded
+  content:
+    - key: current
+      value: <double>
+      description: "(Required) "
+    - key: current_unit
+      value: <double>
+      description: "(Required) "
+    - key: frequency
+      value: <double>
+      description: "(Required) "
+    - key: load
+      value: <double>
+      description: "(Required) "
+    - key: time_left
+      value: <double>
+      description: "(Required) "
+    - key: voltage
+      value: <double>
+      description: "(Required) "
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/This topic is used to upload real-time consumption data to the m.resources/examples
+order: 1000

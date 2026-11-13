@@ -1,0 +1,25 @@
+$kind: http-request
+url: "{{baseUrl}}/api/users/me/"
+method: PUT
+headers:
+  Content-Type: multipart/form-data
+  Accept: application/json
+body:
+  type: formdata
+  content:
+    - type: text
+      key: email
+      value: <email>
+      description: "(Required) "
+    - type: text
+      key: has_activated_2fa
+      value: <boolean>
+auth:
+  type: apikey
+  credentials:
+    key: __Secure-sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/users me update.resources/examples
+order: 2000

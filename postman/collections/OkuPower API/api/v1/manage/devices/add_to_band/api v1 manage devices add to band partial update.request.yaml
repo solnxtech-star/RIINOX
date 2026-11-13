@@ -1,0 +1,27 @@
+$kind: http-request
+description: |-
+  Move a set of devices from inventory to a band, simulating that a device
+  is being purchased by a user
+url: "{{baseUrl}}/api/v1/manage/devices/add_to_band/"
+method: PATCH
+headers:
+  Content-Type: application/x-www-form-urlencoded
+  Accept: application/json
+body:
+  type: urlencoded
+  content:
+    - key: to_band
+      value: <string>
+    - key: devices
+      value: <string>
+    - key: devices
+      value: <string>
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/api v1 manage devices add to band partial update.resources/examples
+order: 1000

@@ -73,6 +73,7 @@ class TestInvoicePorts:
             ),
             billing_address=sale.billing_address or "",
             shipping_address=sale.shipping_address or "",
+            prices_include_tax=sale.prices_include_tax,
         )
 
     def cancel_sale(self, invoice, *, actor, reason) -> None:

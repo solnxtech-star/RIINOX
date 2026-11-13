@@ -97,6 +97,13 @@ urlpatterns += [
             namespace="transactions",
         ),
     ),
+    path(
+        "api/",
+        include(
+            "core.applications.subscriptions.api.routers",
+            namespace="billing",
+        ),
+    ),
     path("api/auth/", include("core.applications.users.api.jwt")),
     # DRF auth token
     path("api/auth-token/", obtain_auth_token, name="obtain_auth_token"),

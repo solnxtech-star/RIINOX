@@ -1,0 +1,13 @@
+$kind: http-request
+description: List only notifications related to PollutantSnapShot.
+url: "{{baseUrl}}/api/notifications/pollutant-notifications/"
+method: GET
+auth:
+  type: apikey
+  credentials:
+    key: __Secure-sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/notifications pollutant notifications retrieve.resources/examples
+order: 1000

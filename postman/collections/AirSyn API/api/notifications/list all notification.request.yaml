@@ -1,0 +1,25 @@
+$kind: http-request
+description: Retrieve a list of all notifications for the authenticated user
+url: "{{baseUrl}}/api/notifications/?ordering=<string>&page=<integer>&search=<string>"
+method: GET
+headers:
+  Accept: application/json
+queryParams:
+  - key: ordering
+    value: <string>
+    description: Which field to use when ordering the results.
+  - key: page
+    value: <integer>
+    description: A page number within the paginated result set.
+  - key: search
+    value: <string>
+    description: A search term.
+auth:
+  type: apikey
+  credentials:
+    key: __Secure-sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/list all notification.resources/examples
+order: 4000

@@ -1,0 +1,16 @@
+$kind: http-request
+url: http://127.0.0.1:8000/api/purchase_view_set/
+method: POST
+headers:
+  Authorization: "{{bearer_token_0wdj}}"
+body:
+  type: json
+  content: "{\r
+
+    \"stockist\": 1,\r
+
+    \  \"product\": 1\r
+
+    }"
+settings: {}
+order: 1000

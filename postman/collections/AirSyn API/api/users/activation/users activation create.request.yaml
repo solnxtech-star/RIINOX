@@ -1,0 +1,24 @@
+$kind: http-request
+url: https://airsyn-backend-amihub.up.railway.app/api/users/activation/
+method: POST
+headers:
+  Content-Type: multipart/form-data
+  Accept: application/json
+body:
+  type: text
+  content: "{\r
+
+    \  \"email\":\"chiemeladouglas@gmail.com\",\r
+
+    \  \"token\":\"355485\"\r
+
+    }"
+auth:
+  type: apikey
+  credentials:
+    key: __Secure-sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/users activation create.resources/examples
+order: 1000

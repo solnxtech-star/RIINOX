@@ -1,0 +1,26 @@
+$kind: http-request
+url: "{{baseUrl}}/api/users/:id/"
+method: PUT
+headers:
+  Content-Type: multipart/form-data
+  Accept: application/json
+pathVariables:
+  - key: id
+    value: <integer>
+    description: (Required) A unique integer value identifying this user.
+body:
+  type: formdata
+  content:
+    - type: text
+      key: url
+      value: "84637954.92947531"
+      description: "(Required) "
+auth:
+  type: apikey
+  credentials:
+    key: __Secure-sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/users update.resources/examples
+order: 2000

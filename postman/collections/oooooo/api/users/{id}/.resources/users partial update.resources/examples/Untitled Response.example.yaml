@@ -1,0 +1,29 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/api/users/:id/"
+  method: PATCH
+  headers:
+    - key: Content-Type
+      value: multipart/form-data
+    - key: Accept
+      value: application/json
+    - key: __Secure-sessionid
+      value: <API Key>
+      description: "Added as a part of security scheme: apikey"
+  pathVariables:
+    id: ""
+  body:
+    type: formdata
+    content: []
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "url": "<uri>"
+      }
+order: 1000

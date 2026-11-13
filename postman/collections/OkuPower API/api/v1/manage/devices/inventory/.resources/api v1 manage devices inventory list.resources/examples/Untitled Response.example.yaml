@@ -1,0 +1,63 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/api/v1/manage/devices/inventory/?ordering=<string>&page=<integer>&search=<string>&status=DISCONNECTED&type=ONE_PHASE"
+  method: GET
+  headers:
+    - key: Accept
+      value: application/json
+    - key: sessionid
+      value: <API Key>
+      description: "Added as a part of security scheme: apikey"
+  queryParams:
+    - key: ordering
+      value: <string>
+      description: Which field to use when ordering the results.
+    - key: page
+      value: <integer>
+      description: A page number within the paginated result set.
+    - key: search
+      value: <string>
+      description: A search term.
+    - key: status
+      value: DISCONNECTED
+      description: |-
+        * `CONNECTED` - CONNECTED
+        * `ASSIGNED` - ASSIGNED
+        * `DISCONNECTED` - DISCONNECTED
+        * `BREACHED` - BREACHED
+        * `DEFAULT` - DEFAULT
+    - key: type
+      value: ONE_PHASE
+      description: |-
+        * `ONE_PHASE` - ONE_PHASE
+        * `THREE_PHASE` - THREE_PHASE
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "count": "<integer>",
+        "next": "<uri>",
+        "previous": "<uri>",
+        "results": [
+          {
+            "created_at": "<dateTime>",
+            "id": "<string>",
+            "meter_no": "<string>",
+            "status": "ASSIGNED",
+            "type": "ONE_PHASE"
+          },
+          {
+            "created_at": "<dateTime>",
+            "id": "<string>",
+            "meter_no": "<string>",
+            "status": "ASSIGNED",
+            "type": "ONE_PHASE"
+          }
+        ]
+      }
+order: 1000

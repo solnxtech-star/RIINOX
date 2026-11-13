@@ -12,6 +12,11 @@ SECRET_KEY = env(
     "DJANGO_SECRET_KEY",
     default="g5RhcjmlAj6dO2cCQoYG0NON3MCsKMZRMrIxsLASwP7QNkTxNeMrYG222RDbOpSk",
 )
+# Fernet keys for encrypted model fields (core.helper.fields). Development-only
+# default; never reuse it in production.
+FIELD_ENCRYPTION_KEYS = env.list(
+    "FIELD_ENCRYPTION_KEYS", default=["gJpvFqWBpmBYnIXAru5bXaii7LqCe_UK8oxcwtnUBAQ="]
+)
 # https://docs.djangoproject.com/en/dev/ref/settings/#allowed-hosts
 ALLOWED_HOSTS = ["localhost", "0.0.0.0", "127.0.0.1"]  # noqa: S104
 

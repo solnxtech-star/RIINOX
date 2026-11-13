@@ -1,0 +1,21 @@
+$kind: http-request
+description: |-
+  Branch overview card
+  https://www.figma.com/file/rvLtP87CkfW698kA2IHmxy/OKUPOWER?type=design&node-id=492-538&mode=design&t=tk50rpKaeGKp7N7B-4
+url: "{{baseUrl}}/api/v1/bands/:id/overview/"
+method: GET
+headers:
+  Accept: application/json
+pathVariables:
+  - key: id
+    value: <string>
+    description: (Required) A unique value identifying this band.
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/Branch overview card.resources/examples
+order: 1000

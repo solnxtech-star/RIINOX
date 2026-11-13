@@ -1,0 +1,36 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/api/v1/discos/save_bank_details/"
+  method: POST
+  headers:
+    - key: Content-Type
+      value: application/x-www-form-urlencoded
+    - key: Accept
+      value: application/json
+    - key: sessionid
+      value: <API Key>
+      description: "Added as a part of security scheme: apikey"
+  body:
+    type: urlencoded
+    content:
+      - key: account_name
+        value: <string>
+        description: "(Required) "
+      - key: bank_account_no
+        value: <string>
+        description: "(Required) "
+      - key: bank_code
+        value: <string>
+        description: "(Required) "
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "details": "<string>"
+      }
+order: 1000

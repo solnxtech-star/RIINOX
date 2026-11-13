@@ -1,0 +1,25 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/api/notifications/:id/"
+  method: DELETE
+  headers:
+    - key: Accept
+      value: application/json
+    - key: __Secure-sessionid
+      value: <API Key>
+      description: "Added as a part of security scheme: apikey"
+  pathVariables:
+    id: ""
+response:
+  statusCode: 204
+  statusText: No Content
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "add": {},
+        "exercitation_50": {}
+      }
+order: 1000

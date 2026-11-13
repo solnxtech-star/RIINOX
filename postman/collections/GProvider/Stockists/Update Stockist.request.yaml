@@ -1,0 +1,7 @@
+$kind: http-request
+url: http://127.0.0.1:8000/api/stocklists/?id
+method: GET
+queryParams:
+  id: null
+settings: {}
+order: 2000

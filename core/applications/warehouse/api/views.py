@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema_view
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -118,3 +119,22 @@ class StockLocationViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
         if "warehouse" in serializer.validated_data:
             self.location_scope.require(serializer.validated_data["warehouse"])
         serializer.save()
+
+
+@extend_schema_view(
+    **{
+        action_name: extend_schema(
+            deprecated=True,
+            # Own section, so "Stock Locations" only lists the active endpoints.
+            tags=["Stock Locations (deprecated URL)"],
+            description=(
+                "**Deprecated:** use `/organizations/{organization_id}/storage-areas/` instead "
+                "(identical behaviour). In the rest of the API, \"location\" means a branch."
+            ),
+            parameters=[ORGANIZATION_PATH_PARAM],
+        )
+        for action_name in ("list", "create", "retrieve", "update", "partial_update", "destroy")
+    }
+)
+class LegacyStockLocationViewSet(StockLocationViewSet):
+    """`/locations/`: the old URL for storage areas, kept as an alias."""

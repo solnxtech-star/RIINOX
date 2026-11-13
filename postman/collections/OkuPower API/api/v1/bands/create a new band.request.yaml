@@ -1,0 +1,24 @@
+$kind: http-request
+description: Create a new band.
+url: "{{baseUrl}}/api/v1/bands/"
+method: POST
+headers:
+  Content-Type: application/x-www-form-urlencoded
+  Accept: application/json
+body:
+  type: urlencoded
+  content:
+    - key: name
+      value: <string>
+      description: "(Required) "
+    - key: tariff
+      value: "328319134421465041450488133"
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/create a new band.resources/examples
+order: 4000

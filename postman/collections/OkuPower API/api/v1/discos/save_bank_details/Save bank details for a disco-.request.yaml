@@ -1,0 +1,29 @@
+$kind: http-request
+name: Save bank details for a disco.
+description: Save bank details for a disco.
+url: "{{baseUrl}}/api/v1/discos/save_bank_details/"
+method: POST
+headers:
+  Content-Type: application/x-www-form-urlencoded
+  Accept: application/json
+body:
+  type: urlencoded
+  content:
+    - key: account_name
+      value: <string>
+      description: "(Required) "
+    - key: bank_account_no
+      value: <string>
+      description: "(Required) "
+    - key: bank_code
+      value: <string>
+      description: "(Required) "
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/Save bank details for a disco-.resources/examples
+order: 1000

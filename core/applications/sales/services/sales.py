@@ -38,10 +38,11 @@ from core.applications.subscriptions.services.entitlements import (
 from core.helper.enums import (
     SaleFulfillmentStatusChoices,
 )
+from core.applications.products.tax import TaxPolicy
+from core.applications.products.tax import calculate as calculate_tax
 from core.helper.money import (
     CENT,
     MAX_MONEY,
-    RATE_STEP,
     allocate_amount,
     quantize_money,
 )
@@ -85,10 +86,21 @@ def _build_lines(
     """
     Turn request lines into validated SaleItem dictionaries and calculate totals.
     Backend calculates subtotal, discounts, taxes, and total per PRD §39.
+
+    Tax comes only from the shared calculator (products.tax): the products' tax
+    configuration and the organization's tax settings. Tax supplied by the caller
+    (`header_tax`, or `tax` / `tax_rate` on a line) is refused, never trusted.
     """
     if not items_data:
         msg = "A sale needs at least one line."
         raise SaleValidationError(msg, detail={"items": []})
+    supplied_tax = _money(header_tax or 0, field="tax") != 0 or any(
+        _money(raw.get("tax") or 0, field="tax") != 0 or _money(raw.get("tax_rate") or 0, field="tax rate") != 0
+        for raw in items_data
+    )
+    if supplied_tax:
+        msg = "Tax is calculated from the product and organization tax settings; it can't be supplied."
+        raise SaleValidationError(msg, detail={"tax": "calculated_by_server"})
 
     lines: list[dict[str, Any]] = []
     overrides = 0
@@ -133,17 +145,14 @@ def _build_lines(
                 "unit_multiplier": _unit_multiplier(product, unit_name),
                 "unit_price": unit_price,
                 "discount": _money(raw.get("discount") or 0, field="discount"),
-                "tax": _money(raw.get("tax") or 0, field="tax"),
-                "tax_rate": _money(raw.get("tax_rate") or 0, field="tax rate"),
             }
         )
 
     gross = [line["unit_price"] * line["quantity"] for line in lines]
     discount = _money(header_discount or 0, field="discount")
-    tax = _money(header_tax or 0, field="tax")
-    if discount < 0 or tax < 0:
-        msg = "Discount and tax cannot be negative."
-        raise SaleValidationError(msg, detail={"discount": str(discount), "tax": str(tax)})
+    if discount < 0:
+        msg = "The discount cannot be negative."
+        raise SaleValidationError(msg, detail={"discount": str(discount)})
 
     if discount:
         if any(line["discount"] for line in lines):
@@ -160,28 +169,24 @@ def _build_lines(
             msg = "A line discount cannot exceed the line value."
             raise SaleValidationError(msg, detail={"product_id": str(line["product"].pk)})
 
+    # Tax per line on the amount after discounts (products.tax). With tax-inclusive
+    # pricing the tax is already inside the prices, so it doesn't raise the total.
     taxable = [g - line["discount"] for line, g in zip(lines, gross, strict=True)]
-    if tax:
-        if any(line["tax"] for line in lines):
-            msg = "Give the tax on the sale or on its lines, not both."
-            raise SaleValidationError(msg, detail={"tax": str(tax)})
-        for line, share in zip(lines, allocate_amount(tax, taxable), strict=True):
-            line["tax"] = share
-
-    for line, base in zip(lines, taxable, strict=True):
-        if tax and base > 0:
-            line["tax_rate"] = min(
-                (line["tax"] / base * 100).quantize(RATE_STEP),
-                Decimal(100),
-            )
-        if not Decimal(0) <= line["tax_rate"] <= Decimal(100):
-            msg = "A line has an invalid tax rate."
-            raise SaleValidationError(msg, detail={"product_id": str(line["product"].pk)})
+    try:
+        taxed = calculate_tax(
+            [(line["product"], base) for line, base in zip(lines, taxable, strict=True)],
+            TaxPolicy.for_organization(organization),
+        )
+    except ValueError as exc:
+        raise SaleValidationError(str(exc), detail={"tax": "invalid_rate"}) from exc
+    for line, line_tax in zip(lines, taxed.lines, strict=True):
+        line["tax"] = line_tax.tax
+        line["tax_rate"] = line_tax.rate
 
     subtotal = sum(gross, Decimal(0))
     total_discount = sum((line["discount"] for line in lines), Decimal(0))
-    total_tax = sum((line["tax"] for line in lines), Decimal(0))
-    total = subtotal - total_discount + total_tax
+    total_tax = taxed.tax
+    total = taxed.total
     if subtotal > MAX_MONEY or total > MAX_MONEY:
         msg = "The sale total is too large."
         raise SaleValidationError(msg, detail={"subtotal": str(subtotal), "total": str(total)})
@@ -190,6 +195,7 @@ def _build_lines(
         "subtotal": subtotal,
         "discount_amount": total_discount,
         "tax_amount": total_tax,
+        "prices_include_tax": taxed.prices_include_tax,
         "total": total,
     }
     return lines, totals, overrides

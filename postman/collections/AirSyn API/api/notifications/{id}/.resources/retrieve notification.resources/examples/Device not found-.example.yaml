@@ -1,0 +1,18 @@
+$kind: http-example
+name: Device not found.
+request:
+  url: "{{baseUrl}}/api/notifications/:id/"
+  method: GET
+  headers:
+    - key: __Secure-sessionid
+      value: <API Key>
+      description: "Added as a part of security scheme: apikey"
+  pathVariables:
+    id: ""
+response:
+  statusCode: 404
+  statusText: Not Found
+  body:
+    type: text
+    content: ""
+order: 2000

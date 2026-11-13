@@ -293,6 +293,7 @@ def record_invoice_payment(
     trx = create_transaction(
         TransactionData(
             transaction_id=f"PAY-{str(payment.id)[:8]}-{uuid.uuid4().hex[:6]}".upper(),
+            location=invoice.warehouse_id,
             organization=invoice.organization,
             transaction_type=TransactionTypeChoices.PAYMENT_RECEIVED,
             status=TransactionStatusChoices.COMPLETED,
@@ -478,6 +479,7 @@ def record_purchase_payment(
     transaction_record = create_transaction(
         TransactionData(
             transaction_id=f"PPAY-{str(payment.id)[:8]}-{uuid.uuid4().hex[:6]}".upper(),
+            location=purchase.warehouse_id,
             organization=purchase.organization,
             transaction_type=TransactionTypeChoices.PAYMENT_SENT,
             status=TransactionStatusChoices.COMPLETED,

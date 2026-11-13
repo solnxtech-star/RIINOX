@@ -1,0 +1,19 @@
+$kind: http-request
+description: Delete a notification
+url: "{{baseUrl}}/api/v1/notifications/:id/"
+method: DELETE
+headers:
+  Accept: application/json
+pathVariables:
+  - key: id
+    value: <string>
+    description: (Required) A unique value identifying this Notification.
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/delete a notification.resources/examples
+order: 2000

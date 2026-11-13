@@ -1,0 +1,57 @@
+$kind: http-request
+name: List, add, remove, or move devices in a branch.
+description: |2-
+   List, add, remove, or move devices in a branch.
+
+
+
+   List, add, remove, or move devices in a branch.
+
+
+
+  https://www.figma.com/file/rvLtP87CkfW698kA2IHmxy/OKUPOWER?type=design&node-id=492-1194&mode=design&t=tk50rpKaeGKp7N7B-4
+url: "{{baseUrl}}/api/v1/bands/:id/devices/?created_by__user__name=<string>&devices__id=<string>&devices__user__name=<string>&name=<string>&ordering=<string>&page=<integer>&search=<string>&tariff=<number>"
+method: PATCH
+headers:
+  Content-Type: application/x-www-form-urlencoded
+  Accept: application/json
+queryParams:
+  - key: created_by__user__name
+    value: <string>
+  - key: devices__id
+    value: <string>
+  - key: devices__user__name
+    value: <string>
+  - key: name
+    value: <string>
+  - key: ordering
+    value: <string>
+    description: Which field to use when ordering the results.
+  - key: page
+    value: <integer>
+    description: A page number within the paginated result set.
+  - key: search
+    value: <string>
+    description: A search term.
+  - key: tariff
+    value: <number>
+pathVariables:
+  - key: id
+    value: <string>
+    description: (Required) A unique value identifying this band.
+body:
+  type: urlencoded
+  content:
+    - key: devices
+      value: <string>
+    - key: devices
+      value: <string>
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/List, add, remove, or move devices in a branch--2.resources/examples
+order: 3000

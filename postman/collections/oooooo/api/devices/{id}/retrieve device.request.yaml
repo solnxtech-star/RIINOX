@@ -1,0 +1,19 @@
+$kind: http-request
+description: Retrieve a specific device by its slug or ID.
+url: "{{baseUrl}}/api/devices/:id/"
+method: GET
+headers:
+  Accept: application/json
+pathVariables:
+  - key: id
+    value: <string>
+    description: (Required) A unique value identifying this Device.
+auth:
+  type: apikey
+  credentials:
+    key: __Secure-sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/retrieve device.resources/examples
+order: 2000

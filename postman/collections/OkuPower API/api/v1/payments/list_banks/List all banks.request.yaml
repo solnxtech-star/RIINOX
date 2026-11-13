@@ -1,0 +1,15 @@
+$kind: http-request
+description: List all banks
+url: "{{baseUrl}}/api/v1/payments/list_banks/"
+method: GET
+headers:
+  Accept: application/json
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/List all banks.resources/examples
+order: 1000

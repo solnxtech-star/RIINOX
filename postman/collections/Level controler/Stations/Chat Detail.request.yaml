@@ -1,0 +1,7 @@
+$kind: http-request
+url: https://level-controller-backend.up.railway.app/api/stations/3abaa626d7/chart/
+method: GET
+headers:
+  Authorization: "{{bearer_token_0utu}}"
+settings: {}
+order: 1000

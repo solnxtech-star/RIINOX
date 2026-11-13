@@ -1,0 +1,26 @@
+$kind: http-request
+name: Verify bank details.
+description: Verify bank details.
+url: "{{baseUrl}}/api/v1/discos/verify_bank_details/"
+method: POST
+headers:
+  Content-Type: application/x-www-form-urlencoded
+  Accept: application/json
+body:
+  type: urlencoded
+  content:
+    - key: bank_account_no
+      value: <string>
+      description: "(Required) "
+    - key: bank_code
+      value: <string>
+      description: "(Required) "
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/Verify bank details-.resources/examples
+order: 1000

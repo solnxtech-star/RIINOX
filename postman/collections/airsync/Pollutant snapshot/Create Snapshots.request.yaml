@@ -1,0 +1,18 @@
+$kind: http-request
+url: http://127.0.0.1:8000/api/pollutant_snapshot/
+method: POST
+headers:
+  Authorization: "{{bearer_token_02qo}}"
+body:
+  type: json
+  content: "{\r
+
+    \    \"pollutant\":\"8ef1b041ca\",\r
+
+    \    \"device\":\"799e6b8b29\",\r
+
+    \    \"value\":\"30.0\"\r
+
+    }"
+settings: {}
+order: 1000

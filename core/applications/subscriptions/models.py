@@ -491,6 +491,21 @@ class PaymentTransaction(TimeBasedModel):
     )
 
     amount_minor = models.BigIntegerField(help_text=_("Minor currency units (kobo, cents)."))
+    checkout_url = models.URLField(
+        max_length=500,
+        blank=True,
+        help_text=_(
+            "The provider's hosted payment page for a checkout. Returned again when the same "
+            "idempotency key is replayed, so a retried request never creates a second payment."
+        ),
+    )
+    credit_applied_minor = models.BigIntegerField(
+        default=0,
+        help_text=_(
+            "Unused value of the previous paid plan deducted from this payment (plan change), "
+            "in minor units. amount_minor is what was charged after the credit."
+        ),
+    )
     currency = models.CharField(max_length=3, validators=[CURRENCY_VALIDATOR])
 
     period_start = models.DateTimeField(null=True, blank=True, help_text=_("Billing period this payment buys."))

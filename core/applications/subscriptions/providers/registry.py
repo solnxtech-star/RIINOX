@@ -34,6 +34,11 @@ def _build_fake() -> PaymentProvider:
 _FACTORIES = {"paystack": _build_paystack, "fake": _build_fake}
 
 
+def is_known_provider(name: str) -> bool:
+    """Whether `name` is a provider this platform integrates with (configured or not)."""
+    return name in _FACTORIES
+
+
 @lru_cache(maxsize=None)
 def get_provider(name: str) -> PaymentProvider:
     try:

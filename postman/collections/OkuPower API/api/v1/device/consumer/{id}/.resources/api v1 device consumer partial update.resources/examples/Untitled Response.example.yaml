@@ -1,0 +1,43 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/api/v1/device/consumer/:id/"
+  method: PATCH
+  headers:
+    - key: Content-Type
+      value: application/x-www-form-urlencoded
+    - key: Accept
+      value: application/json
+    - key: sessionid
+      value: <API Key>
+      description: "Added as a part of security scheme: apikey"
+  pathVariables:
+    id: ""
+  body:
+    type: urlencoded
+    content:
+      - key: id
+        value: <string>
+      - key: type
+        value: THREE_PHASE
+        description: |-
+          * `ONE_PHASE` - ONE_PHASE
+          * `THREE_PHASE` - THREE_PHASE
+      - key: batch_no
+        value: <string>
+      - key: meter_no
+        value: <string>
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "batch_no": "<string>",
+        "id": "<string>",
+        "type": "THREE_PHASE",
+        "meter_no": "<string>"
+      }
+order: 1000

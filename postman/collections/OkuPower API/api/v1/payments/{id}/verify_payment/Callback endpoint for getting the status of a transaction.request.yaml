@@ -1,0 +1,50 @@
+$kind: http-request
+description: |-
+  Verify a payment.
+
+  This method is used to verify the status of a payment. It takes in the following parameters:
+
+  - `request` (type: `Request`): The HTTP request object containing information about the request.
+  - `pk` (type: `int`): The primary key of the payment to be verified.
+
+  This method returns a response object of type `Response`, which contains the result of the
+  verification process.
+
+  If the payment has already been verified and its status is `SUCCESS`, a `NotAcceptable`
+  exception is raised with
+  the detail message "Payment has already been verified".
+
+  If the payment has already failed and its status is `FAILED`, a `ValidationError` exception is raised with the
+  detail message "Payment has already failed".
+
+  If the payment status is neither `SUCCESS` nor `FAILED`, the payment is considered ongoing.
+  In this case, the payment status is set to `ONGOING` and a response object is returned with
+  the detail message "Payment is ongoing, try again later" and status `False`.
+
+  If the payment verification is successful and the payment status is `SUCCESS`, the payment status, channel,
+  amount are updated with the values obtained from the payment gateway's response.
+  The payment is then saved in the database.
+
+  A response object is returned with the detail message "Payment verified successfully"
+  and status `True`.
+
+  If the payment verification fails and the payment status is `FAILED`, the payment status is updated
+  and saved in the database. A response object
+  is returned with the detail message "Payment failed" and status `False`.
+url: "{{baseUrl}}/api/v1/payments/:id/verify_payment/"
+method: GET
+headers:
+  Accept: application/json
+pathVariables:
+  - key: id
+    value: <string>
+    description: (Required) A unique value identifying this Payment.
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/Callback endpoint for getting the status of a transaction.resources/examples
+order: 1000

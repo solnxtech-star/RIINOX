@@ -1,0 +1,42 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/api/pollutant_snapshot/?page=<integer>"
+  method: GET
+  headers:
+    Accept: application/json
+  queryParams:
+    - key: page
+      value: <integer>
+      description: A page number within the paginated result set.
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "count": "<integer>",
+        "results": [
+          {
+            "device": "<string>",
+            "id": "<string>",
+            "pollutant": "<string>",
+            "pollutant_state": "<string>",
+            "summary": "<string>",
+            "value": "<double>"
+          },
+          {
+            "device": "<string>",
+            "id": "<string>",
+            "pollutant": "<string>",
+            "pollutant_state": "<string>",
+            "summary": "<string>",
+            "value": "<double>"
+          }
+        ],
+        "next": "<uri>",
+        "previous": "<uri>"
+      }
+order: 1000

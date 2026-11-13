@@ -1,0 +1,34 @@
+$kind: http-request
+name: Error reporting and feedback
+description: This topic is used to tell the server that the credit unit was successfully added
+url: "{{baseUrl}}/okupower/:id/error/"
+method: POST
+headers:
+  Content-Type: application/x-www-form-urlencoded
+  Accept: application/json
+pathVariables:
+  - key: id
+    value: <string>
+    description: (Required) A unique value identifying this device.
+body:
+  type: urlencoded
+  content:
+    - key: code
+      value: "1002"
+      description: |-
+        (Required) * `1001` - 1001
+        * `1002` - 1002
+    - key: message
+      value: The content of the request body contains errors, kindly fix
+      description: |-
+        (Required) * `The meter id requested does not correspond to any available prepaid meter` - The meter id requested does not correspond to any available prepaid meter
+        * `The content of the request body contains errors, kindly fix` - The content of the request body contains errors, kindly fix
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/Error reporting and feedback-1.resources/examples
+order: 2000

@@ -1,0 +1,17 @@
+$kind: http-request
+url: http://localhost:8000/api/2.2/projects/5814ea42-d7c9-4e8c-897a-de216cf8e6eb/log-gallery/
+method: GET
+headers:
+  Authorization: "{{bearer_token_1ars}}"
+queryParams:
+  - key: ordering
+    value: oldest
+    disabled: true
+  - key: search
+    value: LOG-001
+    disabled: true
+  - key: group_by
+    value: day
+    disabled: true
+settings: {}
+order: 3000

@@ -1,0 +1,43 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/disco/payments/?amount=<float>&channel=BANK_TRANSFER&ordering=<string>&page=<integer>&search=<string>&status=success"
+method: GET
+headers:
+  Accept: application/json
+queryParams:
+  - key: amount
+    value: <float>
+  - key: channel
+    value: BANK_TRANSFER
+    description: |-
+      * `CREDIT_CARD` - card
+      * `BANK_TRANSFER` - bank_transer
+      * `BANK` - bank
+      * `USSD` - ussd
+      * `QR` - qr
+      * `MOBILE_MONEY` - mobile_money
+  - key: ordering
+    value: <string>
+    description: Which field to use when ordering the results.
+  - key: page
+    value: <integer>
+    description: A page number within the paginated result set.
+  - key: search
+    value: <string>
+    description: A search term.
+  - key: status
+    value: success
+    description: |-
+      * `success` - success
+      * `failed` - failed
+      * `abandoned` - abandoned
+      * `ongoing` - ongoing
+      * `DEFAULT` - DEFAULT
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/api v1 disco payments list.resources/examples
+order: 2000

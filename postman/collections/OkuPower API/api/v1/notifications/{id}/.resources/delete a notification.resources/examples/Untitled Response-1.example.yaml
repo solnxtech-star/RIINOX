@@ -1,0 +1,28 @@
+$kind: http-example
+name: Untitled Response
+request:
+  url: "{{baseUrl}}/api/v1/notifications/:id/"
+  method: DELETE
+  headers:
+    - key: Accept
+      value: application/json
+    - key: sessionid
+      value: <API Key>
+      description: "Added as a part of security scheme: apikey"
+  pathVariables:
+    id: ""
+response:
+  statusCode: 400
+  statusText: Bad Request
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "esse_0": {},
+        "incididunt2c": {},
+        "nulla_724": {},
+        "ametc1c": {}
+      }
+order: 2000

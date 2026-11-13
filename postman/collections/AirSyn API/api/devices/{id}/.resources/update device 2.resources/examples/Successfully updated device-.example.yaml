@@ -1,0 +1,41 @@
+$kind: http-example
+name: Successfully updated device.
+request:
+  url: "{{baseUrl}}/api/devices/:id/"
+  method: PUT
+  headers:
+    - key: Content-Type
+      value: application/json
+    - key: Accept
+      value: application/json
+    - key: __Secure-sessionid
+      value: <API Key>
+      description: "Added as a part of security scheme: apikey"
+  pathVariables:
+    id: ""
+  body:
+    type: json
+    content: |-
+      {
+        "status": "SAFE",
+        "name": "<string>",
+        "location": "<string>",
+        "state": "ON"
+      }
+response:
+  statusCode: 202
+  statusText: Accepted
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "id": "<string>",
+        "pollutants": "<string>",
+        "status": "SAFE",
+        "name": "<string>",
+        "location": "<string>",
+        "state": "OFF"
+      }
+order: 2000

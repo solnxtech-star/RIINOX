@@ -1,0 +1,60 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/users/me/"
+method: PATCH
+headers:
+  Content-Type: application/x-www-form-urlencoded
+  Accept: application/json
+body:
+  type: urlencoded
+  content:
+    - key: id
+      value: <string>
+    - key: is_staff
+      value: <boolean>
+      description: Designates whether the user can log into this admin site.
+    - key: is_active
+      value: <boolean>
+      description: Designates whether this user should be treated as active. Unselect this instead of deleting accounts.
+    - key: user_permissions
+      value: <integer>
+      description: Specific permissions for this user.
+    - key: user_permissions
+      value: <integer>
+      description: Specific permissions for this user.
+    - key: groups
+      value: <integer>
+      description: The groups this user belongs to. A user will get all permissions granted to each of their groups.
+    - key: groups
+      value: <integer>
+      description: The groups this user belongs to. A user will get all permissions granted to each of their groups.
+    - key: name
+      value: <string>
+    - key: email
+      value: <email>
+    - key: phone_no
+      value: <string>
+    - key: has_activated_2fa
+      value: <boolean>
+    - key: id
+      value: <string>
+    - key: is_consumer
+      value: <boolean>
+    - key: is_disco
+      value: <boolean>
+    - key: is_staff
+      value: <boolean>
+    - key: position
+      value: <string>
+    - key: type
+      value: STAFF
+    - key: setup_info
+      value: <string>
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/api v1 users me partial update.resources/examples
+order: 3000

@@ -1,0 +1,61 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/okupower/:id/consumption/"
+  method: POST
+  headers:
+    - key: Content-Type
+      value: application/x-www-form-urlencoded
+    - key: Accept
+      value: application/json
+    - key: sessionid
+      value: <API Key>
+      description: "Added as a part of security scheme: apikey"
+  pathVariables:
+    id: ""
+  body:
+    type: urlencoded
+    content:
+      - key: current
+        value: <double>
+        description: "(Required) "
+      - key: current_unit
+        value: <double>
+        description: "(Required) "
+      - key: frequency
+        value: <double>
+        description: "(Required) "
+      - key: load
+        value: <double>
+        description: "(Required) "
+      - key: time_left
+        value: <double>
+        description: "(Required) "
+      - key: voltage
+        value: <double>
+        description: "(Required) "
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "average_consumption": "<integer>",
+        "band_name": "<string>",
+        "branch_name": "<string>",
+        "consumption": "<integer>",
+        "id": "<string>",
+        "on_bonus": "<string>",
+        "time_left": "<integer>",
+        "user_address": "<string>",
+        "user_email": "<string>",
+        "user_name": "<string>",
+        "user_phone_no": "<string>",
+        "meter_no": "<string>",
+        "status": "ASSIGNED",
+        "bonus": "",
+        "type": "ONE_PHASE"
+      }
+order: 1000

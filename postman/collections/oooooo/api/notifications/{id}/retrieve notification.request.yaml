@@ -1,0 +1,17 @@
+$kind: http-request
+description: Retrieve an instance of the notification.
+url: "{{baseUrl}}/api/notifications/:id/"
+method: GET
+pathVariables:
+  - key: id
+    value: <string>
+    description: (Required) A unique value identifying this Notification.
+auth:
+  type: apikey
+  credentials:
+    key: __Secure-sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/retrieve notification.resources/examples
+order: 1000

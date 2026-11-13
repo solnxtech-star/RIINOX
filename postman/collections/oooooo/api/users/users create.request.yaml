@@ -1,0 +1,30 @@
+$kind: http-request
+url: "{{baseUrl}}/api/users/"
+method: POST
+headers:
+  Content-Type: multipart/form-data
+  Accept: application/json
+body:
+  type: formdata
+  content:
+    - type: text
+      key: email
+      value: <email>
+      description: "(Required) "
+    - type: text
+      key: password
+      value: <string>
+      description: "(Required) "
+    - type: text
+      key: re_password
+      value: <string>
+      description: "(Required) "
+auth:
+  type: apikey
+  credentials:
+    key: __Secure-sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/users create.resources/examples
+order: 14000

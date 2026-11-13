@@ -1,0 +1,30 @@
+$kind: http-request
+description: |-
+  Update a band .
+  Update a band .
+url: "{{baseUrl}}/api/v1/bands/:id/"
+method: PUT
+headers:
+  Content-Type: application/x-www-form-urlencoded
+  Accept: application/json
+pathVariables:
+  - key: id
+    value: <string>
+    description: (Required) A unique value identifying this band.
+body:
+  type: urlencoded
+  content:
+    - key: name
+      value: <string>
+      description: "(Required) "
+    - key: tariff
+      value: "36667061824946529."
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/update a band.resources/examples
+order: 9000

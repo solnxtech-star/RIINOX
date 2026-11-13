@@ -1,0 +1,25 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/api/auth/jwt/verify/"
+  method: POST
+  headers:
+    Content-Type: application/x-www-form-urlencoded
+    Accept: application/json
+  body:
+    type: urlencoded
+    content:
+      - key: token
+        value: <string>
+        description: "(Required) "
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "token": "<string>"
+      }
+order: 1000

@@ -32,6 +32,15 @@ def billing_grace_period() -> timedelta:
     )
 
 
+def billing_renewal_lead() -> timedelta:
+    """
+    How long before period end a renewal is charged. Used both to select due
+    subscriptions (due_for_renewal) and to re-check one under lock (renewals), so
+    the two can never disagree.
+    """
+    return timedelta(hours=getattr(settings, "BILLING_RENEWAL_LEAD_HOURS", 1))
+
+
 def billing_renewal_leeway() -> timedelta:
     """
     How long past period end an ACTIVE paid subscription
@@ -137,7 +146,7 @@ class SubscriptionQuerySet(auto_prefetch.QuerySet):
     # -- Sweeps ------------------------------------------------------------
     # Each backs one background job. Use inside transaction.atomic() as
     # `.locked(skip_locked=True)[:BATCH]` so workers split the work safely.
-    def due_for_renewal(self, *, lead: timedelta = timedelta(hours=1)):
+    def due_for_renewal(self, *, lead: timedelta | None = None):
         """
         ACTIVE paid subscriptions to charge automatically: not set to cancel and
         holding a usable payment method. Charging `lead` ahead of period end, with
@@ -149,7 +158,7 @@ class SubscriptionQuerySet(auto_prefetch.QuerySet):
             cancel_at_period_end=False,
             plan_price__isnull=False,
             default_payment_method__status=BillingPaymentMethodStatus.ACTIVE,
-            current_period_end__lte=timezone.now() + lead,
+            current_period_end__lte=timezone.now() + (lead if lead is not None else billing_renewal_lead()),
         ).order_by("current_period_end")
 
     def due_for_period_end(self):

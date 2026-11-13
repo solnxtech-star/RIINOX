@@ -1,0 +1,23 @@
+$kind: http-request
+description: |-
+  Takes a refresh type JSON web token and returns an access type JSON web
+  token if the refresh token is valid.
+url: "{{baseUrl}}/api/auth/jwt/refresh/"
+method: POST
+headers:
+  Content-Type: multipart/form-data
+  Accept: application/json
+body:
+  type: formdata
+  content:
+    - type: text
+      key: refresh
+      value: <string>
+      description: "(Required) "
+    - type: text
+      key: access
+      value: "16807400.425599143"
+      description: "(Required) "
+settings: {}
+examples: ./.resources/auth jwt refresh create.resources/examples
+order: 1000

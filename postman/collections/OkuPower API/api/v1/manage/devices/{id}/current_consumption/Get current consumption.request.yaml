@@ -1,0 +1,19 @@
+$kind: http-request
+description: Get the current consumption of the device.
+url: "{{baseUrl}}/api/v1/manage/devices/:id/current_consumption/"
+method: GET
+headers:
+  Accept: application/json
+pathVariables:
+  - key: id
+    value: <string>
+    description: (Required) A unique value identifying this device.
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/Get current consumption.resources/examples
+order: 1000

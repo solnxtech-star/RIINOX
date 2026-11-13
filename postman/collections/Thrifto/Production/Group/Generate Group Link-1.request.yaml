@@ -1,0 +1,6 @@
+$kind: http-request
+name: Generate Group Link
+url: ""
+method: GET
+settings: {}
+order: 3000

@@ -1,0 +1,27 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/api/v1/bands/:id/delete_all_devices/"
+  method: DELETE
+  headers:
+    - key: Accept
+      value: application/json
+    - key: sessionid
+      value: <API Key>
+      description: "Added as a part of security scheme: apikey"
+  pathVariables:
+    id: ""
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "esse_0": {},
+        "incididunt2c": {},
+        "nulla_724": {},
+        "ametc1c": {}
+      }
+order: 1000

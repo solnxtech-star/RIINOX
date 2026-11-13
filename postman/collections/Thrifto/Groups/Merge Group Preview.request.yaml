@@ -1,0 +1,16 @@
+$kind: http-request
+url: http://localhost:8000/api/groups/merge/preview/
+method: POST
+headers:
+  Authorization: "{{bearer_token_0kpm}}"
+body:
+  type: json
+  content: "{\r
+
+    \    \"source_group_id\": \"81e8329d-4acd-4c80-b13c-270f35394726\",\r
+
+    \    \"destination_group_id\": \"7cda3973-55d3-4626-a845-cc4edbb2afd6\"\r
+
+    }"
+settings: {}
+order: 9000

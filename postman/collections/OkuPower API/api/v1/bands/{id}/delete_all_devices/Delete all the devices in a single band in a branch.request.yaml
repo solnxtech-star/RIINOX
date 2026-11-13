@@ -1,0 +1,21 @@
+$kind: http-request
+description: |-
+  Delete all the devices in a single band in a branch
+  Delete all the devices in a single band in a branch
+url: "{{baseUrl}}/api/v1/bands/:id/delete_all_devices/"
+method: DELETE
+headers:
+  Accept: application/json
+pathVariables:
+  - key: id
+    value: <string>
+    description: (Required) A unique value identifying this band.
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/Delete all the devices in a single band in a branch.resources/examples
+order: 1000

@@ -22,6 +22,11 @@ SECRET_KEY = env(
     "DJANGO_SECRET_KEY",
     default="CtK9CYd6nEkC2kMCVtJSXt82O7J7rX7Alzhdo50RSiQRcQ6p2TUODRpKqwzMmhWE",
 )
+# Fernet keys for EncryptedTextField / EncryptedJSONField (core.helper.fields).
+# Test-only key; production reads its own from the environment.
+FIELD_ENCRYPTION_KEYS = env.list(
+    "FIELD_ENCRYPTION_KEYS", default=["gJpvFqWBpmBYnIXAru5bXaii7LqCe_UK8oxcwtnUBAQ="]
+)
 # https://docs.djangoproject.com/en/dev/ref/settings/#test-runner
 TEST_RUNNER = "django.test.runner.DiscoverRunner"
 

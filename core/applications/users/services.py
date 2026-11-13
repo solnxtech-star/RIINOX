@@ -36,6 +36,7 @@ from core.applications.users.models import Permission
 from core.applications.users.models import Role
 from core.applications.users.models import RolePermission
 from core.applications.users.models import State
+from core.applications.products.tax import prices_include_tax_by_default
 from core.applications.warehouse.services import create_default_location
 from core.helper.enums import PermissionCode
 from core.helper.utils import default_invite_expiry
@@ -199,7 +200,13 @@ def create_organization(
     """
     _validate_profile(profile)
 
-    organization = Organization.objects.create(created_by=user, **asdict(profile))
+    organization = Organization.objects.create(
+        created_by=user,
+        # Shops price tax-inclusive, wholesalers and services tax-exclusive; the
+        # organization can change it in its settings (products.tax).
+        prices_include_tax=prices_include_tax_by_default(getattr(business_type, "code", None)),
+        **asdict(profile),
+    )
     OrganizationBusinessType.objects.create(
         organization=organization, business_type=business_type, is_primary=True
     )
@@ -271,18 +278,27 @@ def seed_default_roles(organization: Organization) -> dict[str, Role]:
 
 
 @transaction.atomic
-def deactivate_organization(*, organization: Organization, actor) -> Organization:
+def deactivate_organization(
+    *, organization: Organization, actor, audit_context: AuditContext | None = None
+) -> Organization:
     """
     Soft-deactivate a tenant (PRD §44: business records are never hard-deleted).
     Deactivated organizations drop out of `Organization.objects.for_user`, so
     members lose API access; reactivation is a support action in the admin.
-    Idempotent.
+    Idempotent; audited (PRD §31).
     """
     if organization.is_active:
         organization.is_active = False
         organization.save(update_fields=["is_active", "updated_at"])
-        # audit.record(actor=actor, action="organization.deactivated", ...)
-        # subscriptions.services.pause_subscription(organization)   # if billing should stop
+        audit.record(
+            action=AuditAction.ORGANIZATION_DEACTIVATED,
+            organization=organization,
+            actor=actor,
+            resource=organization,
+            previous_values={"is_active": True},
+            new_values={"is_active": False},
+            context=audit_context,
+        )
     return organization
 
 
@@ -326,113 +342,6 @@ def _ensure_seat_available(organization: Organization) -> None:
         raise PlanLimitReached(f"Your plan allows up to {limit} users. Upgrade your plan to add more.")
 
 
-@transaction.atomic
-def invite_member(*, organization: Organization, invited_by, email: str, role: Role) -> Membership:
-    """
-    Invite `email` to `organization` with `role`.
-
-    An unexpired invitation to the same email is rejected; an expired one is
-    refreshed (new token, new expiry) instead of piling up duplicates.
-    """
-    if not organization.is_active:
-        raise MembershipRuleViolation("This organization is deactivated.", field="organization")
-
-    actor_slug = manager_role_slug(invited_by, organization)
-    if actor_slug is None:
-        raise NotAuthorized("Only organization Administrators and Owners can invite members.")
-
-    _assert_role_assignable(actor_slug, role, organization)
-    email = email.strip().lower()
-
-    # Serialize invitations per organization so two concurrent requests can't both take the last seat.
-    Organization.objects.select_for_update().get(pk=organization.pk)
-
-    if Membership.objects.for_organization(organization).filter(accepted=True, user__email__iexact=email).exists():
-        raise MembershipRuleViolation("This person is already a member of the organization.", field="invited_email")
-
-    pending = (
-        Membership.objects.for_organization(organization)
-        .filter(accepted=False, invited_email__iexact=email)
-        .first()
-    )
-    if pending and pending.expires_at > timezone.now():
-        raise MembershipRuleViolation("This email is already invited to the organization.", field="invited_email")
-
-    _ensure_seat_available(organization)  # an expired invite holds no seat, so a refresh needs one
-
-    if pending:
-        pending.role = role
-        pending.invite_token = uuid.uuid4()
-        pending.expires_at = default_invite_expiry()
-        pending.is_active = True
-        pending.save(update_fields=["role", "invite_token", "expires_at", "is_active", "updated_at"])
-        membership = pending
-    else:
-        membership = Membership.objects.create(
-            organization=organization,
-            role=role,
-            invited_email=email,
-            accepted=False,
-        )
-
-    # Only email if the invitation really committed.
-    transaction.on_commit(lambda: send_invitation_email(membership))
-    # audit.record(actor=invited_by, action="membership.invited", ...)
-    return membership
-
-
-def _get_open_invitation(token, *, lock: bool = False) -> Membership:
-    """The pending, unexpired invitation for `token` on an active organization, or InvitationInvalid."""
-    queryset = Membership.objects.select_related("organization", "role")
-    if lock:
-        queryset = queryset.select_for_update(of=("self",))
-    try:
-        membership = queryset.get(invite_token=token, accepted=False)
-    except Membership.DoesNotExist:
-        raise InvitationInvalid("Invalid or expired invitation token.") from None
-
-    if membership.expires_at < timezone.now():
-        raise InvitationInvalid("This invitation has expired.")
-    if not membership.organization.is_active:
-        raise InvitationInvalid("This organization is no longer active.")
-    return membership
-
-
-def get_invitation_preview(token) -> Membership:
-    """
-    What the signup/login screen may show before the invitee authenticates:
-    organization, role and invited email. Possession of the token (a random
-    UUID) is the only credential, so callers must expose nothing beyond that.
-    """
-    return _get_open_invitation(token)
-
-
-@transaction.atomic
-def accept_invitation(*, user, token) -> Membership:
-    """
-    Bind an invitation to the authenticated user.
-
-    The token alone isn't enough: the user must be signed in with a VERIFIED
-    email that matches the invited address, otherwise anyone who got hold of
-    the link (or registered with someone else's address) could join the tenant.
-    """
-    membership = _get_open_invitation(token, lock=True)
-
-    if not user.is_verified:
-        raise InvitationInvalid("Verify your email address before accepting an invitation.")
-    if (membership.invited_email or "").lower() != user.email.lower():
-        raise InvitationInvalid("This invitation was not sent to your email address.")
-    if Membership.objects.filter(organization=membership.organization, user=user).exists():
-        raise InvitationInvalid("You are already a member of this organization.")
-
-    membership.user = user
-    membership.accepted = True
-    membership.is_active = True
-    membership.save(update_fields=["user", "accepted", "is_active", "updated_at"])
-    # audit.record(actor=user, action="membership.accepted", ...)
-    return membership
-
-
 def _lock_manageable_membership(membership: Membership, actor) -> tuple[Membership, str]:
     """Lock the row and enforce who may modify whom. Returns (membership, actor's manager slug)."""
     membership = (
@@ -456,9 +365,17 @@ def _lock_manageable_membership(membership: Membership, actor) -> tuple[Membersh
 
 
 @transaction.atomic
-def update_membership(*, membership: Membership, actor, role: Role | None = None, is_active: bool | None = None) -> Membership:
-    """Change a member's role and/or active flag."""
+def update_membership(
+    *,
+    membership: Membership,
+    actor,
+    role: Role | None = None,
+    is_active: bool | None = None,
+    audit_context: AuditContext | None = None,
+) -> Membership:
+    """Change a member's role and/or active flag. Each real change is audited (PRD §31)."""
     membership, actor_slug = _lock_manageable_membership(membership, actor)
+    previous_role, previous_active = membership.role, membership.is_active
 
     if role is not None and role.pk != membership.role_id:
         _assert_role_assignable(actor_slug, role, membership.organization)
@@ -467,12 +384,32 @@ def update_membership(*, membership: Membership, actor, role: Role | None = None
         membership.is_active = is_active
 
     membership.save(update_fields=["role", "is_active", "updated_at"])
-    # audit.record(actor=actor, action="membership.updated", previous/new values)
+
+    if membership.role_id != previous_role.pk:
+        audit.record(
+            action=AuditAction.MEMBERSHIP_ROLE_CHANGED,
+            organization=membership.organization,
+            actor=actor,
+            resource=membership,
+            previous_values={"role": previous_role.slug},
+            new_values={"role": membership.role.slug},
+            context=audit_context,
+        )
+    if membership.is_active != previous_active:
+        audit.record(
+            action=AuditAction.MEMBERSHIP_REACTIVATED if membership.is_active else AuditAction.MEMBERSHIP_DEACTIVATED,
+            organization=membership.organization,
+            actor=actor,
+            resource=membership,
+            previous_values={"is_active": previous_active},
+            new_values={"is_active": membership.is_active},
+            context=audit_context,
+        )
     return membership
 
 
 @transaction.atomic
-def remove_membership(*, membership: Membership, actor) -> None:
+def remove_membership(*, membership: Membership, actor, audit_context: AuditContext | None = None) -> None:
     """
     Deactivate a member (never deleted, so history and audit references stay
     intact). Pending invitations are revoked through the invitation service.
@@ -481,6 +418,15 @@ def remove_membership(*, membership: Membership, actor) -> None:
     if membership.is_active:
         membership.is_active = False
         membership.save(update_fields=["is_active", "updated_at"])
+        audit.record(
+            action=AuditAction.MEMBERSHIP_DEACTIVATED,
+            organization=membership.organization,
+            actor=actor,
+            resource=membership,
+            previous_values={"is_active": True},
+            new_values={"is_active": False},
+            context=audit_context,
+        )
 
 
 # ---------------------------------------------------------------------------

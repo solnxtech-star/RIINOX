@@ -1,0 +1,26 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/api/schema/?format=yaml&lang=uz"
+  method: GET
+  headers:
+    - key: Accept
+      value: application/vnd.oai.openapi
+    - key: sessionid
+      value: <API Key>
+      description: "Added as a part of security scheme: apikey"
+  queryParams:
+    format: yaml
+    lang: uz
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "nisi1": {},
+        "voluptateef": {}
+      }
+order: 1000

@@ -79,6 +79,31 @@ class InsufficientStock(Exception):
         )
 
 
+def _apply_stock_delta(*, product, variant, batch, warehouse, delta):
+    """
+    Add `delta` (negative to deduct) to the on-hand quantity of one inventory row,
+    creating the row at 0 if it doesn't exist yet.
+
+    The addition happens in the database (`quantity = quantity + delta`), so two
+    concurrent movements on the same row can never overwrite each other (PRD §43).
+    Use this instead of reading `quantity`, changing it in Python and saving.
+    """
+    inventory, _ = Inventory.objects.get_or_create(
+        product=product, variant=variant, batch=batch, warehouse=warehouse, defaults={"quantity": 0}
+    )
+    Inventory.objects.filter(pk=inventory.pk).update(
+        quantity=F("quantity") + delta, updated_at=timezone.now()
+    )
+    return inventory
+
+
+def _sale_location_id(sale):
+    """The location a sale happened at: its warehouse, else its storage area's warehouse."""
+    if sale.warehouse_id:
+        return sale.warehouse_id
+    return sale.location.warehouse_id if sale.location_id else None
+
+
 @transaction.atomic
 def process_sale_inventory_and_ledger(sale):
     """
@@ -87,6 +112,7 @@ def process_sale_inventory_and_ledger(sale):
     """
     transaction_record = create_transaction(TransactionData(
         transaction_id=f"SALE-{sale.sale_id}"[:50],
+        location=_sale_location_id(sale),
         organization=sale.organization,
         transaction_type=TransactionTypeChoices.SALE,
         status=TransactionStatusChoices.COMPLETED,
@@ -129,14 +155,13 @@ def process_sale_inventory_and_ledger(sale):
         if not item.product.track_inventory:
             # Untracked products (e.g. services) can freely go negative.
             # We don't need FIFO, just pick or create the default inventory record and deduct.
-            inv, _ = Inventory.objects.get_or_create(
+            _apply_stock_delta(
                 product=item.product,
                 variant=item.variant,
                 batch=None,
                 warehouse=warehouse,
+                delta=-remaining_qty,
             )
-            inv.quantity -= remaining_qty
-            inv.save(update_fields=['quantity'])
 
             ledger_entries.append(InventoryLedgerEntry(
                 transaction=transaction_record,
@@ -192,6 +217,7 @@ def process_return_inventory_and_ledger(sale_return):
     """
     transaction_record = create_transaction(TransactionData(
         transaction_id=f"RET-{sale_return.id}"[:50],
+        location=_sale_location_id(sale_return.original_sale),
         organization=sale_return.organization,
         transaction_type=TransactionTypeChoices.RETURN,
         status=TransactionStatusChoices.COMPLETED,
@@ -240,6 +266,7 @@ def reverse_sale_inventory_and_ledger(sale, *, actor=None, reason: str = ""):
     """
     transaction_record = create_transaction(TransactionData(
         transaction_id=f"CNL-{sale.sale_id}"[:50],
+        location=_sale_location_id(sale),
         organization=sale.organization,
         transaction_type=TransactionTypeChoices.RETURN,
         status=TransactionStatusChoices.COMPLETED,
@@ -318,6 +345,7 @@ def create_opening_stock(
 
     transaction_record = create_transaction(TransactionData(
         transaction_id=f"OPEN-{uuid.uuid4().hex[:8].upper()}",
+        location=warehouse,
         organization=product.organization,
         transaction_type=TransactionTypeChoices.OPENING_STOCK,
         status=TransactionStatusChoices.COMPLETED,
@@ -336,11 +364,9 @@ def create_opening_stock(
         unit_cost=product.purchase_cost
     )
 
-    inventory, _ = Inventory.objects.get_or_create(
-        product=product, variant=variant, batch=batch, warehouse=warehouse
-    )
-    inventory.quantity = quantity
-    inventory.save(update_fields=['quantity'])
+    # Add, never overwrite: the ledger entry above records +quantity, so the
+    # balance must move by exactly that much (PRD §15).
+    _apply_stock_delta(product=product, variant=variant, batch=batch, warehouse=warehouse, delta=quantity)
 
     audit_record(
         action=AuditAction.INVENTORY_OPENING_STOCK_SET,
@@ -425,6 +451,7 @@ def approve_stock_adjustment(adjustment_id, admin_user, *, organization=None):
     # Create Ledger
     transaction_record = create_transaction(TransactionData(
         transaction_id=f"ADJ-{adjustment.id}",
+        location=adjustment.warehouse_id,
         organization=adjustment.product.organization,
         transaction_type=TransactionTypeChoices.ADJUSTMENT if hasattr(TransactionTypeChoices, 'ADJUSTMENT') else 'ADJUSTMENT',
         status=TransactionStatusChoices.COMPLETED,
@@ -510,6 +537,7 @@ def single_transfer_stock(
 
     transaction_record = create_transaction(TransactionData(
         transaction_id=f"TRF-{uuid.uuid4().hex[:8].upper()}",
+        location=source_warehouse,
         organization=product.organization,
         transaction_type=TransactionTypeChoices.TRANSFER if hasattr(TransactionTypeChoices, 'TRANSFER') else 'TRANSFER',
         status=TransactionStatusChoices.COMPLETED,
@@ -539,11 +567,9 @@ def single_transfer_stock(
         quantity_moved=quantity,
         unit_cost=product.purchase_cost
     )
-    destination_inventory, _ = Inventory.objects.get_or_create(
-        product=product, variant=variant, batch=batch, warehouse=destination_warehouse
+    _apply_stock_delta(
+        product=product, variant=variant, batch=batch, warehouse=destination_warehouse, delta=quantity
     )
-    destination_inventory.quantity += quantity
-    destination_inventory.save(update_fields=['quantity'])
 
 
 @transaction.atomic
@@ -560,6 +586,7 @@ def bulk_transfer_stock(source_warehouse, destination_warehouse, items, user, no
 
     transaction_record = create_transaction(TransactionData(
         transaction_id=f"TRF-BLK-{uuid.uuid4().hex[:8].upper()}",
+        location=source_warehouse,
         organization=resolved_organization,
         transaction_type=TransactionTypeChoices.TRANSFER if hasattr(TransactionTypeChoices, 'TRANSFER') else 'TRANSFER',
         status=TransactionStatusChoices.COMPLETED,
@@ -603,11 +630,9 @@ def bulk_transfer_stock(source_warehouse, destination_warehouse, items, user, no
             )
         )
         # Destination Inventory Update
-        destination_inventory, _ = Inventory.objects.get_or_create(
-            product=product, variant=variant, batch=batch, warehouse=destination_warehouse
+        _apply_stock_delta(
+            product=product, variant=variant, batch=batch, warehouse=destination_warehouse, delta=quantity
         )
-        destination_inventory.quantity += quantity
-        destination_inventory.save(update_fields=['quantity'])
 
     InventoryLedgerEntry.objects.bulk_create(ledger_entries)
 
@@ -642,6 +667,7 @@ def finalize_physical_stock_count(count_id, admin_user):
 
     transaction_record = create_transaction(TransactionData(
         transaction_id=f"COUNT-{count.id}"[:50],
+        location=count.warehouse_id,
         organization=count.warehouse.organization,
         transaction_type=TransactionTypeChoices.STOCK_ADJUSTMENT,
         status=TransactionStatusChoices.COMPLETED,
@@ -701,6 +727,7 @@ def process_invoice_stock_deduction(invoice, lines, *, actor=None):
     warehouse = invoice.warehouse
     transaction_record = create_transaction(TransactionData(
         transaction_id=f"INV-{invoice.invoice_number}"[:50],
+        location=warehouse,
         organization=invoice.organization,
         transaction_type=TransactionTypeChoices.SALE,
         status=TransactionStatusChoices.COMPLETED,
@@ -764,6 +791,7 @@ def reverse_invoice_stock_deduction(invoice, *, actor=None, reason: str = ""):
 
     transaction_record = create_transaction(TransactionData(
         transaction_id=f"VOID-{invoice.invoice_number}"[:50],
+        location=invoice.warehouse_id,
         organization=invoice.organization,
         transaction_type=TransactionTypeChoices.RETURN,
         status=TransactionStatusChoices.COMPLETED,
@@ -818,6 +846,7 @@ def record_purchase_receipt_inventory_and_ledger(
     transaction_record = create_transaction(
         TransactionData(
             transaction_id=f"RECV-{str(purchase.id)[:8]}-{uuid.uuid4().hex[:8].upper()}",
+            location=purchase.warehouse_id,
             organization=purchase.organization,
             transaction_type=TransactionTypeChoices.PURCHASE,
             status=TransactionStatusChoices.COMPLETED,
@@ -894,6 +923,7 @@ def process_purchase_return_inventory_and_ledger(
     transaction_record = create_transaction(
         TransactionData(
             transaction_id=f"PRET-{str(purchase_return.id)[:8]}-{uuid.uuid4().hex[:6].upper()}",
+            location=purchase.warehouse_id,
             organization=purchase.organization,
             transaction_type=TransactionTypeChoices.RETURN,
             status=TransactionStatusChoices.COMPLETED,

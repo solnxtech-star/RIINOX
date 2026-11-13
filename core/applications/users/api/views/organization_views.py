@@ -266,7 +266,9 @@ class OrganizationViewSet(ModelViewSet):
     def deactivate(self, request, pk=None):
         """Deactivate an organization (Owners only)."""
         organization = self.get_object()
-        services.deactivate_organization(organization=organization, actor=request.user)
+        services.deactivate_organization(
+            organization=organization, actor=request.user, audit_context=_audit_context(request)
+        )
         return Response({"detail": f"Organization '{organization.name}' deactivated."})
 
     @action(detail=True, methods=["get"])
@@ -374,7 +376,9 @@ class MembershipViewSet(ModelViewSet):
         membership = self.get_object()
 
         with domain_errors():
-            services.remove_membership(membership=membership, actor=request.user)
+            services.remove_membership(
+                membership=membership, actor=request.user, audit_context=_audit_context(request)
+            )
 
         return Response(status=status.HTTP_204_NO_CONTENT)
 

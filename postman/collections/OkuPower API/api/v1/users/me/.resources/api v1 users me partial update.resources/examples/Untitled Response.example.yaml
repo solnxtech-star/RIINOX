@@ -1,0 +1,92 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/api/v1/users/me/"
+  method: PATCH
+  headers:
+    - key: Content-Type
+      value: application/x-www-form-urlencoded
+    - key: Accept
+      value: application/json
+    - key: sessionid
+      value: <API Key>
+      description: "Added as a part of security scheme: apikey"
+  body:
+    type: urlencoded
+    content:
+      - key: id
+        value: <string>
+      - key: is_staff
+        value: <boolean>
+        description: Designates whether the user can log into this admin site.
+      - key: is_active
+        value: <boolean>
+        description: Designates whether this user should be treated as active. Unselect this instead of deleting accounts.
+      - key: user_permissions
+        value: <integer>
+        description: Specific permissions for this user.
+      - key: user_permissions
+        value: <integer>
+        description: Specific permissions for this user.
+      - key: groups
+        value: <integer>
+        description: The groups this user belongs to. A user will get all permissions granted to each of their groups.
+      - key: groups
+        value: <integer>
+        description: The groups this user belongs to. A user will get all permissions granted to each of their groups.
+      - key: name
+        value: <string>
+      - key: email
+        value: <email>
+      - key: phone_no
+        value: <string>
+      - key: has_activated_2fa
+        value: <boolean>
+      - key: id
+        value: <string>
+      - key: is_consumer
+        value: <boolean>
+      - key: is_disco
+        value: <boolean>
+      - key: is_staff
+        value: <boolean>
+      - key: position
+        value: <string>
+      - key: type
+        value: STAFF
+      - key: setup_info
+        value: <string>
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "account": {
+          "id": "<string>",
+          "is_consumer": "<boolean>",
+          "is_disco": "<boolean>",
+          "is_staff": "<boolean>",
+          "position": "<string>",
+          "type": "CONSUMER"
+        },
+        "email": "<email>",
+        "id": "<string>",
+        "setup_info": "<string>",
+        "is_staff": "<boolean>",
+        "is_active": "<boolean>",
+        "user_permissions": [
+          "<integer>",
+          "<integer>"
+        ],
+        "groups": [
+          "<integer>",
+          "<integer>"
+        ],
+        "name": "<string>",
+        "phone_no": "<string>",
+        "has_activated_2fa": "<boolean>"
+      }
+order: 1000

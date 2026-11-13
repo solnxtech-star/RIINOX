@@ -1,0 +1,75 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/api/v1/payments/?amount=<float>&channel=BANK_TRANSFER&ordering=<string>&page=<integer>&search=<string>&status=success"
+  method: GET
+  headers:
+    - key: Accept
+      value: application/json
+    - key: sessionid
+      value: <API Key>
+      description: "Added as a part of security scheme: apikey"
+  queryParams:
+    - key: amount
+      value: <float>
+    - key: channel
+      value: BANK_TRANSFER
+      description: |-
+        * `CREDIT_CARD` - card
+        * `BANK_TRANSFER` - bank_transer
+        * `BANK` - bank
+        * `USSD` - ussd
+        * `QR` - qr
+        * `MOBILE_MONEY` - mobile_money
+    - key: ordering
+      value: <string>
+      description: Which field to use when ordering the results.
+    - key: page
+      value: <integer>
+      description: A page number within the paginated result set.
+    - key: search
+      value: <string>
+      description: A search term.
+    - key: status
+      value: success
+      description: |-
+        * `success` - success
+        * `failed` - failed
+        * `abandoned` - abandoned
+        * `ongoing` - ongoing
+        * `DEFAULT` - DEFAULT
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "count": "<integer>",
+        "next": "<uri>",
+        "previous": "<uri>",
+        "results": [
+          {
+            "created_at": "<dateTime>",
+            "device_id": "<string>",
+            "id": "<string>",
+            "meter_no": "<string>",
+            "name": "<string>",
+            "amount": "<double>",
+            "status": "abandoned",
+            "channel": "USSD"
+          },
+          {
+            "created_at": "<dateTime>",
+            "device_id": "<string>",
+            "id": "<string>",
+            "meter_no": "<string>",
+            "name": "<string>",
+            "amount": "<double>",
+            "status": "abandoned",
+            "channel": "CREDIT_CARD"
+          }
+        ]
+      }
+order: 1000

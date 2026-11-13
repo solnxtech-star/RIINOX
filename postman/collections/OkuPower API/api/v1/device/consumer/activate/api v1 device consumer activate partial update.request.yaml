@@ -1,0 +1,61 @@
+$kind: http-request
+description: |-
+  This would activate a device and attach it to a user, note however,
+  for best interest of the initital owner if the device has been used previously,
+  the tokens in the device must be zero before activating like in the case of a new tenant
+url: "{{baseUrl}}/api/v1/device/consumer/activate/"
+method: PATCH
+headers:
+  Content-Type: application/x-www-form-urlencoded
+  Accept: application/json
+body:
+  type: urlencoded
+  content:
+    - key: id
+      value: <string>
+    - key: meter_no
+      value: <string>
+    - key: branch_name
+      value: <string>
+    - key: band_name
+      value: <string>
+    - key: consumption
+      value: <integer>
+    - key: average_consumption
+      value: <integer>
+    - key: time_left
+      value: <integer>
+    - key: status
+      value: BREACHED
+      description: |-
+        * `CONNECTED` - CONNECTED
+        * `ASSIGNED` - ASSIGNED
+        * `DISCONNECTED` - DISCONNECTED
+        * `BREACHED` - BREACHED
+        * `DEFAULT` - DEFAULT
+    - key: user_address
+      value: <string>
+    - key: user_phone_no
+      value: <string>
+    - key: user_email
+      value: <string>
+    - key: user_name
+      value: <string>
+    - key: on_bonus
+      value: <string>
+    - key: bonus
+      value: "-654545783291826953601613439685656715098571781135957710968033452543236009748330162.14"
+    - key: type
+      value: ONE_PHASE
+      description: |-
+        * `ONE_PHASE` - ONE_PHASE
+        * `THREE_PHASE` - THREE_PHASE
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/api v1 device consumer activate partial update.resources/examples
+order: 1000

@@ -1,0 +1,38 @@
+$kind: http-request
+description: This viewset handles Disco related actions on devices
+url: "{{baseUrl}}/api/v1/manage/devices/?ordering=<string>&page=<integer>&search=<string>&status=DISCONNECTED&type=ONE_PHASE"
+method: GET
+headers:
+  Accept: application/json
+queryParams:
+  - key: ordering
+    value: <string>
+    description: Which field to use when ordering the results.
+  - key: page
+    value: <integer>
+    description: A page number within the paginated result set.
+  - key: search
+    value: <string>
+    description: A search term.
+  - key: status
+    value: DISCONNECTED
+    description: |-
+      * `CONNECTED` - CONNECTED
+      * `ASSIGNED` - ASSIGNED
+      * `DISCONNECTED` - DISCONNECTED
+      * `BREACHED` - BREACHED
+      * `DEFAULT` - DEFAULT
+  - key: type
+    value: ONE_PHASE
+    description: |-
+      * `ONE_PHASE` - ONE_PHASE
+      * `THREE_PHASE` - THREE_PHASE
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/api v1 manage devices list.resources/examples
+order: 6000

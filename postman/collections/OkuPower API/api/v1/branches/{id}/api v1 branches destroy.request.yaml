@@ -1,0 +1,16 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/branches/:id/"
+method: DELETE
+pathVariables:
+  - key: id
+    value: <string>
+    description: (Required) A unique value identifying this branch.
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/api v1 branches destroy.resources/examples
+order: 7000

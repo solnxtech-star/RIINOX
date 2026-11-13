@@ -128,9 +128,10 @@ stock_location_schema = extend_schema_view(
         tags=["Stock Locations"],
         summary="List storage areas (shelves, racks, bins)",
         description=(
-            "Storage areas inside the caller's locations. Note: despite the URL, these "
-            "are *storage areas* (PRD §35: Location > Storage Area), not branches; "
-            "branches are `/warehouses/`. Filter by branch with `?location=`.\n\n"
+            "Storage areas (shelves, racks, bins) inside the caller's locations "
+            "(PRD §35: Location > Storage Area). Branches themselves are `/warehouses/`. "
+            "Filter by branch with `?location=`. The old URL `/locations/` still works "
+            "but is deprecated.\n\n"
             + LOCATION_ACCESS_NOTE
         ),
         parameters=[ORGANIZATION_PATH_PARAM, LOCATION_FILTER_PARAM],

@@ -1,0 +1,33 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/api/v1/discos/:id/"
+  method: GET
+  headers:
+    - key: Accept
+      value: application/json
+    - key: sessionid
+      value: <API Key>
+      description: "Added as a part of security scheme: apikey"
+  pathVariables:
+    id: ""
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "account": "<string>",
+        "id": "<string>",
+        "name": "<string>",
+        "type": "PRIVATE",
+        "tick": "<string>",
+        "logo": "<uri>",
+        "address": "<string>",
+        "phone_no": "<string>",
+        "bank_name": "<string>",
+        "bank_account_no": "<string>"
+      }
+order: 1000

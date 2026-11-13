@@ -1,0 +1,9 @@
+$kind: http-request
+url: http://127.0.0.1:8000/api/devices/?ordering=palor
+method: GET
+headers:
+  Authorization: "{{bearer_token_02qo}}"
+queryParams:
+  ordering: palor
+settings: {}
+order: 1000

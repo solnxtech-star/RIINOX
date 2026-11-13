@@ -1,0 +1,76 @@
+$kind: http-request
+url: http://localhost:8000/api/screening/admin/questions/
+method: POST
+headers:
+  - key: Authorization
+    value: Bearer {{supabase_service_role_api_key_0l6p}}
+    $type: |-
+      {
+        "type": "",
+        "format": "",
+        "required": false,
+        "deprecated": false,
+        "default": "",
+        "enum": [],
+        "pattern": "",
+        "minLength": "",
+        "maxLength": "",
+        "minItems": "",
+        "maxItems": "",
+        "minimum": "",
+        "maximum": "",
+        "uniqueItems": false
+      }
+body:
+  type: json
+  content: "{\r
+
+    \    \"section\": \"da7595d950664edaa54abb74fc2b0add\",\r
+
+    \    \"prompt\": \"Among List and tuple which is immutable\",\r
+
+    \    \"question_type\": \"single_choice\",\r
+
+    \    \"explanation\": \"what is True and False known for in python\",\r
+
+    \    \"is_active\": true,\r
+
+    \    \"order\": 10,\r
+
+    \    \"choices\": [\r
+
+    \        {\r
+
+    \            \"text\": \"repeat\",\r
+
+    \            \"is_correct\": false,\r
+
+    \            \"order\": 1\r
+
+    \        },\r
+
+    \        {\r
+
+    \            \"text\": \"tuple\",\r
+
+    \            \"is_correct\": true,\r
+
+    \            \"order\": 2\r
+
+    \        },\r
+
+    \        {\r
+
+    \            \"text\": \"iterate\",\r
+
+    \            \"is_correct\": false,\r
+
+    \            \"order\": 3\r
+
+    \        }\r
+
+    \    ]\r
+
+    }"
+settings: {}
+order: 3000

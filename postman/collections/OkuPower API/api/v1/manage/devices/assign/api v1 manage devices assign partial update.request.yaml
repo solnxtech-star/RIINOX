@@ -1,0 +1,29 @@
+$kind: http-request
+description: Move a device from the inventory to a branch and a band, simulating that a device has been purchased
+url: "{{baseUrl}}/api/v1/manage/devices/assign/"
+method: PATCH
+headers:
+  Content-Type: application/x-www-form-urlencoded
+  Accept: application/json
+body:
+  type: urlencoded
+  content:
+    - key: to_band
+      value: <string>
+    - key: devices
+      value: <string>
+    - key: devices
+      value: <string>
+    - key: to_branch
+      value: <string>
+    - key: address
+      value: <string>
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/api v1 manage devices assign partial update.resources/examples
+order: 1000

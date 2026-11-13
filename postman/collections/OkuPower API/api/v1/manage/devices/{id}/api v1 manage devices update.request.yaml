@@ -1,0 +1,36 @@
+$kind: http-request
+description: This viewset handles Disco related actions on devices
+url: "{{baseUrl}}/api/v1/manage/devices/:id/"
+method: PUT
+headers:
+  Content-Type: application/x-www-form-urlencoded
+  Accept: application/json
+pathVariables:
+  - key: id
+    value: <string>
+    description: (Required) A unique value identifying this device.
+body:
+  type: urlencoded
+  content:
+    - key: batch_no
+      value: <string>
+      description: "(Required) "
+    - key: id
+      value: <string>
+      description: "(Required) "
+    - key: type
+      value: THREE_PHASE
+      description: |-
+        (Required) * `ONE_PHASE` - ONE_PHASE
+        * `THREE_PHASE` - THREE_PHASE
+    - key: meter_no
+      value: <string>
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/api v1 manage devices update.resources/examples
+order: 7000

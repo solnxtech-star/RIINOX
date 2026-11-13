@@ -1,0 +1,33 @@
+$kind: http-example
+name: Untitled Response
+request:
+  url: "{{baseUrl}}/api/notifications/?ordering=<string>&page=<integer>&search=<string>"
+  method: GET
+  headers:
+    - key: Accept
+      value: application/json
+    - key: __Secure-sessionid
+      value: <API Key>
+      description: "Added as a part of security scheme: apikey"
+  queryParams:
+    - key: ordering
+      value: <string>
+      description: Which field to use when ordering the results.
+    - key: page
+      value: <integer>
+      description: A page number within the paginated result set.
+    - key: search
+      value: <string>
+      description: A search term.
+response:
+  statusCode: 404
+  statusText: Not Found
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "detail": "<string>"
+      }
+order: 6000

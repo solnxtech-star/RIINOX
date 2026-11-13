@@ -1,0 +1,19 @@
+$kind: http-request
+url: "{{baseUrl}}/api/users/metadatas/"
+method: POST
+headers:
+  Content-Type: multipart/form-data
+body:
+  type: formdata
+  content:
+    - type: text
+      key: url
+      value: "11350068.09672916"
+      description: "(Required) "
+auth:
+  type: bearer
+  credentials:
+    token: "{{bearerToken}}"
+settings: {}
+examples: ./.resources/users metadatas create.resources/examples
+order: 1000

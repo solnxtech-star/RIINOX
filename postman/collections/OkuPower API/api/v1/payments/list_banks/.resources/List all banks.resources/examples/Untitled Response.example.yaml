@@ -1,0 +1,59 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/api/v1/payments/list_banks/"
+  method: GET
+  headers:
+    - key: Accept
+      value: application/json
+    - key: sessionid
+      value: <API Key>
+      description: "Added as a part of security scheme: apikey"
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "data": {
+          "data": [
+            {
+              "active": "<boolean>",
+              "code": "<string>",
+              "country": "Nigeria",
+              "createdAt": "<dateTime>",
+              "currency": "NGN",
+              "gateway": "<string>",
+              "id": "<integer>",
+              "is_deleted": "<boolean>",
+              "longcode": "<string>",
+              "name": "Kuda MicroFinance Bank",
+              "pay_with_bank": "<boolean>",
+              "slug": "<string>",
+              "type": "nuban",
+              "updatedAt": "<dateTime>"
+            },
+            {
+              "active": "<boolean>",
+              "code": "<string>",
+              "country": "Nigeria",
+              "createdAt": "<dateTime>",
+              "currency": "NGN",
+              "gateway": "<string>",
+              "id": "<integer>",
+              "is_deleted": "<boolean>",
+              "longcode": "<string>",
+              "name": "Kuda MicroFinance Bank",
+              "pay_with_bank": "<boolean>",
+              "slug": "<string>",
+              "type": "nuban",
+              "updatedAt": "<dateTime>"
+            }
+          ],
+          "message": "List of banks",
+          "status": true
+        }
+      }
+order: 1000

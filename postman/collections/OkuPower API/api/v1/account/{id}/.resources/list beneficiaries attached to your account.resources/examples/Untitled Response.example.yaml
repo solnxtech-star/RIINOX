@@ -1,0 +1,48 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/api/v1/account/:id/?page=<integer>"
+  method: GET
+  headers:
+    - key: Accept
+      value: application/json
+    - key: sessionid
+      value: <API Key>
+      description: "Added as a part of security scheme: apikey"
+  queryParams:
+    - key: page
+      value: <integer>
+      description: A page number within the paginated result set.
+  pathVariables:
+    id: ""
+response:
+  statusCode: 202
+  statusText: Accepted
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "count": "<integer>",
+        "next": "<uri>",
+        "previous": "<uri>",
+        "results": [
+          {
+            "id": "<string>",
+            "is_consumer": "<boolean>",
+            "is_disco": "<boolean>",
+            "is_staff": "<boolean>",
+            "position": "<string>",
+            "type": "DISCO"
+          },
+          {
+            "id": "<string>",
+            "is_consumer": "<boolean>",
+            "is_disco": "<boolean>",
+            "is_staff": "<boolean>",
+            "position": "<string>",
+            "type": "STAFF"
+          }
+        ]
+      }
+order: 1000

@@ -1,0 +1,40 @@
+$kind: http-request
+description: |-
+  List of all devices that are not yet sold, it means that these devices
+  are in default status and had not yet been connected to a user
+url: "{{baseUrl}}/api/v1/manage/devices/inventory/?ordering=<string>&page=<integer>&search=<string>&status=DISCONNECTED&type=ONE_PHASE"
+method: GET
+headers:
+  Accept: application/json
+queryParams:
+  - key: ordering
+    value: <string>
+    description: Which field to use when ordering the results.
+  - key: page
+    value: <integer>
+    description: A page number within the paginated result set.
+  - key: search
+    value: <string>
+    description: A search term.
+  - key: status
+    value: DISCONNECTED
+    description: |-
+      * `CONNECTED` - CONNECTED
+      * `ASSIGNED` - ASSIGNED
+      * `DISCONNECTED` - DISCONNECTED
+      * `BREACHED` - BREACHED
+      * `DEFAULT` - DEFAULT
+  - key: type
+    value: ONE_PHASE
+    description: |-
+      * `ONE_PHASE` - ONE_PHASE
+      * `THREE_PHASE` - THREE_PHASE
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/api v1 manage devices inventory list.resources/examples
+order: 1000

@@ -159,6 +159,7 @@ _sale_response_example = OpenApiExample(
         "subtotal": "50000.00",
         "discount_amount": "5000.00",
         "tax_amount": "3375.00",
+        "prices_include_tax": False,
         "total": "48375.00",
         "change_due": "1625.00",
         "notes": "Corporate order for regional branch supply.",
@@ -308,6 +309,17 @@ sale_viewset_schema = extend_schema_view(
             "- **Cash Overpayment & Change Due**: When paying via `cash`, if tendered `amount > total`, the backend records the exact net sale total as received revenue and returns the remaining customer change in `change_due` (e.g. ₦1,000 tendered on a ₦950 sale records ₦950 and returns `change_due: \"50.00\"`).\n"
             "- **Partial Payments**: If tendered `amount < total`, the payment records the partial amount and sets `payment_status: \"partially_paid\"`.\n"
             "- **Non-Cash Overpayment Guard**: Non-cash payment methods (`card`, `bank_transfer`, `pos`) strictly reject overpayments exceeding the payable total with HTTP 400.\n\n"
+            "### Tax (PRD §13, §39): calculated by the server\n"
+            "- **Never send tax.** A non-zero `tax_amount`, or `tax` / `tax_rate` on an item, is a `400`. "
+            "Configure tax instead on the product (`tax_config`, `tax_rate`) and the organization "
+            "(`default_tax_rate`, `prices_include_tax`).\n"
+            "- Each line is taxed on its amount after discounts at the product's rate (or the organization's "
+            "default; exempt / non-taxable products at 0), rounded per line; `tax_amount` is the sum.\n"
+            "- The response's `prices_include_tax` tells how to read it: `true` = tax is **inside** the prices "
+            "(total = subtotal - discount; print \"VAT included\"), `false` = tax is **added** "
+            "(total = subtotal - discount + tax_amount).\n"
+            "- Selling on credit beyond the customer's `credit_limit` needs the `APPROVE_REQUESTS` permission; "
+            "otherwise `403 CREDIT_LIMIT_EXCEEDED`.\n\n"
             "### Required Permissions & Access Control (PRD §28, §55)\n"
             "- **`CREATE_SALE`**: Required to create sales orders.\n"
             "- **`APPLY_DISCOUNT`**: If `discount_amount > 0` or any line item specifies `discount > 0`, the caller "

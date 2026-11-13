@@ -1,0 +1,22 @@
+$kind: http-request
+description: Know how much unit you'll get based on the amount inputed
+url: "{{baseUrl}}/api/v1/payments/unit_calculator/"
+method: POST
+headers:
+  Content-Type: application/x-www-form-urlencoded
+  Accept: application/json
+body:
+  type: urlencoded
+  content:
+    - key: amount
+      value: <double>
+      description: "(Required) "
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/Know how much unit you'll get based on the amount inputed.resources/examples
+order: 1000

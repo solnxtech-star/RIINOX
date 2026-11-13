@@ -1,27 +1,26 @@
 from decimal import ROUND_HALF_UP
 from decimal import Decimal
 
-from django.conf import settings
-from django.core.exceptions import ImproperlyConfigured
 from rest_framework.exceptions import PermissionDenied
 
+from core.applications.invoice.exceptions import ApprovalRequiredError
 from core.applications.invoice.exceptions import InvoiceValidationError
 from core.applications.invoice.services import inventory_adapter
 from core.applications.invoice.services import sales_adapters as sales_adapter
+from core.applications.invoice.services.ports import APPROVAL_CREDIT_OVERRIDE
+from core.applications.invoice.services.ports import APPROVAL_INVOICE_VOID
 from core.applications.invoice.services.ports import UnitResolution
+from core.applications.products.models import Product
 from core.applications.products.models import ProductUnitConversion
+from core.applications.products.tax import TaxPolicy
+from core.applications.products.tax import calculate as calculate_tax
 from core.applications.users import services as user_services
 from core.applications.warehouse.access import LocationScope
+from core.helper.enums import PermissionCode
 from core.helper.enums import UnitOfMeasureChoices
+from core.helper.money import allocate_amount
 
 _CENT = Decimal("0.01")
-
-
-def _dev_only(name: str) -> None:
-    """Let a temporary stand-in run in development and refuse to run in production."""
-    if not settings.DEBUG:
-        msg = f"InvoicePorts.{name} is a development stand-in and cannot run in production."
-        raise ImproperlyConfigured(msg)
 
 
 def _normalize_unit(raw: str) -> str | None:
@@ -104,13 +103,57 @@ class DefaultInvoicePorts:
         # No PDFs, emails or notifications yet. Enqueue them here later (PRD §51).
         return
 
-    # --- development stand-ins: run only when DEBUG is True ---
+    # --- tax (PRD §13, §39): the calculator sales use too ---
     def calculate_tax(self, *, organization, lines, taxable_amount):
-        _dev_only("calculate_tax")
-        return Decimal("0.00")
+        """
+        Tax for a standalone invoice, from the products' tax settings and the
+        organization's default rate (products.tax). The invoice discount is spread
+        over the lines in proportion to their value, so each line is taxed on what
+        is actually charged for it. One query loads the products.
+        """
+        if not lines:
+            return Decimal("0.00")
+        product_ids = {line.product_id for line in lines}
+        products = {
+            str(product.pk): product
+            for product in Product.objects.filter(organization=organization, pk__in=product_ids).only(
+                "pk", "tax_config", "tax_rate"
+            )
+        }
+        weights = [line.unit_price * line.quantity for line in lines]
+        amounts = allocate_amount(Decimal(taxable_amount), weights) if sum(weights) else [Decimal(0)] * len(lines)
+        try:
+            result = calculate_tax(
+                [(products.get(str(line.product_id)), amount) for line, amount in zip(lines, amounts, strict=True)],
+                TaxPolicy.for_organization(organization),
+            )
+        except ValueError as exc:
+            raise InvoiceValidationError(str(exc), detail={"tax": "invalid_rate"}) from exc
+        return result.tax
 
+    # --- Phase 2 approval rules (PRD §30, §56). The approval engine (pending /
+    # approved / rejected requests) is Phase 3; these rules plug into the same
+    # ports, so nothing that calls them changes when it lands. ---
     def validate_discount(self, *, actor, organization, subtotal, discount, approval_id=None):
-        _dev_only("validate_discount")
+        """Phase 2: a discount needs APPLY_DISCOUNT. (Phase 3: a "large discount" threshold.)"""
+        if not user_services.has_org_permission(actor, organization, PermissionCode.APPLY_DISCOUNT):
+            msg = "You do not have permission to apply discounts."
+            raise PermissionDenied(msg)
 
     def require_approval(self, *, actor, organization, action, resource, approval_id):
-        _dev_only("require_approval")
+        """
+        Phase 2 rules:
+          * invoice.void: allowed; the endpoint already requires the void permission,
+            and the void is audited with its reason.
+          * invoice.credit_override (a sale beyond the customer's credit limit):
+            only members holding APPROVE_REQUESTS may push it through.
+          * anything else: refused, so an unknown action can never slip past.
+        An `approval_id` can't be honoured until the approval engine exists.
+        """
+        if action == APPROVAL_INVOICE_VOID:
+            return
+        if action == APPROVAL_CREDIT_OVERRIDE and user_services.has_org_permission(
+            actor, organization, PermissionCode.APPROVE_REQUESTS
+        ):
+            return
+        raise ApprovalRequiredError(detail={"action": action})

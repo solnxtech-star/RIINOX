@@ -1,0 +1,12 @@
+$kind: http-request
+url: "{{baseUrl}}/api/users/reset_email/"
+method: POST
+auth:
+  type: apikey
+  credentials:
+    key: __Secure-sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/users reset email create.resources/examples
+order: 1000

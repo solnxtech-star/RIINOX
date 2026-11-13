@@ -1,0 +1,23 @@
+$kind: http-request
+description: ViewSet for managing pollutant snapshots
+url: "{{baseUrl}}/api/pollutant_snapshot/"
+method: POST
+headers:
+  Content-Type: application/json
+  Accept: application/json
+body:
+  type: json
+  content: |-
+    {
+      "device": "<string>",
+      "pollutant": {
+        "name": "<string>",
+        "symbol": "<string>",
+        "threshold": "<double>",
+        "who_structure": "<string>"
+      },
+      "value": "<double>"
+    }
+settings: {}
+examples: ./.resources/pollutant snapshot create.resources/examples
+order: 3000

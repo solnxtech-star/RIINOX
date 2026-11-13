@@ -1,0 +1,64 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/api/v1/bands/:id/overview/"
+  method: GET
+  headers:
+    - key: Accept
+      value: application/json
+    - key: sessionid
+      value: <API Key>
+      description: "Added as a part of security scheme: apikey"
+  pathVariables:
+    id: ""
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "devices": [
+          {
+            "average_consumption": "<integer>",
+            "band_name": "<string>",
+            "branch_name": "<string>",
+            "consumption": "<integer>",
+            "id": "<string>",
+            "on_bonus": "<string>",
+            "time_left": "<integer>",
+            "user_address": "<string>",
+            "user_email": "<string>",
+            "user_name": "<string>",
+            "user_phone_no": "<string>",
+            "meter_no": "<string>",
+            "status": "CONNECTED",
+            "bonus": "213279203958373611062580086538023407423883618709386662068403121",
+            "type": "THREE_PHASE"
+          },
+          {
+            "average_consumption": "<integer>",
+            "band_name": "<string>",
+            "branch_name": "<string>",
+            "consumption": "<integer>",
+            "id": "<string>",
+            "on_bonus": "<string>",
+            "time_left": "<integer>",
+            "user_address": "<string>",
+            "user_email": "<string>",
+            "user_name": "<string>",
+            "user_phone_no": "<string>",
+            "meter_no": "<string>",
+            "status": "CONNECTED",
+            "bonus": "-380118227208010763778226105309840204464586756728985531097321451800753778142433228885136235.64",
+            "type": "THREE_PHASE"
+          }
+        ],
+        "id": "<string>",
+        "name": "<string>",
+        "total_consumption": "<integer>",
+        "total_devices": "<integer>",
+        "total_faults": "<integer>"
+      }
+order: 1000

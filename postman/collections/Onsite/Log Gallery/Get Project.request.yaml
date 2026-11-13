@@ -1,0 +1,25 @@
+$kind: http-request
+url: http://localhost:8000/api/2.2/user-projects/
+method: GET
+headers:
+  - key: Authorization
+    value: "{{bearer_token_1177}}"
+    $type: |-
+      {
+        "type": "",
+        "format": "",
+        "required": false,
+        "deprecated": false,
+        "default": "",
+        "enum": [],
+        "pattern": "",
+        "minLength": "",
+        "maxLength": "",
+        "minItems": "",
+        "maxItems": "",
+        "minimum": "",
+        "maximum": "",
+        "uniqueItems": false
+      }
+settings: {}
+order: 3000

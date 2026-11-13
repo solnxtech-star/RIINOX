@@ -194,6 +194,8 @@ class _Totals:
     discount: Decimal
     tax: Decimal
     total: Decimal
+    # True: `tax` is contained in the prices, so it doesn't add to `total`.
+    prices_include_tax: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,6 +221,11 @@ class _Row(NamedTuple):
 # --------------------------------------------------------------------------- #
 # Generic helpers
 # --------------------------------------------------------------------------- #
+
+
+def _document_total(subtotal: Decimal, discount: Decimal, tax: Decimal, *, prices_include_tax: bool) -> Decimal:
+    """What the customer pays. With tax-inclusive prices the tax is already inside them."""
+    return subtotal - discount if prices_include_tax else subtotal - discount + tax
 
 
 def _decimal(value: Any, step: Decimal, *, field: str) -> Decimal:
@@ -902,11 +909,12 @@ def _calculate_totals(
     if tax < 0:
         msg = "Tax cannot be negative."
         raise InvoiceValidationError(msg, detail={"tax": str(tax)})
-    total = taxable + tax
+    inclusive = bool(getattr(organization, "prices_include_tax", False))
+    total = _document_total(subtotal, discount, tax, prices_include_tax=inclusive)
     if total > MAX_MONEY:
         msg = "The invoice total is too large."
         raise InvoiceValidationError(msg, detail={"total": str(total)})
-    return _Totals(subtotal=subtotal, discount=discount, tax=tax, total=total)
+    return _Totals(subtotal=subtotal, discount=discount, tax=tax, total=total, prices_include_tax=inclusive)
 
 
 def _allocate_line_amounts(
@@ -1024,7 +1032,8 @@ def _validate_sale_snapshot(
         discount += line_discount
         tax += line_tax
 
-    total = subtotal - discount + tax
+    inclusive = bool(getattr(snapshot, "prices_include_tax", False))
+    total = _document_total(subtotal, discount, tax, prices_include_tax=inclusive)
     if subtotal > MAX_MONEY or total > MAX_MONEY:
         msg = "The invoice total is too large."
         raise InvoiceValidationError(
@@ -1054,7 +1063,7 @@ def _validate_sale_snapshot(
                 "computed": {k: str(v) for k, v in computed.items()},
             },
         )
-    return _Totals(subtotal=subtotal, discount=discount, tax=tax, total=total)
+    return _Totals(subtotal=subtotal, discount=discount, tax=tax, total=total, prices_include_tax=inclusive)
 
 
 def _assert_sale_references(
@@ -1181,6 +1190,7 @@ def issue_invoice_for_sale(
                 subtotal=totals.subtotal,
                 discount_amount=totals.discount,
                 tax_amount=totals.tax,
+                prices_include_tax=totals.prices_include_tax,
                 total=totals.total,
                 issued_at=timezone.now(),
                 notes=(snapshot.notes or "").strip() or None,
@@ -1348,6 +1358,7 @@ def create_invoice(
                 subtotal=totals.subtotal,
                 discount_amount=totals.discount,
                 tax_amount=totals.tax,
+                prices_include_tax=totals.prices_include_tax,
                 total=totals.total,
                 replaces=replaces,
                 notes=(notes or "").strip() or None,
@@ -1442,6 +1453,7 @@ def update_draft_invoice(
     invoice.subtotal = totals.subtotal
     invoice.discount_amount = totals.discount
     invoice.tax_amount = totals.tax
+    invoice.prices_include_tax = totals.prices_include_tax
     invoice.total = totals.total
     invoice.due_date = due
     if notes is not None:
@@ -1451,6 +1463,7 @@ def update_draft_invoice(
             "subtotal",
             "discount_amount",
             "tax_amount",
+            "prices_include_tax",
             "total",
             "due_date",
             "notes",
@@ -1526,7 +1539,12 @@ def confirm_invoice(
     _assert_lines_match_header(invoice, rows)
     stock_lines = _stock_lines_from(rows)
 
-    total = invoice.subtotal - invoice.discount_amount + invoice.tax_amount
+    total = _document_total(
+        invoice.subtotal,
+        invoice.discount_amount,
+        invoice.tax_amount,
+        prices_include_tax=invoice.prices_include_tax,
+    )
     paid_now = _validate_upfront_payment(upfront_payment, total)
 
     # The status is checked on the locked row, not on the draft-time read.

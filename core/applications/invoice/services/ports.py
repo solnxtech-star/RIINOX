@@ -110,6 +110,8 @@ class SaleSnapshot:
     lines: tuple[SaleLineSnapshot, ...]
     billing_address: str = ""
     shipping_address: str = ""
+    # True: tax_amount is inside the prices (total = subtotal - discount).
+    prices_include_tax: bool = False
 
 
 

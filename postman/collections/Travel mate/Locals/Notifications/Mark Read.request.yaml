@@ -1,0 +1,14 @@
+$kind: http-request
+url: http://localhost:8000/api/notifications/mark-multiple-read/
+method: POST
+headers:
+  Authorization: "{{bearer_token_0pve}}"
+body:
+  type: json
+  content: "{\r
+
+    \  \"ids\": [\"8bfddb92-50ca-4e3c-b00c-3591af51a694\"]\r
+
+    }"
+settings: {}
+order: 2000

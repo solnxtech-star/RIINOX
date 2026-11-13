@@ -1,0 +1,27 @@
+$kind: http-request
+url: "{{baseUrl}}/api/v1/users/:id/"
+method: PUT
+headers:
+  Content-Type: application/x-www-form-urlencoded
+  Accept: application/json
+pathVariables:
+  - key: id
+    value: <string>
+    description: (Required) A unique value identifying this user.
+body:
+  type: urlencoded
+  content:
+    - key: url
+      value: <uri>
+      description: "(Required) "
+    - key: name
+      value: <string>
+auth:
+  type: apikey
+  credentials:
+    key: sessionid
+    value: "{{apiKey}}"
+    in: header
+settings: {}
+examples: ./.resources/api v1 users update.resources/examples
+order: 2000

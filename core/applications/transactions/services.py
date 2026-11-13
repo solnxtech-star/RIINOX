@@ -27,6 +27,8 @@ class TransactionData:
     object_id: Any
     created_by: Optional[Any] = None
     notes: Optional[str] = None
+    # The location (Warehouse or its id) the event happened at (PRD §35).
+    location: Optional[Any] = None
 
 
 @dataclass(frozen=True)
@@ -53,6 +55,7 @@ def create_transaction(data: TransactionData) -> Transaction:
         object_id=str(data.object_id) if data.object_id is not None else None,
         created_by=data.created_by,
         notes=data.notes,
+        location_id=getattr(data.location, "pk", data.location),
     )
 
     # Last step: reserve one unit of the allowance. At the limit this raises PLAN_LIMIT_REACHED,
@@ -165,20 +168,25 @@ def record_sale_financial_entries(
             )
         )
 
-    # 3. Sales Revenue (credit)
+    # 3. Sales Revenue (credit): the gross sale value excluding tax. With
+    # tax-inclusive prices the subtotal contains the tax, which belongs to the tax
+    # authority, not to revenue; it is carved out here and credited in step 4.
+    #   exclusive: Dr AR(total) + Dr Discounts = Cr Revenue(subtotal) + Cr Tax
+    #   inclusive: Dr AR(total) + Dr Discounts = Cr Revenue(subtotal - tax) + Cr Tax
+    tax_amount = quantize_money(
+        getattr(sale, "tax_amount", 0) or 0, field="sale.tax_amount"
+    )
     subtotal = quantize_money(sale.subtotal, field="sale.subtotal")
-    if subtotal > Decimal("0.00"):
+    revenue = subtotal - tax_amount if getattr(sale, "prices_include_tax", False) else subtotal
+    if revenue > Decimal("0.00"):
         entries.append(
             FinancialEntryData(
                 account_name=AccountNameChoices.SALES_REVENUE,
-                credit=subtotal,
+                credit=revenue,
             )
         )
 
     # 4. Tax Payable (liability)
-    tax_amount = quantize_money(
-        getattr(sale, "tax_amount", 0) or 0, field="sale.tax_amount"
-    )
     if tax_amount > Decimal("0.00"):
         entries.append(
             FinancialEntryData(
