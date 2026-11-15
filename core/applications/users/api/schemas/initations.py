@@ -129,7 +129,8 @@ organization_invitation_schema = extend_schema_view(
             200: OpenApiResponse(
                 response=org_serializers.InvitationSerializer(many=True),
                 description="Invitations, newest first.",
-                examples=[OpenApiExample("A pending invitation", value=[_INVITATION_EXAMPLE], response_only=True)],
+                # One item: drf-spectacular wraps list examples itself (a list here renders as [[...]]).
+                examples=[OpenApiExample("A pending invitation", value=_INVITATION_EXAMPLE, response_only=True)],
             ),
             401: error_codes(Err.NOT_AUTHENTICATED),
             403: error_codes(Err.PERMISSION_DENIED),
@@ -205,21 +206,20 @@ organization_invitation_schema = extend_schema_view(
             200: OpenApiResponse(
                 response=org_serializers.LocationOptionSerializer(many=True),
                 description="Assignable locations.",
+                # One item per example: drf-spectacular wraps list examples itself.
                 examples=[
                     OpenApiExample(
-                        "Two locations",
-                        value=[
-                            {
-                                "id": "a1b2c3d4-0000-4000-8000-000000000000",
-                                "name": "Main Branch",
-                                "code": "MAIN",
-                                "location_type": "branch",
-                                "is_default": True,
-                            },
-                            _LOCATION_EXAMPLE,
-                        ],
+                        "Default location",
+                        value={
+                            "id": "a1b2c3d4-0000-4000-8000-000000000000",
+                            "name": "Main Branch",
+                            "code": "MAIN",
+                            "location_type": "branch",
+                            "is_default": True,
+                        },
                         response_only=True,
-                    )
+                    ),
+                    OpenApiExample("Another location", value=_LOCATION_EXAMPLE, response_only=True),
                 ],
             ),
             401: error_codes(Err.NOT_AUTHENTICATED),

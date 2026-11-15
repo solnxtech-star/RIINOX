@@ -24,6 +24,7 @@ from core.applications.invoice.services.invoices import InvoiceFilters
 from core.applications.invoice.services.invoices import InvoiceLineInput
 from core.applications.invoice.services.invoices import available_actions
 from core.helper.enums import InvoiceStatusChoices
+from core.helper.serializer_fields import PaymentMethodField
 
 __all__ = [
     "AuditCursorField",
@@ -388,13 +389,13 @@ class InvoiceUpdateSerializer(LinesInputMixin, ServiceInputSerializer):
 
 class PaymentInputSerializer(StrictInputMixin, serializers.Serializer):
     """
-    The `payment` object of PRD §39. The method is organization-defined
-    (PRD §26), so the payments service validates it; only the shape is checked
-    here.
+    The `payment` object of PRD §39, kept for the upcoming invoice-payment
+    endpoint (not accepted by confirm). `method` uses the same list as sales and
+    supplier payments.
     """
 
     amount = MoneyInputField(min_value=MIN_PAYMENT_AMOUNT)
-    method = serializers.CharField(max_length=MAX_PAYMENT_METHOD_LENGTH)
+    method = PaymentMethodField()
     reference = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -404,27 +405,34 @@ class PaymentInputSerializer(StrictInputMixin, serializers.Serializer):
     note = serializers.CharField(required=False, allow_blank=True, max_length=MAX_REASON_LENGTH)
 
 
+PAYMENT_AT_CONFIRM_UNSUPPORTED = (
+    "Payments can't be taken while confirming an invoice yet. Confirm without "
+    "`payment`; recording invoice payments will be a separate endpoint."
+)
+
+
 class InvoiceConfirmSerializer(ServiceInputSerializer):
     """
-    Body of `confirm_invoice`. An optional `payment` is the money taken at
-    confirmation.
+    Body of `confirm_invoice`: only `credit_approval_id`.
 
-    `confirm_invoice` needs only its amount (to size the credit exposure) and
-    never writes `amount_paid`. The view records the payment itself, in the
-    same transaction, from `payment_details()`.
+    Taking a payment at confirmation is not part of the contract until invoice
+    payments are built (they need receipts, ledger entries and reversal rules).
+    A `payment` key is refused with a clear 400 rather than the generic
+    "Unknown field.", so a client that still sends it knows why.
     """
 
-    payment = PaymentInputSerializer(required=False, allow_null=True)
     credit_approval_id = IdField(required=False, allow_null=True)
 
-    def payment_details(self) -> dict[str, Any] | None:
-        """The validated `payment` object for the payments service, or None."""
-        return self.validated_data.get("payment")
+    def to_internal_value(self, data: Any) -> Any:
+        if isinstance(data, Mapping) and data.get("payment") is not None:
+            raise serializers.ValidationError({"payment": [PAYMENT_AT_CONFIRM_UNSUPPORTED]})
+        if isinstance(data, Mapping) and "payment" in data:
+            data = {key: value for key, value in data.items() if key != "payment"}  # payment: null
+        return super().to_internal_value(data)
 
     def service_kwargs(self) -> dict[str, Any]:
         data = dict(self.validated_data)
-        payment = data.pop("payment", None)
-        data["upfront_payment"] = payment["amount"] if payment else Decimal(0)
+        data["upfront_payment"] = Decimal(0)
         return data
 
 
@@ -546,7 +554,7 @@ class InvoiceListFilterSerializer(serializers.Serializer):
 
 
 class UserRefSerializer(serializers.Serializer):
-    id = serializers.CharField(read_only=True)
+    id = serializers.CharField(read_only=True, help_text="The user's id: an integer, sent as a string (e.g. \"7\").")
     name = serializers.SerializerMethodField()
     email = serializers.CharField(read_only=True, default=None)
 

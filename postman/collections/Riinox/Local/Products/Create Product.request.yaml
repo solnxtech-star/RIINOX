@@ -3,4 +3,25 @@ url: "{{local_base_url}}/api/organizations/{{org_id}}/products/"
 method: POST
 headers:
   Authorization: "{{bearer_token_0rwg}}"
+body:
+  type: json
+  content: "{\r
+
+    \  \"name\": \"Coca-Cola 50cl\",\r
+
+    \  \"sku\": \"COKE-50CL\",\r
+
+    \  \"purchase_cost\": \"150.00\",\r
+
+    \  \"customer_sale_price\": \"250.00\",\r
+
+    \  \"minimum_stock_level\": 50,\r
+
+    \  \"track_inventory\": true,\r
+
+    \  \"quantity_in_stock\": 100,\r
+
+    \  \"warehouse_id\": \"12916453-e64a-4a15-9c44-3ab4ec6199cc\"\r
+
+    }\r\n"
 order: 1000

@@ -299,6 +299,14 @@ class CustomerAPITest(APITestCase):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["sale_id"], "SALE-HIST-001")
 
+    def test_customer_sales_is_always_the_paginated_envelope(self):
+        """No sales: still {count: 0, ..., results: []}, never a bare list."""
+        response = self.client.get(f"{self.detail_url}sales/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsInstance(response.data, dict)
+        self.assertEqual(response.data["count"], 0)
+        self.assertEqual(response.data["results"], [])
+
     # -------------------------------------------------------------------------
     # Tenant Boundary Isolation
     # -------------------------------------------------------------------------

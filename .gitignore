@@ -279,3 +279,14 @@ core/media/
 .agents/
 scratch*
 docs/purchase_testing_guide.md
+
+# Postman workspace sync. The Postman app mirrors the whole workspace (every
+# project) into postman/; only the RIINOX collection and environment belong here.
+# Secret variable values stay in the Postman app, never in these files.
+postman/*
+!postman/collections/
+postman/collections/*
+!postman/collections/Riinox/
+!postman/environments/
+postman/environments/*
+!postman/environments/Riinox.environment.yaml

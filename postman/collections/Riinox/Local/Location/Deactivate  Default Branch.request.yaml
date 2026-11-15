@@ -1,0 +1,11 @@
+$kind: http-request
+url: "{{local_base_url}}/api/organizations/{{org_id}}/warehouses/12916453-e64a-4a15-9c44-3ab4ec6199cc/"
+method: PATCH
+body:
+  type: json
+  content: "{ \"is_active\": false }\r\n"
+auth:
+  type: bearer
+  credentials:
+    token: "{{json_web_token_16mj}}"
+order: 4000

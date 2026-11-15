@@ -219,9 +219,16 @@ class ActionChoice(TextChoices):
 
 
 class PaymentMethod(TextChoices):
-    """Available payment providers and methods."""
+    """
+    How a customer or supplier was paid (PRD §26: cash, bank transfer, POS, card,
+    online payment). Gateway names (stripe, paystack, nowpayments) stay valid for
+    records that already use them; `online` covers any other online channel.
+    """
 
     CASH = "cash", _("Cash")
+    POS = "pos", _("POS Terminal")
+    CARD = "card", _("Card")
+    ONLINE = "online", _("Online Payment")
     STRIPE = "stripe", _("Stripe")
     PAYSTACK = "paystack", _("Paystack")
     NOWPAYMENTS = "nowpayments", _("NowPayments")

@@ -1,0 +1,17 @@
+$kind: http-request
+url: "{{local_base_url}}/api/organizations/{{org_id}}/products/?low_stock=true"
+method: GET
+headers:
+  Authorization: "{{bearer_token_00iw}}"
+queryParams:
+  - key: location
+    value: 495e06a8-d874-489e-96c9-9fc9c10a450e
+    disabled: true
+    description: ""
+  - key: low_stock
+    value: "true"
+    disabled: false
+    description: ""
+auth:
+  type: noauth
+order: 3000

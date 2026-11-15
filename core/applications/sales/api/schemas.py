@@ -11,6 +11,8 @@ from drf_spectacular.utils import (
 )
 from rest_framework import serializers
 
+from core.helper.serializer_fields import PAYMENT_METHODS_NOTE
+from core.helper.serializer_fields import UNIT_NAMES_NOTE
 from core.applications.sales.api.serializers import (
     SaleCancelSerializer,
     SaleCreateSerializer,
@@ -111,7 +113,7 @@ _sale_create_example = OpenApiExample(
         "customer": "b2c3d4e5-f6a7-4789-b1c2-d3e4f5a6b7c9",
         "warehouse": "c3d4e5f6-a7b8-4789-b1c2-d3e4f5a6b7cb",
         "location": "c3d4e5f6-a7b8-4789-b1c2-d3e4f5a6b7ca",
-        "sales_rep": "11111111-2222-3333-4444-555555555555",
+        "sales_rep": 7,
         "currency": "NGN",
         "reference_number": "SO-2026-1042",
         "due_date": "2026-10-31",
@@ -128,7 +130,7 @@ _sale_create_example = OpenApiExample(
             {
                 "product": "d1e2f3a4-b5c6-4789-b1c2-d3e4f5a6b7c8",
                 "quantity": 10,
-                "unit_name": "drum_20l",
+                "unit_name": "pcs",
                 "unit_price": "5000.00",
                 "discount": "500.00",
             }
@@ -148,7 +150,7 @@ _sale_response_example = OpenApiExample(
         "customer": "b2c3d4e5-f6a7-4789-b1c2-d3e4f5a6b7c9",
         "warehouse": "c3d4e5f6-a7b8-4789-b1c2-d3e4f5a6b7cb",
         "location": "c3d4e5f6-a7b8-4789-b1c2-d3e4f5a6b7ca",
-        "sales_rep": "11111111-2222-3333-4444-555555555555",
+        "sales_rep": 7,
         "payment_status": "paid",
         "fulfillment_status": "fulfilled",
         "currency": "NGN",
@@ -173,7 +175,7 @@ _sale_response_example = OpenApiExample(
                 "product_sku": "SOLV-IND-01",
                 "quantity": 10,
                 "returned_quantity": 0,
-                "unit_name": "drum_20l",
+                "unit_name": "pcs",
                 "unit_multiplier": 1.0,
                 "unit_price": "5000.00",
                 "discount": "500.00",
@@ -305,10 +307,17 @@ sale_viewset_schema = extend_schema_view(
             "Members limited to specific locations **must** send `warehouse` or `location` "
             "(`400 LOCATION_REQUIRED`). Tip: pre-fill it from the branch switcher.\n\n"
             "### Payment Tender & Cash Change Due (PRD §39)\n"
+            "- **`payment.method`**: " + PAYMENT_METHODS_NOTE + " Anything else is a `400` on "
+            "`payment.method`.\n"
             "- **Auto 'Pay in Full' (Omitted `amount`)**: If `payment.amount` is omitted or null, the backend automatically records the full outstanding net total as paid without requiring frontend calculation.\n"
             "- **Cash Overpayment & Change Due**: When paying via `cash`, if tendered `amount > total`, the backend records the exact net sale total as received revenue and returns the remaining customer change in `change_due` (e.g. ₦1,000 tendered on a ₦950 sale records ₦950 and returns `change_due: \"50.00\"`).\n"
             "- **Partial Payments**: If tendered `amount < total`, the payment records the partial amount and sets `payment_status: \"partially_paid\"`.\n"
             "- **Non-Cash Overpayment Guard**: Non-cash payment methods (`card`, `bank_transfer`, `pos`) strictly reject overpayments exceeding the payable total with HTTP 400.\n\n"
+            "### Line items\n"
+            "- **`sales_rep`** is a **user id (integer)**, e.g. `7`, not a UUID. Optional; defaults to the caller.\n"
+            "- **`items[].unit_name`**: one of " + UNIT_NAMES_NOTE + ". Optional; defaults to the "
+            "product's base unit. For a pack size (e.g. `carton`), the product must have a unit "
+            "conversion for it; the server applies the multiplier.\n\n"
             "### Tax (PRD §13, §39): calculated by the server\n"
             "- **Never send tax.** A non-zero `tax_amount`, or `tax` / `tax_rate` on an item, is a `400`. "
             "Configure tax instead on the product (`tax_config`, `tax_rate`) and the organization "

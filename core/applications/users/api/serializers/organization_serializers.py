@@ -443,6 +443,7 @@ class ContextScopedRelatedField(serializers.PrimaryKeyRelatedField):
         return self.choices_for(organization, actor_membership)
 
 
+@extend_schema_field(OpenApiTypes.UUID)
 class AssignableRoleField(ContextScopedRelatedField):
     """A role the current caller may assign in the current organization."""
 
@@ -455,7 +456,7 @@ class AssignableRoleField(ContextScopedRelatedField):
     def choices_for(self, organization, actor_membership):
         return assignable_roles(organization, actor_membership)
 
-@extend_schema_field(OpenApiTypes.INT)
+@extend_schema_field(OpenApiTypes.UUID)
 class AssignableLocationField(ContextScopedRelatedField):
     """A location the current caller may assign in the current organization."""
 

@@ -1,43 +1,39 @@
 import uuid
 
-from rest_framework import mixins, status, viewsets
+from rest_framework import mixins
+from rest_framework import status
+from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from core.applications.inventory.api.permissions import (
-    InventoryLedgerPermission,
-    InventoryPermission,
-    StockAdjustmentPermission,
-    StockTransferPermission,
-)
-from core.applications.inventory.api.schemas import (
-    inventory_schema,
-    ledger_entry_schema,
-    stock_adjustment_schema,
-    stock_transfer_schema,
-)
-from core.applications.inventory.api.serializers import (
-    InventoryLedgerEntrySerializer,
-    InventorySerializer,
-    StockAdjustmentRequestSerializer,
-    StockTransferSerializer,
-)
-from core.applications.inventory.models import (
-    Inventory,
-    InventoryLedgerEntry,
-    StockAdjustmentRequest,
-)
-from core.applications.inventory.services import (
-    InsufficientStock,
-    StockAdjustmentInput,
-    StockTransferInput,
-    approve_stock_adjustment,
-    request_stock_adjustment,
-    single_transfer_stock,
-)
-from core.applications.products.models import Product, ProductBatch, ProductVariant
+from core.applications.inventory.api.permissions import InventoryLedgerPermission
+from core.applications.inventory.api.permissions import InventoryPermission
+from core.applications.inventory.api.permissions import StockAdjustmentPermission
+from core.applications.inventory.api.permissions import StockTransferPermission
+from core.applications.inventory.api.schemas import inventory_schema
+from core.applications.inventory.api.schemas import ledger_entry_schema
+from core.applications.inventory.api.schemas import stock_adjustment_schema
+from core.applications.inventory.api.schemas import stock_transfer_schema
+from core.applications.inventory.api.serializers import InventoryLedgerEntrySerializer
+from core.applications.inventory.api.serializers import InventorySerializer
+from core.applications.inventory.api.serializers import StockAdjustmentRejectSerializer
+from core.applications.inventory.api.serializers import StockAdjustmentRequestSerializer
+from core.applications.inventory.api.serializers import StockTransferSerializer
+from core.applications.inventory.models import Inventory
+from core.applications.inventory.models import InventoryLedgerEntry
+from core.applications.inventory.models import StockAdjustmentRequest
+from core.applications.inventory.services import InsufficientStock
+from core.applications.inventory.services import StockAdjustmentInput
+from core.applications.inventory.services import StockTransferInput
+from core.applications.inventory.services import approve_stock_adjustment
+from core.applications.inventory.services import reject_stock_adjustment
+from core.applications.inventory.services import request_stock_adjustment
+from core.applications.inventory.services import single_transfer_stock
+from core.applications.products.models import Product
+from core.applications.products.models import ProductBatch
+from core.applications.products.models import ProductVariant
 from core.applications.users.permissions import OrganizationScopedMixin
 from core.applications.warehouse.models import Warehouse
 
@@ -104,6 +100,23 @@ class StockAdjustmentViewSet(
         try:
             approve_stock_adjustment(adjustment.pk, request.user, organization=self.organization)
             return Response({"status": "approved"}, status=status.HTTP_200_OK)
+        except ValueError as e:
+            return Response({"code": "APPROVAL_ERROR", "detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=["post"])
+    def reject(self, request, organization_id=None, pk=None):
+        # Same scoping as approve: another tenant's or location's request is a 404.
+        adjustment = self.get_object()
+        serializer = StockAdjustmentRejectSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            reject_stock_adjustment(
+                adjustment.pk,
+                request.user,
+                reason=serializer.validated_data["reason"],
+                organization=self.organization,
+            )
+            return Response({"status": "rejected"}, status=status.HTTP_200_OK)
         except ValueError as e:
             return Response({"code": "APPROVAL_ERROR", "detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 

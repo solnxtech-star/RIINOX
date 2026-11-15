@@ -15,6 +15,7 @@ from core.applications.customers.api.serializers import (
 )
 from core.applications.customers.models import Customer
 from core.applications.customers.services import adjust_customer_credit, delete_customer
+from core.applications.sales.api.serializers import SaleSerializer
 from core.applications.users.permissions import OrganizationScopedMixin
 
 
@@ -102,13 +103,15 @@ class CustomerViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
         Returns recent sales history placed by this customer (PRD §20).
         """
         customer = self.get_object()
-        if hasattr(customer, "sales"):
-            # Customers are organization-wide, but their sales belong to locations:
-            # a member limited to some locations only sees sales made there (PRD §35).
-            sales_qs = self.scope_to_locations(customer.sales.all(), field="warehouse").order_by("-created_at")
-            page = self.paginate_queryset(sales_qs)
-            if page is not None:
-                from core.applications.sales.api.serializers import SaleSerializer
-                serializer = SaleSerializer(page, many=True, context=self.get_serializer_context())
-                return self.get_paginated_response(serializer.data)
-        return Response([])
+        # Customers are organization-wide, but their sales belong to locations:
+        # a member limited to some locations only sees sales made there (PRD §35).
+        sales_qs = (
+            self.scope_to_locations(customer.sales.all(), field="warehouse")
+            .select_related("customer", "warehouse", "location", "sales_rep")
+            .prefetch_related("items")
+            .order_by("-created_at", "-pk")
+        )
+        # Always the paginated envelope (same as GET /sales/), even when empty.
+        page = self.paginate_queryset(sales_qs)
+        serializer = SaleSerializer(page, many=True, context=self.get_serializer_context())
+        return self.get_paginated_response(serializer.data)

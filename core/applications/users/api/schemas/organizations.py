@@ -236,41 +236,45 @@ organization_schema = extend_schema_view(
             200: OpenApiResponse(
                 response=org_serializers.OrganizationMemberSerializer(many=True),
                 description="Members of the organization.",
+                # One member per example: drf-spectacular builds the paginated
+                # {count, ..., results: [...]} wrapper itself.
                 examples=[
                     OpenApiExample(
-                        "An Owner and a branch-limited manager",
-                        value=[
-                            {
-                                "id": "0c9d3f1e-6f6b-4a53-8e5a-0e2a9a3a1b10",
-                                "user": "owner@techify.com",
-                                "user_name": "Chidi Okafor",
-                                "joined_at": "2026-09-01T09:00:00Z",
-                                "role": "Owner",
-                                "active": True,
-                                "all_locations": True,
-                                "locations": [],
-                            },
-                            {
-                                "id": "6b1d2a77-4c1f-4d0e-9a0b-7c3f2b5e8d21",
-                                "user": "manager@techify.com",
-                                "user_name": "Ada Obi",
-                                "joined_at": "2026-09-05T08:15:00Z",
-                                "role": "Manager",
-                                "active": True,
-                                "all_locations": False,
-                                "locations": [
-                                    {
-                                        "id": "a1b2c3d4-0000-4000-8000-000000000001",
-                                        "name": "Lekki Branch",
-                                        "code": "LEK",
-                                        "location_type": "store",
-                                        "is_default": False,
-                                    }
-                                ],
-                            },
-                        ],
+                        "Owner (all locations)",
+                        value={
+                            "id": "0c9d3f1e-6f6b-4a53-8e5a-0e2a9a3a1b10",
+                            "user": "owner@techify.com",
+                            "user_name": "Chidi Okafor",
+                            "joined_at": "2026-09-01T09:00:00Z",
+                            "role": "Owner",
+                            "active": True,
+                            "all_locations": True,
+                            "locations": [],
+                        },
                         response_only=True,
-                    )
+                    ),
+                    OpenApiExample(
+                        "Branch-limited manager",
+                        value={
+                            "id": "6b1d2a77-4c1f-4d0e-9a0b-7c3f2b5e8d21",
+                            "user": "manager@techify.com",
+                            "user_name": "Ada Obi",
+                            "joined_at": "2026-09-05T08:15:00Z",
+                            "role": "Manager",
+                            "active": True,
+                            "all_locations": False,
+                            "locations": [
+                                {
+                                    "id": "a1b2c3d4-0000-4000-8000-000000000001",
+                                    "name": "Lekki Branch",
+                                    "code": "LEK",
+                                    "location_type": "store",
+                                    "is_default": False,
+                                }
+                            ],
+                        },
+                        response_only=True,
+                    ),
                 ],
             ),
             401: UNAUTHENTICATED,

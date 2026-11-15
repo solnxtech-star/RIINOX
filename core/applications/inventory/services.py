@@ -490,6 +490,49 @@ def approve_stock_adjustment(adjustment_id, admin_user, *, organization=None):
 
 
 @transaction.atomic
+def reject_stock_adjustment(adjustment_id, admin_user, *, reason: str, organization=None):
+    """
+    Rejects a PENDING request. Stock, the ledger and transactions are not touched.
+
+    Same guarantees as `approve_stock_adjustment`: `organization`, when given, must
+    own the request, and the row is locked so an approve and a reject racing on the
+    same request can't both succeed (the loser gets "Only PENDING ...").
+    """
+    reason = (reason or "").strip()
+    if not reason:
+        raise ValueError("A rejection reason is required.")
+
+    queryset = StockAdjustmentRequest.objects.select_for_update(of=("self",)).select_related(
+        "product", "warehouse"
+    )
+    if organization is not None:
+        queryset = queryset.filter(warehouse__organization=organization)
+    adjustment = queryset.get(id=adjustment_id)
+    if adjustment.status != ApprovalStatusChoices.PENDING:
+        raise ValueError("Only PENDING requests can be rejected.")
+
+    adjustment.status = ApprovalStatusChoices.REJECTED
+    adjustment.reviewed_by = admin_user
+    adjustment.reviewed_at = timezone.now()
+    adjustment.rejection_reason = reason
+    adjustment.save(update_fields=["status", "reviewed_by", "reviewed_at", "rejection_reason", "updated_at"])
+
+    audit_record(
+        action=AuditAction.INVENTORY_ADJUSTMENT_REJECTED,
+        organization=adjustment.product.organization,
+        actor=admin_user,
+        resource=adjustment.product,
+        reason=reason,
+        metadata={
+            "adjustment_id": str(adjustment.id),
+            "quantity_change": adjustment.requested_quantity_change,
+            "warehouse_id": str(adjustment.warehouse_id),
+        },
+    )
+    return adjustment
+
+
+@transaction.atomic
 def single_transfer_stock(
     payload: StockTransferInput | Any = None,
     *legacy_args: Any,
@@ -535,6 +578,22 @@ def single_transfer_stock(
     destination_warehouse = resolved.destination_warehouse
     quantity = resolved.quantity
 
+    if quantity is None or quantity <= 0:
+        raise ValueError("Transfer quantity must be greater than zero.")
+    if source_warehouse.pk == destination_warehouse.pk:
+        raise ValueError("Source and destination must be different locations.")
+
+    # Lock the source row and check stock before anything is written: a transfer may
+    # never drive a location negative (PRD §15), and a missing row means 0 on hand.
+    source_inventory = (
+        Inventory.objects.select_for_update()
+        .filter(product=product, variant=variant, batch=batch, warehouse=source_warehouse)
+        .first()
+    )
+    available = source_inventory.quantity if source_inventory else 0
+    if available < quantity:
+        raise InsufficientStock(product, quantity, available)
+
     transaction_record = create_transaction(TransactionData(
         transaction_id=f"TRF-{uuid.uuid4().hex[:8].upper()}",
         location=source_warehouse,
@@ -554,11 +613,8 @@ def single_transfer_stock(
         quantity_moved=-quantity,
         unit_cost=product.purchase_cost
     )
-    source_inventory = Inventory.objects.select_for_update().get(
-        product=product, variant=variant, batch=batch, warehouse=source_warehouse
-    )
-    source_inventory.quantity -= quantity
-    source_inventory.save(update_fields=['quantity'])
+    # Row is locked above, so the F() decrement can't race another movement.
+    Inventory.objects.filter(pk=source_inventory.pk).update(quantity=F("quantity") - quantity)
 
     # Destination Increase
     InventoryLedgerEntry.objects.create(
@@ -581,6 +637,8 @@ def bulk_transfer_stock(source_warehouse, destination_warehouse, items, user, no
     """
     if not items:
         return
+    if source_warehouse.pk == destination_warehouse.pk:
+        raise ValueError("Source and destination must be different locations.")
 
     resolved_organization = getattr(source_warehouse, "organization", None) or items[0]['product'].organization
 
@@ -613,12 +671,19 @@ def bulk_transfer_stock(source_warehouse, destination_warehouse, items, user, no
                 unit_cost=product.purchase_cost
             )
         )
-        # Source Inventory Update
-        source_inventory = Inventory.objects.select_for_update().get(
-            product=product, variant=variant, batch=batch, warehouse=source_warehouse
+        # Source Inventory Update. Never below zero (PRD §15); the whole call is one
+        # atomic block, so a failure on any item rolls back every earlier item too.
+        if quantity is None or quantity <= 0:
+            raise ValueError("Transfer quantity must be greater than zero.")
+        source_inventory = (
+            Inventory.objects.select_for_update()
+            .filter(product=product, variant=variant, batch=batch, warehouse=source_warehouse)
+            .first()
         )
-        source_inventory.quantity -= quantity
-        source_inventory.save(update_fields=['quantity'])
+        available = source_inventory.quantity if source_inventory else 0
+        if available < quantity:
+            raise InsufficientStock(product, quantity, available)
+        Inventory.objects.filter(pk=source_inventory.pk).update(quantity=F("quantity") - quantity)
 
         # Destination Increase Ledger Entry
         ledger_entries.append(
