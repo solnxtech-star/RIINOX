@@ -1,4 +1,0 @@
-$kind: collection
-description: Documentation of API endpoints of OkuPower
-variables:
-  baseUrl: https://okupower-backend.onrender.com

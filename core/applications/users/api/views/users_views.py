@@ -11,8 +11,12 @@ from djoser import utils
 from djoser.compat import get_user_email
 from djoser.conf import settings
 from djoser.email import ActivationEmail
+from drf_spectacular.utils import OpenApiExample
+from drf_spectacular.utils import OpenApiResponse
 from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import inline_serializer
 from rest_framework import generics
+from rest_framework import serializers
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
@@ -83,6 +87,19 @@ class TokenViewBase(generics.GenericAPIView):
         return Response(serializer.validated_data, status=status.HTTP_200_OK)
 
 
+_LOGIN_RESPONSE = inline_serializer(
+    name="LoginResponse",
+    fields={
+        "refresh": serializers.CharField(help_text="Refresh token. Exchange it at `jwt/refresh/` for a new access token."),
+        "access": serializers.CharField(help_text="Access token. Send as `Authorization: Bearer <access>`."),
+        "setup_info": UserSerializer.Info(help_text="The signed-in user: `id` (integer), `email`, `name`."),
+        "registration_complete": serializers.BooleanField(
+            help_text="`true` once the account is active. Always `true` on a successful login."
+        ),
+    },
+)
+
+
 class TokenObtainPairView(TokenViewBase):
     """
     Takes a set of user credentials and returns an access and refresh JSON web
@@ -90,6 +107,45 @@ class TokenObtainPairView(TokenViewBase):
     """
 
     _serializer_class = api_settings.TOKEN_OBTAIN_SERIALIZER
+
+    @extend_schema(
+        summary="Log in",
+        description=(
+            "Exchanges email and password for a JWT pair.\n\n"
+            "**Body:** `{\"email\": \"...\", \"password\": \"...\"}`.\n\n"
+            "**Next step:** call `GET /api/organizations/` with the access token to list the user's "
+            "organizations; every business endpoint is under `/api/organizations/{org_id}/`."
+        ),
+        request=CustomTokenObtainPairSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=_LOGIN_RESPONSE,
+                description="Signed in.",
+                examples=[
+                    OpenApiExample(
+                        "Signed in",
+                        value={
+                            "refresh": "eyJhbGciOiJIUzI1NiIs...",
+                            "access": "eyJhbGciOiJIUzI1NiIs...",
+                            "setup_info": {"id": 7, "email": "owner@example.com", "name": "Chidi Okafor"},
+                            "registration_complete": True,
+                        },
+                        response_only=True,
+                    )
+                ],
+            ),
+            400: OpenApiResponse(description="`email` or `password` missing or malformed (field errors)."),
+            401: OpenApiResponse(description="Wrong email or password. Show one generic message for both."),
+            403: OpenApiResponse(
+                description=(
+                    "The account exists but its email is not verified yet. A new verification email has just "
+                    "been sent; ask the user to check their inbox."
+                )
+            ),
+        },
+    )
+    def post(self, request, *args, **kwargs):
+        return super().post(request, *args, **kwargs)
 
 
 token_obtain_pair = TokenObtainPairView.as_view()

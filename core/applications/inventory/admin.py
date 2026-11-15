@@ -10,6 +10,8 @@ from core.applications.inventory.models import InventoryLedgerEntry
 from core.applications.inventory.models import PhysicalStockCount
 from core.applications.inventory.models import PhysicalStockCountItem
 from core.applications.inventory.models import StockAdjustmentRequest
+from core.applications.inventory.services import approve_stock_adjustment
+from core.applications.inventory.services import reject_stock_adjustment
 
 @admin.register(InventoryLedgerEntry)
 class InventoryLedgerEntryAdmin(admin.ModelAdmin):
@@ -66,10 +68,10 @@ class StockAdjustmentRequestAdmin(admin.ModelAdmin):
     whichever Admin ran the action, at the time they ran it — not to
     whoever last saved the form.
 
-    NOTE: these actions record the *decision*. Actually writing the
-    resulting InventoryLedgerEntry belongs in InventoryService (so a
-    signal or service call should hook in here once that layer exists) —
-    intentionally not duplicated in the admin layer.
+    Both actions call the inventory services (`approve_stock_adjustment`,
+    `reject_stock_adjustment`), the same code the API uses: approving moves
+    stock and writes the ledger, rejecting changes no stock. Nothing is
+    duplicated in the admin layer.
     """
 
     list_display = (
@@ -89,18 +91,21 @@ class StockAdjustmentRequestAdmin(admin.ModelAdmin):
     readonly_fields = ("status", "requested_by", "reviewed_by", "reviewed_at", "created_at")
     actions = ["approve_requests", "reject_requests"]
 
+    # Both actions go through the same services as the API, one request at a time:
+    # approving must move stock and write the ledger, and a bulk .update() would
+    # only flip the status (which is what this did before).
+
     @admin.action(description="Approve selected adjustment requests")
     def approve_requests(self, request, queryset):
-        pending = queryset.filter(status="pending")
-        updated = pending.update(
-            status="approved",
-            reviewed_by=request.user,
-            reviewed_at=timezone.now(),
-        )
-        skipped = queryset.count() - pending.count()
-        self.message_user(request, f"Approved {updated} request(s).")
-        if skipped:
-            self.message_user(request, f"Skipped {skipped} request(s) not in PENDING status.")
+        approved, failed = 0, []
+        skipped = queryset.exclude(status="pending").count()
+        for adjustment_id in list(queryset.filter(status="pending").values_list("pk", flat=True)):
+            try:
+                approve_stock_adjustment(adjustment_id, request.user)
+                approved += 1
+            except (ValueError, StockAdjustmentRequest.DoesNotExist) as exc:
+                failed.append(f"{adjustment_id}: {exc}")
+        self._report(request, "Approved", approved, failed, skipped)
 
     @admin.action(description="Reject selected adjustment requests")
     def reject_requests(self, request, queryset):
@@ -114,12 +119,22 @@ class StockAdjustmentRequestAdmin(admin.ModelAdmin):
                 level="error",
             )
             return
-        updated = pending.update(
-            status="rejected",
-            reviewed_by=request.user,
-            reviewed_at=timezone.now(),
-        )
-        self.message_user(request, f"Rejected {updated} request(s).")
+        rejected, failed = 0, []
+        skipped = queryset.exclude(status="pending").count()
+        for adjustment_id, reason in list(pending.values_list("pk", "rejection_reason")):
+            try:
+                reject_stock_adjustment(adjustment_id, request.user, reason=reason)
+                rejected += 1
+            except (ValueError, StockAdjustmentRequest.DoesNotExist) as exc:
+                failed.append(f"{adjustment_id}: {exc}")
+        self._report(request, "Rejected", rejected, failed, skipped)
+
+    def _report(self, request, verb, done, failed, skipped):
+        self.message_user(request, f"{verb} {done} request(s).")
+        if failed:
+            self.message_user(request, "Failed: " + "; ".join(failed), level="error")
+        if skipped:
+            self.message_user(request, f"Skipped {skipped} request(s) not in PENDING status.")
 
 
 class PhysicalStockCountItemInline(admin.TabularInline):

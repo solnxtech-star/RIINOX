@@ -1,5 +1,0 @@
-$kind: collection
-variables:
-  - key: bearer_token_0rwg
-    secret: true
-    disabled: false

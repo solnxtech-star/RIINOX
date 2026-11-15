@@ -279,3 +279,8 @@ core/media/
 .agents/
 scratch*
 docs/purchase_testing_guide.md
+
+# Postman desktop app (Native Git sync). It mirrors the whole Postman workspace,
+# every project, into these folders. Local only: never committed or pushed.
+/postman/
+/.postman/

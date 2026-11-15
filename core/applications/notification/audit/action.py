@@ -27,6 +27,7 @@ class AuditAction:
 
     # Inventory Events
     INVENTORY_ADJUSTED = "inventory.adjusted"
+    INVENTORY_ADJUSTMENT_REJECTED = "inventory.adjustment_rejected"
     INVENTORY_OPENING_STOCK_SET = "inventory.opening_stock_set"
 
     # Purchase Events

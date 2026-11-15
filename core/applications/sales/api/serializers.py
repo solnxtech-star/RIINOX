@@ -2,6 +2,7 @@ from decimal import Decimal
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
 from core.applications.sales.models import Sale, SaleItem, SaleReturn, SaleReturnItem
+from core.helper.serializer_fields import PaymentMethodField
 
 
 def _nonzero(value) -> bool:
@@ -85,7 +86,7 @@ class SalePaymentTenderSerializer(serializers.Serializer):
     amount = serializers.DecimalField(
         max_digits=12, decimal_places=2, required=False, allow_null=True
     )
-    method = serializers.CharField(max_length=50)
+    method = PaymentMethodField()
     reference = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")
 
 

@@ -6,7 +6,6 @@ from functools import cached_property
 from typing import Any
 from typing import ClassVar
 
-from django.db import transaction
 from django.http import StreamingHttpResponse
 from rest_framework import status
 from rest_framework import viewsets
@@ -130,11 +129,6 @@ class InvoiceViewSet(OrganizationScopedMixin, viewsets.GenericViewSet):
     # Used for schema generation only. Real querysets come from the services,
     # which scope every query to the organization.
     queryset = Invoice.objects.none()
-
-    # Recording the payment taken at confirmation needs the payments service.
-    # Until it is wired, a request that includes a payment is refused up front
-    # (nothing is confirmed) instead of confirming without recording the money.
-    payments_enabled = False
 
     # -- per-action permissions (the permission codes are the ports' own) ---- #
     action_permissions: ClassVar = {
@@ -383,32 +377,16 @@ class InvoiceViewSet(OrganizationScopedMixin, viewsets.GenericViewSet):
 
     @action(detail=True, methods=["post"])
     def confirm(self, request: Request, pk: str | None = None, *args: Any, **kwargs: Any) -> Response:
+        # The serializer refuses `payment` (400): invoice payments will be their own
+        # endpoint, so confirmation never has to commit money and stock together here.
         serializer = self._body()
-        payment = serializer.payment_details()
-        if payment is not None and not self.payments_enabled:
-            msg = "Recording a payment at confirmation is not available yet."
-            raise CustomError.ServiceUnavailable(msg)
-
-        # The invoice and its payment commit together or not at all (PRD §42).
-        with transaction.atomic():
-            invoice = invoice_services.confirm_invoice(
-                self.organization,
-                pk,
-                **self._service_args(),
-                **serializer.service_kwargs(),
-            )
-            if payment is not None:
-                self.record_upfront_payment(invoice, payment)
+        invoice = invoice_services.confirm_invoice(
+            self.organization,
+            pk,
+            **self._service_args(),
+            **serializer.service_kwargs(),
+        )
         return self._detail(invoice)
-
-    def record_upfront_payment(self, invoice: Any, payment: dict[str, Any]) -> None:
-        """
-        Record the payment taken at confirmation through the payments service,
-        inside the confirmation's transaction. Implement this, then set
-        `payments_enabled = True`.
-        """
-        msg = "Wire the payments service here, then set payments_enabled = True."
-        raise NotImplementedError(msg)
 
     # ------------------------------------------------------------------ #
     # Void and correct

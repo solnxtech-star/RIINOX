@@ -10,7 +10,8 @@ from core.applications.purchase.models import (
     PurchaseReturnItem,
 )
 from core.applications.purchase.services import get_purchase_available_actions
-from core.helper.enums import InvoiceTypeChoices, PaymentMethod
+from core.helper.enums import InvoiceTypeChoices
+from core.helper.serializer_fields import PaymentMethodField
 
 
 class PurchaseItemSerializer(serializers.ModelSerializer):
@@ -625,10 +626,7 @@ class PurchasePaymentCreateSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Amount paid to the supplier. Defaults to remaining balance due if omitted.",
     )
-    method = serializers.ChoiceField(
-        choices=PaymentMethod.choices,
-        help_text="Payment method used (e.g. bank_transfer, cash, pos).",
-    )
+    method = PaymentMethodField()
     reference = serializers.CharField(
         required=False,
         allow_blank=True,

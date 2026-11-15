@@ -1,6 +1,8 @@
 import uuid
 
-from rest_framework import mixins, status, viewsets
+from rest_framework import mixins
+from rest_framework import status
+from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -22,6 +24,7 @@ from core.applications.inventory.api.serializers import (
     InventoryLedgerEntrySerializer,
     InventorySerializer,
     InventorySummarySerializer,
+    StockAdjustmentRejectSerializer,
     StockAdjustmentRequestSerializer,
     StockTransferSerializer,
 )
@@ -36,6 +39,7 @@ from core.applications.inventory.services import (
     StockTransferInput,
     approve_stock_adjustment,
     get_inventory_summary,
+    reject_stock_adjustment,
     request_stock_adjustment,
     single_transfer_stock,
 )
@@ -106,6 +110,23 @@ class StockAdjustmentViewSet(
         try:
             approve_stock_adjustment(adjustment.pk, request.user, organization=self.organization)
             return Response({"status": "approved"}, status=status.HTTP_200_OK)
+        except ValueError as e:
+            return Response({"code": "APPROVAL_ERROR", "detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=["post"])
+    def reject(self, request, organization_id=None, pk=None):
+        # Same scoping as approve: another tenant's or location's request is a 404.
+        adjustment = self.get_object()
+        serializer = StockAdjustmentRejectSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            reject_stock_adjustment(
+                adjustment.pk,
+                request.user,
+                reason=serializer.validated_data["reason"],
+                organization=self.organization,
+            )
+            return Response({"status": "rejected"}, status=status.HTTP_200_OK)
         except ValueError as e:
             return Response({"code": "APPROVAL_ERROR", "detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -181,6 +202,21 @@ class InventoryViewSet(OrganizationScopedMixin, viewsets.ReadOnlyModelViewSet):
         queryset = Inventory.objects.for_organization(self.organization).with_details()
         queryset = _filter_by_product(queryset, self.request.query_params)
         return self.scope_to_locations(queryset, field="warehouse")
+
+    @action(detail=False, methods=["get"], url_path="summary")
+    def summary(self, request, organization_id=None):
+        """
+        KPI cards for the Inventory screen (stock value, potential sales value,
+        profit to be made, stock requiring attention). Optional ?warehouse=<uuid>.
+        Served at /inventory/balances/summary/ and /inventory/summary/; same
+        figures as /products/summary/.
+        """
+        summary_data = get_inventory_summary(
+            organization=self.organization,
+            warehouse_id=request.query_params.get("warehouse"),
+            user=request.user,
+        )
+        return Response(InventorySummarySerializer(summary_data).data, status=status.HTTP_200_OK)
 
 
 @ledger_entry_schema

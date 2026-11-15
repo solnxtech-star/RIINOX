@@ -628,12 +628,13 @@ _purchase_return_response_example = OpenApiExample(
     response_only=True,
 )
 
-_purchase_stock_activity_response_example = OpenApiExample(
-    "Purchase Stock Activity Entries",
-    summary="Immutable inventory ledger movements for receipts and returns",
-    description="Chronological `InventoryLedgerEntry` records for the Purchase Order's Stock Activity tab (UI Page 7).",
-    value=[
-        {
+# One entry per example: drf-spectacular wraps list examples itself (a list here
+# would render as [[...]]).
+_purchase_stock_activity_return_example = OpenApiExample(
+    "Supplier return entry",
+    summary="A stock-out movement from a supplier return",
+    description="One `InventoryLedgerEntry` from the Purchase Order's Stock Activity tab (UI Page 7). Newest first.",
+    value={
             "id": "14a56325-c405-4426-c466-b49614254356",
             "transaction_id": "PRET-E2834103-9A1B2C",
             "transaction_type": "return",
@@ -648,8 +649,14 @@ _purchase_stock_activity_response_example = OpenApiExample(
             "quantity_moved": -120,
             "unit_cost": "208.33",
             "created_at": "2026-10-17T09:00:00Z",
-        },
-        {
+    },
+    response_only=True,
+)
+
+_purchase_stock_activity_receipt_example = OpenApiExample(
+    "Goods received entry",
+    summary="A stock-in movement from receiving the order",
+    value={
             "id": "25b67436-d516-4537-d577-c50725365467",
             "transaction_id": "PUR-7B1DEB4D-3F4E5D",
             "transaction_type": "purchase",
@@ -664,8 +671,7 @@ _purchase_stock_activity_response_example = OpenApiExample(
             "quantity_moved": 600,
             "unit_cost": "208.33",
             "created_at": "2026-10-15T08:00:00Z",
-        },
-    ],
+    },
     response_only=True,
 )
 
@@ -997,9 +1003,25 @@ purchase_schema = extend_schema_view(
         ),
         parameters=[*PURCHASE_LIST_FILTER_PARAMS, LOCATION_FILTER_PARAM],
         responses={
-            200: OpenApiResponse(
-                response=OpenApiTypes.BINARY,
-                description="CSV file stream (`text/csv`).",
+            (200, "text/csv"): OpenApiResponse(
+                response=OpenApiTypes.STR,
+                description=(
+                    "A `text/csv` file download (`purchase_orders.csv`), not JSON. Request it as a normal "
+                    "download (link or blob). First line is the header row."
+                ),
+                examples=[
+                    OpenApiExample(
+                        "CSV",
+                        value=(
+                            "Purchase Number,Supplier,Warehouse,Order Date,Delivery Date,Status,Payment Status,"
+                            "Ordered Value,Total Received Value,Amount Paid,Balance Due,Vendor Invoice Number,"
+                            "Created At\n"
+                        ),
+                        response_only=True,
+                        status_codes=["200"],
+                        media_type="text/csv",
+                    )
+                ],
             ),
             401: UNAUTHENTICATED_RESPONSE,
             403: FORBIDDEN_RESPONSE,
@@ -1160,6 +1182,18 @@ purchase_schema = extend_schema_view(
             "   - Updates `purchase.balance_due` to reflect the confirmed `PurchaseInvoice.total` (including tax).\n"
             "   - Unlocks `\"record_payment\"` in `purchase.available_actions` (even before goods arrive, enabling advance supplier payments against an invoice).\n"
             "   - Emits audit event `PURCHASE_INVOICE_RECORDED`.\n\n"
+            "### How the totals are calculated (in this order)\n"
+            "1. `subtotal` = sum of line totals; each line is `invoice_quantity × unit_cost − line discount_amount`.\n"
+            "2. `taxable` = `subtotal − discount_amount` (the invoice-level discount). **Tax is applied after "
+            "all discounts.**\n"
+            "3. `tax_amount` = `taxable × tax_rate / 100`, rounded to 2 dp. If you send `tax_amount`, it is used "
+            "as-is (e.g. copied from the supplier's paper invoice) and `tax_rate` is not applied.\n"
+            "4. `total` = `taxable + tax_amount + other_costs`, never below 0. `other_costs` (delivery, handling) "
+            "are **not** taxed.\n\n"
+            "`discount_amount` and `other_costs` default to the purchase order's values when not sent. "
+            "`tax_rate` defaults to **0**. The organization's `default_tax_rate` does **not** apply here: a supplier "
+            "invoice records the tax the supplier charged, so send the rate (or amount) printed on their invoice.\n"
+            "Example: subtotal 249,500, discount 1,000, tax_rate 7.5 → tax (249,500 − 1,000) × 7.5% = 18,637.50.\n\n"
             "### Required Permissions\n"
             "- **`GET`**: Requires **`VIEW_PURCHASES`** permission.\n"
             "- **`POST`**: Requires **`CREATE_PURCHASE`** permission (roles: `owner`, `administrator`, `inventory-manager`) and an active organization subscription."
@@ -1337,7 +1371,7 @@ purchase_schema = extend_schema_view(
             200: OpenApiResponse(
                 response=PurchaseStockActivitySerializer(many=True),
                 description="Stock activity ledger entries for this purchase order.",
-                examples=[_purchase_stock_activity_response_example],
+                examples=[_purchase_stock_activity_return_example, _purchase_stock_activity_receipt_example],
             ),
             401: UNAUTHENTICATED_RESPONSE,
             403: FORBIDDEN_RESPONSE,

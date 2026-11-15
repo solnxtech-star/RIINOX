@@ -74,7 +74,7 @@ metadata_schema = extend_schema_view(
                 examples=[
                     OpenApiExample(
                         "Countries",
-                        value=[{"code": "GH", "name": "Ghana"}, {"code": "NG", "name": "Nigeria"}],
+                        value={"code": "NG", "name": "Nigeria"},  # one item; spectacular adds the list
                         response_only=True,
                     )
                 ],
@@ -96,7 +96,7 @@ metadata_schema = extend_schema_view(
                 examples=[
                     OpenApiExample(
                         "Currencies",
-                        value=[{"code": "GHS", "name": "Ghana Cedi"}, {"code": "NGN", "name": "Naira"}],
+                        value={"code": "NGN", "name": "Naira"},  # one item; spectacular adds the list
                         response_only=True,
                     )
                 ],
@@ -120,7 +120,7 @@ metadata_schema = extend_schema_view(
                 examples=[
                     OpenApiExample(
                         "Nigeria",
-                        value=[{"name": "Abia", "code": "NG-AB"}, {"name": "Adamawa", "code": "NG-AD"}],
+                        value={"name": "Abia", "code": "NG-AB"},  # one item; spectacular adds the list
                         response_only=True,
                     )
                 ],

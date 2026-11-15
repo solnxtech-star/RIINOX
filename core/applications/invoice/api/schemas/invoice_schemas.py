@@ -14,6 +14,7 @@ from drf_spectacular.utils import extend_schema_view
 from rest_framework import status
 
 from core.applications.warehouse.api.schemas import LOCATION_ACCESS_NOTE
+from core.helper.serializer_fields import UNIT_NAMES_NOTE
 from core.applications.invoice.api.constants import EXPORT_COLUMNS
 from core.applications.invoice.api.constants import MAX_EXPORT_ROWS
 from core.applications.invoice.api.serializers.invoice_serializers import (
@@ -31,9 +32,6 @@ from core.applications.invoice.api.serializers.invoice_serializers import (
 )
 from core.applications.invoice.api.serializers.invoice_serializers import (
     MAX_SEARCH_LENGTH,
-)
-from core.applications.invoice.api.serializers.invoice_serializers import (
-    MAX_UNIT_NAME_LENGTH,
 )
 from core.applications.invoice.api.serializers.invoice_serializers import (
     AuditTrailPageSerializer,
@@ -188,7 +186,6 @@ to a request the UI should not have offered.
 | `404` | Invoice not found in this organization | `{{"code", "detail"}}` |
 | `405` | Method not supported (`PATCH`, `DELETE`) | `{{"code", "detail"}}` |
 | `409` | A business rule blocked the action | `{{"code", "detail", "context"}}` |
-| `503` | The feature is not available yet | `{{"code", "detail"}}` |
 | `500` | Unexpected server error | `{{"code": "INTERNAL_SERVER_ERROR", "detail": "..."}}` |
 
 Branch on `code` for `409` responses, never on the text of `detail`. Field
@@ -313,7 +310,8 @@ def _invoice_example(
     number: str = "INV-000123",
 ) -> dict[str, Any]:
     """An illustrative invoice detail. Real status and action values come from the server."""
-    person = {"id": "0b9a6c2e-1d4f-4b7a-9e35-6a1f2c8d7e40", "name": "Ngozi Eze", "email": "ngozi@example.com"}
+    # User ids are integers, serialized as strings here (see UserRefSerializer).
+    person = {"id": "7", "name": "Ngozi Eze", "email": "ngozi@example.com"}
     return {
         "id": _INVOICE_ID,
         "invoice_number": number,
@@ -571,7 +569,19 @@ call.
         parameters=[InvoiceListFilterSerializer],
         responses={
             **CustomError.DEFAULT_ERROR_SCHEMA(),
-            status.HTTP_200_OK: OpenApiResponse(response=OpenApiTypes.BINARY, description="A `text/csv; charset=utf-8` file."),
+            (status.HTTP_200_OK, "text/csv"): OpenApiResponse(
+                response=OpenApiTypes.STR,
+                description="A `text/csv; charset=utf-8` file download (not JSON). First line is the header row.",
+                examples=[
+                    OpenApiExample(
+                        "CSV",
+                        value=",".join(EXPORT_COLUMNS) + "\n",
+                        response_only=True,
+                        status_codes=["200"],
+                        media_type="text/csv",
+                    )
+                ],
+            ),
         },
     ),
     retrieve=extend_schema(
@@ -692,7 +702,7 @@ server-owned field is a `400`.
 | `product_id` | yes | A product of this organization. |
 | `quantity` | yes | A whole number from 1 to {MAX_LINE_QUANTITY}, counted in the line's unit. |
 | `variant_id` | no | A variant of that product. Its price overrides the product's. |
-| `unit_name` | no | A unit the product is sold in, for example `carton`, at most {MAX_UNIT_NAME_LENGTH} characters. Leave it out to sell in the product's base unit. A unit the product does not have is a `400`. |
+| `unit_name` | no | One of {UNIT_NAMES_NOTE}, and it must be the product's base unit or one of its unit conversions (for example `carton`). Leave it out to sell in the product's base unit. Any other value is a `400`. |
 | `description` | no | Custom line text, at most {MAX_LINE_TEXT_LENGTH} characters. The product name is used when empty. |
 
 The same product, variant and unit can appear only once per invoice. Put
@@ -805,16 +815,15 @@ happens, or nothing does and the invoice stays a Draft.
 3. The totals are frozen. From now on the lines, prices and totals never change.
 4. The customer's balance is updated and an audit event is written.
 
-**Body.** Send `{}`. Both fields are optional:
+**Body.** Send `{}`. One optional field:
 
 * `credit_approval_id`: an approved credit override, needed only when the
   customer would exceed their credit limit and the organization's rules
   require approval.
-* `payment`: money taken at confirmation (`amount`, `method`, optional
-  `reference`, `paid_on`, `note`). **This is not available yet.** A request that
-  includes a payment is refused with `503` before anything is confirmed, so the
-  invoice is never confirmed without recording the money. Record the payment
-  separately after confirming.
+
+**No payment here.** Taking money while confirming is not supported yet;
+recording invoice payments will be a separate endpoint. Sending a non-null
+`payment` is a `400` on `payment` and nothing is confirmed.
 
 Confirming twice is a `409`, and never deducts stock a second time.
 
@@ -835,11 +844,6 @@ Confirming twice is a `409`, and never deducts stock a second time.
                 "INVOICE_ALREADY_ISSUED_FOR_SALE",
                 "APPROVAL_REQUIRED",
             ),
-            extra={
-                status.HTTP_503_SERVICE_UNAVAILABLE: OpenApiResponse(
-                    description="A `payment` was sent, but recording a payment at confirmation is not available yet. Nothing was confirmed.",
-                ),
-            },
         ),
         examples=[
             OpenApiExample("Confirm", value={}, request_only=True),

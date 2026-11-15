@@ -6,6 +6,10 @@ from drf_spectacular.utils import (
     OpenApiTypes,
     OpenApiResponse,
 )
+from core.applications.inventory.api.serializers import InventorySummarySerializer
+from core.applications.inventory.api.serializers import StockActionErrorSerializer
+from core.applications.inventory.api.serializers import StockActionResultSerializer
+from core.applications.inventory.api.serializers import StockAdjustmentRejectSerializer
 from core.applications.inventory.api.serializers import StockTransferSerializer
 from core.applications.warehouse.api.schemas import LOCATION_ACCESS_NOTE
 from core.applications.warehouse.api.schemas import LOCATION_FILTER_PARAM
@@ -102,13 +106,88 @@ stock_adjustment_approve_schema = extend_schema(
 - Approving twice at the same time is safe: the request row is locked, the second call gets 400.
 
 ### Plan Limits (PRD §10):
-- Records a system `Transaction` (`transaction_type = 'ADJUSTMENT'`) bounded by the `max_transactions_per_month` plan quota.""",
+- Records a system `Transaction` (`transaction_type = 'ADJUSTMENT'`) bounded by the `max_transactions_per_month` plan quota.
+
+### Request body
+**None.** The adjustment is identified by the `id` in the URL; any body is ignored.
+
+To turn a request down instead, use `POST .../adjustments/{id}/reject/`.""",
+    request=None,
     responses={
-        200: OpenApiResponse(description="Adjustment Approved and Ledger Written"),
-        400: OpenApiResponse(description="Approval Error (e.g. Request is not in PENDING status)"),
-        403: OpenApiResponse(description="Forbidden (Insufficient approval privileges)"),
-        404: OpenApiResponse(description="Adjustment request not found"),
-    }
+        200: OpenApiResponse(
+            response=StockActionResultSerializer,
+            description="Approved: stock, ledger and audit log are updated.",
+            examples=[OpenApiExample("Approved", value={"status": "approved"}, response_only=True)],
+        ),
+        400: OpenApiResponse(
+            response=StockActionErrorSerializer,
+            description="The request is no longer PENDING (already approved or rejected).",
+            examples=[
+                OpenApiExample(
+                    "Not pending",
+                    value={"code": "APPROVAL_ERROR", "detail": "Only PENDING requests can be approved."},
+                    response_only=True,
+                )
+            ],
+        ),
+        403: OpenApiResponse(description="The caller lacks `APPROVE_STOCK_ADJUSTMENT`."),
+        404: OpenApiResponse(
+            description="No such request in this organization, or it is at a location the caller can't access."
+        ),
+    },
+)
+
+stock_adjustment_reject_schema = extend_schema(
+    tags=['Inventory'],
+    summary="Reject Stock Adjustment Request",
+    description="""Turns down a pending stock adjustment request.
+
+### What happens
+- Status goes from `PENDING` to `REJECTED`; `reviewed_by`, `reviewed_at` and `rejection_reason` are set.
+- **Stock is not touched**: no inventory change, no ledger entry, no transaction.
+- An `inventory.adjustment_rejected` audit log entry is written.
+
+### Request body
+`{"reason": "..."}`. **Required**, non-blank, up to 1000 characters. Shown to the requester as
+`rejection_reason` on the adjustment.
+
+### Permission & scope
+- Requires `APPROVE_STOCK_ADJUSTMENT` (same as approve).
+- The request must belong to this organization and one of the caller's locations; otherwise 404.
+- Approve and reject racing on the same request is safe: the row is locked and the second call gets 400.""",
+    request=StockAdjustmentRejectSerializer,
+    examples=[
+        OpenApiExample(
+            "Reject",
+            value={"reason": "Recount found the 5 units on the back shelf."},
+            request_only=True,
+        )
+    ],
+    responses={
+        200: OpenApiResponse(
+            response=StockActionResultSerializer,
+            description="Rejected. Stock unchanged.",
+            examples=[OpenApiExample("Rejected", value={"status": "rejected"}, response_only=True)],
+        ),
+        400: OpenApiResponse(
+            response=StockActionErrorSerializer,
+            description=(
+                "`reason` missing or blank (`{\"code\": \"VALIDATION_ERROR\", \"detail\": \"Invalid input.\", "
+                "\"errors\": {\"reason\": [\"...\"]}}`), or the request is no longer PENDING (`APPROVAL_ERROR`)."
+            ),
+            examples=[
+                OpenApiExample(
+                    "Not pending",
+                    value={"code": "APPROVAL_ERROR", "detail": "Only PENDING requests can be rejected."},
+                    response_only=True,
+                )
+            ],
+        ),
+        403: OpenApiResponse(description="The caller lacks `APPROVE_STOCK_ADJUSTMENT`."),
+        404: OpenApiResponse(
+            description="No such request in this organization, or it is at a location the caller can't access."
+        ),
+    },
 )
 
 stock_adjustment_schema = extend_schema_view(
@@ -155,6 +234,7 @@ stock_adjustment_schema = extend_schema_view(
 - Cross-tenant requests return HTTP 404 Not Found.""",
     ),
     approve=stock_adjustment_approve_schema,
+    reject=stock_adjustment_reject_schema,
 )
 
 stock_transfer_schema = extend_schema_view(
@@ -180,9 +260,39 @@ stock_transfer_schema = extend_schema_view(
         request=StockTransferSerializer,
         examples=[stock_transfer_example],
         responses={
-            200: OpenApiResponse(description="Stock transfer successfully executed and recorded in ledger"),
-            400: OpenApiResponse(description="Transfer Error (Insufficient stock or invalid warehouse IDs)"),
-            403: OpenApiResponse(description="Forbidden (Insufficient transfer privileges)"),
+            200: OpenApiResponse(
+                response=StockActionResultSerializer,
+                description="Transfer done: source decreased, destination increased, two ledger entries written.",
+                examples=[
+                    OpenApiExample("Transferred", value={"status": "transfer completed"}, response_only=True)
+                ],
+            ),
+            400: OpenApiResponse(
+                response=StockActionErrorSerializer,
+                description=(
+                    "One of:\n"
+                    "- `TRANSFER_ERROR`: not enough stock at the source, or source and destination are the same.\n"
+                    "- `VALIDATION_ERROR` with \"Product, variant, batch or warehouse not found in this "
+                    "organization.\": an id doesn't exist in this organization.\n"
+                    "- `VALIDATION_ERROR` (`errors` keyed by field) for a malformed body, e.g. `quantity` < 1."
+                ),
+                examples=[
+                    OpenApiExample(
+                        "Insufficient stock",
+                        value={
+                            "code": "TRANSFER_ERROR",
+                            "detail": "Out of stock: Coca-Cola 50cl. Requested 500, available 30.",
+                        },
+                        response_only=True,
+                    )
+                ],
+            ),
+            403: OpenApiResponse(
+                description=(
+                    "The caller lacks `TRANSFER_STOCK`, or `LOCATION_ACCESS_DENIED`: one of the two "
+                    "locations isn't one of theirs."
+                )
+            ),
         }
     )
 )

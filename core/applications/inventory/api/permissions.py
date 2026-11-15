@@ -10,6 +10,7 @@ class StockAdjustmentPermission(BaseTenantPermission):
         "retrieve": PermissionCode.VIEW_INVENTORY,
         "create": PermissionCode.REQUEST_STOCK_ADJUSTMENT,
         "approve": PermissionCode.APPROVE_STOCK_ADJUSTMENT,
+        "reject": PermissionCode.APPROVE_STOCK_ADJUSTMENT,
     }
     default_permission: str = PermissionCode.VIEW_INVENTORY
 

@@ -1,6 +1,0 @@
-$kind: http-request
-name: Verify / Decline / Revoke Agent
-url: ""
-method: GET
-settings: {}
-order: 4000

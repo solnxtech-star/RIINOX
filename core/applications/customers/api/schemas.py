@@ -13,6 +13,7 @@ from core.applications.customers.api.serializers import (
     CustomerCreditAdjustmentSerializer,
     CustomerSerializer,
 )
+from core.applications.sales.api.serializers import SaleSerializer
 
 CUSTOMER_ORGANIZATION_PARAM = OpenApiParameter(
     "organization_id",
@@ -167,11 +168,23 @@ customer_schema = extend_schema_view(
     sales=extend_schema(
         tags=["Customers"],
         summary="Customer Sales History",
-        description="Retrieves paginated historical sales orders placed by this customer within the organization (PRD §20).",
+        description=(
+            "This customer's sales, newest first (PRD §20).\n\n"
+            "- **Shape:** the same paginated envelope and sale objects as `GET /sales/` "
+            "(`count`, `total_pages`, `current_page`, `page_size`, `next`, `previous`, `results`). "
+            "Always paginated, even when empty (`results: []`). Use `?page=` and `?page_size=` (max 100).\n"
+            "- **Locations (PRD §35):** customers are organization-wide, but sales belong to a location. A member "
+            "limited to some locations only sees sales made there; owners/admins see all.\n"
+            "- Requires the same permission as viewing the customer."
+        ),
         parameters=[CUSTOMER_ORGANIZATION_PARAM],
         responses={
-            200: OpenApiResponse(description="List of sales associated with this customer."),
-            404: OpenApiResponse(description="Customer not found."),
+            200: OpenApiResponse(
+                response=SaleSerializer(many=True),
+                description="A page of this customer's sales.",
+            ),
+            403: OpenApiResponse(description="Forbidden."),
+            404: OpenApiResponse(description="Customer not found in this organization."),
         },
     ),
     adjust_credit=extend_schema(
