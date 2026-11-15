@@ -236,6 +236,19 @@ class ProductSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         data = super().to_representation(instance)
         request = self.context.get('request')
+        if request is not None and hasattr(request, 'query_params'):
+            warehouse_filter = request.query_params.get('warehouse')
+            if warehouse_filter:
+                try:
+                    target_warehouse_uuid = uuid.UUID(str(warehouse_filter))
+                    data['current_stock'] = sum(
+                        inventory_record.quantity
+                        for inventory_record in instance.inventory_records.all()
+                        if uuid.UUID(str(inventory_record.warehouse_id)) == target_warehouse_uuid
+                    )
+                except (ValueError, TypeError):
+                    pass
+
         user = getattr(request, 'user', None)
         if instance.organization and user and user.is_authenticated:
             if not has_org_permission(user, instance.organization, PermissionCode.VIEW_PRODUCT_COSTS):

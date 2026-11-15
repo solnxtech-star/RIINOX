@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.urls import re_path
 from rest_framework.routers import DefaultRouter, SimpleRouter
 from core.applications.inventory.api.views import (
     StockAdjustmentViewSet, StockTransferViewSet,
@@ -28,4 +29,11 @@ router.register(
 )
 
 app_name = "inventory"
-urlpatterns = router.urls
+urlpatterns = [
+    *router.urls,
+    re_path(
+        r"^organizations/(?P<organization_id>[0-9a-fA-F-]{32,36})/inventory/summary/$",
+        InventoryViewSet.as_view({"get": "summary"}),
+        name="organization-inventory-summary",
+    ),
+]

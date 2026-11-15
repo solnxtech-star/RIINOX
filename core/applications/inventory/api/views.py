@@ -8,32 +8,42 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from core.applications.inventory.api.permissions import InventoryLedgerPermission
-from core.applications.inventory.api.permissions import InventoryPermission
-from core.applications.inventory.api.permissions import StockAdjustmentPermission
-from core.applications.inventory.api.permissions import StockTransferPermission
-from core.applications.inventory.api.schemas import inventory_schema
-from core.applications.inventory.api.schemas import ledger_entry_schema
-from core.applications.inventory.api.schemas import stock_adjustment_schema
-from core.applications.inventory.api.schemas import stock_transfer_schema
-from core.applications.inventory.api.serializers import InventoryLedgerEntrySerializer
-from core.applications.inventory.api.serializers import InventorySerializer
-from core.applications.inventory.api.serializers import StockAdjustmentRejectSerializer
-from core.applications.inventory.api.serializers import StockAdjustmentRequestSerializer
-from core.applications.inventory.api.serializers import StockTransferSerializer
-from core.applications.inventory.models import Inventory
-from core.applications.inventory.models import InventoryLedgerEntry
-from core.applications.inventory.models import StockAdjustmentRequest
-from core.applications.inventory.services import InsufficientStock
-from core.applications.inventory.services import StockAdjustmentInput
-from core.applications.inventory.services import StockTransferInput
-from core.applications.inventory.services import approve_stock_adjustment
-from core.applications.inventory.services import reject_stock_adjustment
-from core.applications.inventory.services import request_stock_adjustment
-from core.applications.inventory.services import single_transfer_stock
-from core.applications.products.models import Product
-from core.applications.products.models import ProductBatch
-from core.applications.products.models import ProductVariant
+from core.applications.inventory.api.permissions import (
+    InventoryLedgerPermission,
+    InventoryPermission,
+    StockAdjustmentPermission,
+    StockTransferPermission,
+)
+from core.applications.inventory.api.schemas import (
+    inventory_schema,
+    ledger_entry_schema,
+    stock_adjustment_schema,
+    stock_transfer_schema,
+)
+from core.applications.inventory.api.serializers import (
+    InventoryLedgerEntrySerializer,
+    InventorySerializer,
+    InventorySummarySerializer,
+    StockAdjustmentRejectSerializer,
+    StockAdjustmentRequestSerializer,
+    StockTransferSerializer,
+)
+from core.applications.inventory.models import (
+    Inventory,
+    InventoryLedgerEntry,
+    StockAdjustmentRequest,
+)
+from core.applications.inventory.services import (
+    InsufficientStock,
+    StockAdjustmentInput,
+    StockTransferInput,
+    approve_stock_adjustment,
+    get_inventory_summary,
+    reject_stock_adjustment,
+    request_stock_adjustment,
+    single_transfer_stock,
+)
+from core.applications.products.models import Product, ProductBatch, ProductVariant
 from core.applications.users.permissions import OrganizationScopedMixin
 from core.applications.warehouse.models import Warehouse
 
@@ -176,6 +186,11 @@ class InventoryViewSet(OrganizationScopedMixin, viewsets.ReadOnlyModelViewSet):
     serializer_class = InventorySerializer
     permission_classes = [IsAuthenticated, InventoryPermission]
 
+    def get_serializer_class(self):
+        if self.action == "summary":
+            return InventorySummarySerializer
+        return InventorySerializer
+
     def get_queryset(self):
         user = self.request.user
         if not user.is_authenticated:
@@ -187,6 +202,21 @@ class InventoryViewSet(OrganizationScopedMixin, viewsets.ReadOnlyModelViewSet):
         queryset = Inventory.objects.for_organization(self.organization).with_details()
         queryset = _filter_by_product(queryset, self.request.query_params)
         return self.scope_to_locations(queryset, field="warehouse")
+
+    @action(detail=False, methods=["get"], url_path="summary")
+    def summary(self, request, organization_id=None):
+        """
+        KPI cards for the Inventory screen (stock value, potential sales value,
+        profit to be made, stock requiring attention). Optional ?warehouse=<uuid>.
+        Served at /inventory/balances/summary/ and /inventory/summary/; same
+        figures as /products/summary/.
+        """
+        summary_data = get_inventory_summary(
+            organization=self.organization,
+            warehouse_id=request.query_params.get("warehouse"),
+            user=request.user,
+        )
+        return Response(InventorySummarySerializer(summary_data).data, status=status.HTTP_200_OK)
 
 
 @ledger_entry_schema

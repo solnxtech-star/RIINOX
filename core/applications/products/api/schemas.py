@@ -1,10 +1,11 @@
-from drf_spectacular.utils import (
-    extend_schema,
-    extend_schema_view,
-    OpenApiExample,
-    OpenApiParameter,
-    OpenApiTypes,
-)
+from drf_spectacular.utils import OpenApiExample
+from drf_spectacular.utils import OpenApiParameter
+from drf_spectacular.utils import OpenApiResponse
+from drf_spectacular.utils import OpenApiTypes
+from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema_view
+
+from core.applications.inventory.api.serializers import InventorySummarySerializer
 
 from core.applications.warehouse.api.schemas import LOCATION_ACCESS_NOTE
 from core.applications.warehouse.api.schemas import LOCATION_FILTER_PARAM
@@ -31,20 +32,20 @@ PRODUCT_CREATE_EXAMPLE = {
             "expiry_date": "2027-12-31",
             "cost_price": "1200.00",
             "selling_price": "2000.00",
-        }
+        },
     ],
     "bulk_discounts": [
         {
             "min_quantity": 10,
             "discount_amount": "100.00",
-        }
+        },
     ],
     "unit_conversions": [
         {
             "unit_name": "carton",
             "multiplier": "24.000",
             "price_override": "45000.00",
-        }
+        },
     ],
 }
 
@@ -57,7 +58,7 @@ PRODUCT_ORGANIZATION_PARAM = OpenApiParameter(
 
 product_schema = extend_schema_view(
     list=extend_schema(
-        tags=['Products'],
+        tags=["Products"],
         summary="List all Products",
         description="""Retrieves a paginated list of products for the active tenant, including nested batches, discounts, and packaging unit conversions.
 
@@ -103,9 +104,35 @@ product_schema = extend_schema_view(
                 ),
             ),
         ],
+        responses={
+            200: OpenApiResponse(
+                response=InventorySummarySerializer,
+                description="Inventory and product valuation summary figures.",
+                examples=[
+                    OpenApiExample(
+                        "Organization-Wide Inventory Summary",
+                        value={
+                            "stock_value": "1250000.00",
+                            "potential_sales_value": "1850000.00",
+                            "profit_to_be_made": "600000.00",
+                            "stock_requiring_attention": 4,
+                            "out_of_stock_count": 1,
+                            "low_stock_count": 3,
+                            "total_products": 45,
+                            "total_inventory_items": 1420,
+                            "warehouses_count": 2,
+                            "warehouse_id": None,
+                            "warehouse_name": "All Warehouses",
+                            "has_cost_permission": True,
+                        },
+                        response_only=True,
+                    ),
+                ],
+            ),
+        },
     ),
     create=extend_schema(
-        tags=['Products'],
+        tags=["Products"],
         summary="Create a New Product",
         description="""Creates a product within the tenant organization, optionally provisioning starting inventory, nested batches, bulk discounts, and unit conversions.
 
@@ -136,12 +163,12 @@ product_schema = extend_schema_view(
             OpenApiExample(
                 name="Complete Product Payload with Opening Stock",
                 value=PRODUCT_CREATE_EXAMPLE,
-                request_only=True
-            )
-        ]
+                request_only=True,
+            ),
+        ],
     ),
     retrieve=extend_schema(
-        tags=['Products'],
+        tags=["Products"],
         summary="Retrieve a Product",
         description="""Fetch a single product by its UUID.
 
@@ -152,7 +179,7 @@ product_schema = extend_schema_view(
 - Requesting a product belonging to another tenant returns HTTP 404 Not Found (never 403, preventing resource enumeration).""",
     ),
     update=extend_schema(
-        tags=['Products'],
+        tags=["Products"],
         summary="Update a Product",
         description="""Fully update a product and synchronize child relations.
 
@@ -167,12 +194,12 @@ product_schema = extend_schema_view(
             OpenApiExample(
                 name="Update Product Payload",
                 value=PRODUCT_CREATE_EXAMPLE,
-                request_only=True
-            )
-        ]
+                request_only=True,
+            ),
+        ],
     ),
     partial_update=extend_schema(
-        tags=['Products'],
+        tags=["Products"],
         summary="Partially Update a Product",
         description="""Partially update selected fields on a product (e.g. updating only `customer_sale_price` or `status`).
 
@@ -181,7 +208,7 @@ product_schema = extend_schema_view(
 - Changing costs requires `EDIT_PRODUCT_COSTS`.""",
     ),
     destroy=extend_schema(
-        tags=['Products'],
+        tags=["Products"],
         summary="Delete or Archive a Product",
         description="""Deletes or archives a product based on inventory history invariants (PRD §44 & §60).
 
@@ -190,12 +217,12 @@ product_schema = extend_schema_view(
 - **Protected Archival**: If the product has existing stock movements or sales history, `ProtectedError` is trapped, the product is automatically soft-archived (`status = 'archived'`), an audit log `PRODUCT_ARCHIVED` is emitted, and HTTP 200 OK is returned with an explanatory message.""",
     ),
     archive=extend_schema(
-        tags=['Products'],
+        tags=["Products"],
         summary="Archive a Product",
         description="""Explicitly soft-archive an active product (PRD §44). Changes status to 'archived' and records audit event `product.archived`.""",
     ),
     restore=extend_schema(
-        tags=['Products'],
+        tags=["Products"],
         summary="Restore an Archived Product",
         description="""Restores a previously archived product back to active status (PRD §44). Evaluates subscription plan quota before activation and records audit event `product.restored`.""",
     ),

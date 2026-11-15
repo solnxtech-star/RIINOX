@@ -9,6 +9,8 @@ from django.shortcuts import get_object_or_404
 from rest_framework.exceptions import ValidationError
 
 from core.applications.products.models import Brand, Category, Product, ProductVariant
+from core.applications.inventory.api.serializers import InventorySummarySerializer
+from core.applications.inventory.services import get_inventory_summary
 from core.applications.products.api.serializers import (
     BrandSerializer,
     CategorySerializer,
@@ -91,6 +93,9 @@ class ProductViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
         product_type = self.request.query_params.get("product_type")
         if product_type:
             qs = qs.filter(product_type=product_type)
+        warehouse_param = self.request.query_params.get("warehouse")
+        if warehouse_param:
+            qs = qs.filter(inventory_records__warehouse_id=warehouse_param).distinct()
 
         # Stock per location (PRD §35): the catalogue is organization-wide, stock is
         # summed over the caller's locations, or one location with ?location=.
@@ -104,10 +109,27 @@ class ProductViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
         return qs
 
     def get_serializer_class(self):
+        if self.action == "summary":
+            return InventorySummarySerializer
         if self.action in ['create', 'update', 'partial_update']:
             return ProductCreateSerializer
 
         return ProductSerializer
+
+    @action(detail=False, methods=["get"], url_path="summary")
+    def summary(self, request, organization_id=None):
+        """
+        Returns KPI summary metrics for the Products screen (Stock Value, Potential Sales Value,
+        Profit to be made, Stock Requiring Attention). Supports optional ?warehouse=<uuid> filtering.
+        """
+        warehouse_param = request.query_params.get("warehouse")
+        summary_data = get_inventory_summary(
+            organization=self.organization,
+            warehouse_id=warehouse_param,
+            user=request.user,
+        )
+        serializer = InventorySummarySerializer(summary_data)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     def perform_create(self, serializer):
         # The product itself is organization-wide; its opening stock lands in one
