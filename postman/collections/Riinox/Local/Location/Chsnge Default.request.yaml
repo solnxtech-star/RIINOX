@@ -1,8 +1,0 @@
-$kind: http-request
-url: "{{local_base_url}}/api/organizations/{{org_id}}/warehouses/12916453e64a4a159c443ab4ec6199cc/set-default/"
-method: POST
-auth:
-  type: bearer
-  credentials:
-    token: "{{json_web_token_16mj}}"
-order: 3000

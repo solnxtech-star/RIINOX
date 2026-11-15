@@ -1,8 +1,0 @@
-$kind: http-request
-url: "{{local_base_url}}/api/organizations/{{org_id}}/warehouses/"
-method: GET
-auth:
-  type: bearer
-  credentials:
-    token: "{{json_web_token_16mj}}"
-order: 1000
