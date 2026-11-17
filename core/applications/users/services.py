@@ -395,6 +395,11 @@ def update_membership(
             new_values={"role": membership.role.slug},
             context=audit_context,
         )
+        from core.applications.notification import triggers as notification_triggers
+
+        notification_triggers.permissions_changed(
+            membership, actor=actor, summary=f"role changed from {previous_role.name} to {membership.role.name}"
+        )
     if membership.is_active != previous_active:
         audit.record(
             action=AuditAction.MEMBERSHIP_REACTIVATED if membership.is_active else AuditAction.MEMBERSHIP_DEACTIVATED,

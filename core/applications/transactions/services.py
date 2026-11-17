@@ -478,3 +478,31 @@ def record_purchase_return_financial_entries(
         ),
     ]
     return create_financial_entries(transaction_record, entries)
+
+
+def record_expense_financial_entries(
+    expense: Any,
+    transaction_record: Transaction,
+    *,
+    reverse: bool = False,
+) -> list[FinancialLedgerEntry]:
+    """
+    Balanced entries for an operating expense paid out (Expenses module).
+    - Debit:  AccountNameChoices.OPERATING_EXPENSES (expense.amount)
+    - Credit: AccountNameChoices.CASH_BANK (expense.amount)
+
+    `reverse=True` writes the exact opposite, for voiding an expense: the
+    original entries are never edited or deleted (PRD §44).
+    """
+    amount = quantize_money(expense.amount, field="expense amount")
+    if amount <= Decimal("0.00"):
+        return []
+
+    expense_side, cash_side = (
+        (FinancialEntryData(AccountNameChoices.OPERATING_EXPENSES, credit=amount),
+         FinancialEntryData(AccountNameChoices.CASH_BANK, debit=amount))
+        if reverse
+        else (FinancialEntryData(AccountNameChoices.OPERATING_EXPENSES, debit=amount),
+              FinancialEntryData(AccountNameChoices.CASH_BANK, credit=amount))
+    )
+    return create_financial_entries(transaction_record, [expense_side, cash_side])

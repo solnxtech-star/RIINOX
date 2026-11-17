@@ -598,4 +598,11 @@ def update_membership_locations(
         new_values={"all_locations": all_locations, "locations": sorted(new_ids)},
         context=audit_context,
     )
+    from core.applications.notification import triggers as notification_triggers
+
+    names = ", ".join(sorted(location.name for location in location_list))
+    notification_triggers.permissions_changed(
+        membership, actor=actor,
+        summary="branch access set to all branches" if all_locations else f"branch access set to {names or 'none'}",
+    )
     return membership

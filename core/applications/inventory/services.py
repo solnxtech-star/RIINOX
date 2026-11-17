@@ -15,6 +15,7 @@ from core.applications.inventory.models import PhysicalStockCount
 from core.applications.inventory.models import StockAdjustmentRequest
 from core.applications.notification.audit.action import AuditAction
 from core.applications.notification.audit.services import record as audit_record
+from core.applications.notification import triggers as notification_triggers
 from core.applications.subscriptions.services.entitlements import (
     ensure_subscription_active,
 )
@@ -212,6 +213,7 @@ def process_sale_inventory_and_ledger(sale):
         resource=sale,
         metadata={"total_items": len(ledger_entries)}
     )
+    notification_triggers.stock_levels_changed(warehouse, [entry.product_id for entry in ledger_entries])
     return transaction_record
 
 
@@ -426,6 +428,8 @@ def request_stock_adjustment(
     if is_privileged:
         approve_stock_adjustment(adjustment.id, admin_user=user)
         adjustment.refresh_from_db()
+    else:
+        notification_triggers.adjustment_requested(adjustment)
 
     return adjustment
 
@@ -492,6 +496,10 @@ def approve_stock_adjustment(adjustment_id, admin_user, *, organization=None):
         reason=adjustment.adjustment_reason or "Stock Adjustment Approved",
         metadata={"quantity_change": adjustment.requested_quantity_change, "warehouse_id": str(adjustment.warehouse.id)}
     )
+    if adjustment.requested_by_id and adjustment.requested_by_id != getattr(admin_user, "pk", None):
+        notification_triggers.adjustment_decided(adjustment, actor=admin_user, approved=True)
+    if adjustment.requested_quantity_change < 0:
+        notification_triggers.stock_levels_changed(adjustment.warehouse, [adjustment.product_id])
 
 
 @transaction.atomic
@@ -534,6 +542,7 @@ def reject_stock_adjustment(adjustment_id, admin_user, *, reason: str, organizat
             "warehouse_id": str(adjustment.warehouse_id),
         },
     )
+    notification_triggers.adjustment_decided(adjustment, actor=admin_user, approved=False)
     return adjustment
 
 
@@ -631,6 +640,7 @@ def single_transfer_stock(
     _apply_stock_delta(
         product=product, variant=variant, batch=batch, warehouse=destination_warehouse, delta=quantity
     )
+    notification_triggers.stock_levels_changed(source_warehouse, [product.pk])
 
 
 @transaction.atomic
@@ -705,6 +715,7 @@ def bulk_transfer_stock(source_warehouse, destination_warehouse, items, user, no
         )
 
     InventoryLedgerEntry.objects.bulk_create(ledger_entries)
+    notification_triggers.stock_levels_changed(source_warehouse, [item["product"].pk for item in items])
 
 
 @transaction.atomic
@@ -778,6 +789,9 @@ def finalize_physical_stock_count(count_id, admin_user):
 
     count.status = PhysicalCountStatusChoices.COMPLETED
     count.save(update_fields=['status'])
+    notification_triggers.stock_count_finalized(count, actor=admin_user, variances=len(ledger_entries))
+    shortfalls = [entry.product_id for entry in ledger_entries if entry.quantity_moved < 0]
+    notification_triggers.stock_levels_changed(count.warehouse, shortfalls)
     return count
 
 
@@ -838,6 +852,7 @@ def process_invoice_stock_deduction(invoice, lines, *, actor=None):
             ))
 
     InventoryLedgerEntry.objects.bulk_create(entries)
+    notification_triggers.stock_levels_changed(warehouse, [product.pk for product, _variant, _qty in tracked])
     return transaction_record
 
 
@@ -1061,6 +1076,7 @@ def process_purchase_return_inventory_and_ledger(
         InventoryLedgerEntry.objects.bulk_create(entries)
 
     record_purchase_return_financial_entries(purchase_return, transaction_record)
+    notification_triggers.stock_levels_changed(purchase.warehouse, [entry.product_id for entry in entries])
     return transaction_record
 
 

@@ -55,6 +55,14 @@ class AuditAction:
     CUSTOMER_DELETED = "customer.deleted"
     CUSTOMER_CREDIT_ADJUSTED = "customer.credit_adjusted"
 
+    # Expense Events
+    EXPENSE_RECORDED = "expense.recorded"
+    EXPENSE_UPDATED = "expense.updated"
+    EXPENSE_VOIDED = "expense.voided"
+
+    # Notification Events
+    NOTIFICATION_SETTINGS_UPDATED = "notification_settings.updated"
+
     # Location Events
     LOCATION_CREATED = "location.created"
     LOCATION_DEFAULT_CHANGED = "location.default_changed"

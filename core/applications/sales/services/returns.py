@@ -7,6 +7,7 @@ from typing import Any
 from django.db import transaction
 
 from core.applications.inventory.services import process_return_inventory_and_ledger
+from core.applications.notification import triggers as notification_triggers
 from core.applications.payment.services import record_refund_for_return
 from core.applications.sales.models import Sale, SaleItem, SaleReturn, SaleReturnItem
 from core.applications.sales.services.audit import record_sale_return_audit_event
@@ -137,6 +138,7 @@ def create_sale_return(data: dict[str, Any], *, actor: Any = None) -> SaleReturn
     process_return_inventory_and_ledger(sale_return)
     record_refund_for_return(sale_return)
     record_sale_return_audit_event(sale_return, actor=actor)
+    notification_triggers.refund_processed(sale_return, actor=actor)
 
     logger.info(
         "sale_return.created",
