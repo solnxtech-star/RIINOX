@@ -305,6 +305,7 @@ class TransactionTypeChoices(TextChoices):
     STOCK_TRANSFER = "stock_transfer", _("Stock Transfer")
     RETURN = "return", _("Customer Return")
     OPENING_STOCK = "opening_stock", _("Opening Stock")
+    EXPENSE = "expense", _("Operating Expense")
 
 
 class TransactionStatusChoices(TextChoices):
@@ -325,6 +326,28 @@ class AccountNameChoices(TextChoices):
     INVENTORY_ASSET = "inventory_asset", _("Inventory Asset")
     DISCOUNTS = "discounts", _("Discounts Given")
     TAX_PAYABLE = "tax_payable", _("Tax Payable")
+    OPERATING_EXPENSES = "operating_expenses", _("Operating Expenses")
+
+
+class ExpenseCategory(TextChoices):
+    """What an operating expense was spent on (Expenses module)."""
+
+    RENT = "rent", _("Rent")
+    UTILITIES = "utilities", _("Utilities (electricity, water, internet)")
+    FUEL = "fuel", _("Fuel / Generator")
+    SALARIES = "salaries", _("Salaries & Wages")
+    TRANSPORT = "transport", _("Transport & Logistics")
+    MAINTENANCE = "maintenance", _("Repairs & Maintenance")
+    MARKETING = "marketing", _("Marketing & Advertising")
+    SUPPLIES = "supplies", _("Office & Shop Supplies")
+    TAXES_LEVIES = "taxes_levies", _("Taxes, Levies & Permits")
+    BANK_CHARGES = "bank_charges", _("Bank & POS Charges")
+    OTHER = "other", _("Other")
+
+
+class ExpenseStatus(TextChoices):
+    RECORDED = "recorded", _("Recorded")
+    VOID = "void", _("Void")
 
 class SubscriptionStatus(TextChoices):
     TRIALING = "trialing", _("Trialing")
@@ -495,6 +518,10 @@ class PermissionCode(TextChoices):
     CANCEL_RECEIPT = "CANCEL_RECEIPT"
     VIEW_PAYMENTS = "VIEW_PAYMENTS"
     RECORD_PAYMENT = "RECORD_PAYMENT"
+    # expenses
+    VIEW_EXPENSES = "VIEW_EXPENSES"
+    RECORD_EXPENSE = "RECORD_EXPENSE"
+    VOID_EXPENSE = "VOID_EXPENSE"
     # reports & approvals
     VIEW_SALES_REPORTS = "VIEW_SALES_REPORTS"
     VIEW_INVENTORY_REPORTS = "VIEW_INVENTORY_REPORTS"

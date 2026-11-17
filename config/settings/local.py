@@ -93,3 +93,8 @@ CLOUDINARY_STORAGE = {
 
 # CORS in local development
 CORS_ALLOW_ALL_ORIGINS = True
+
+# Live notifications: in-memory channel layer for a single local server process.
+# (Pushes from a separate Celery worker, e.g. the daily expiry scan, need Redis:
+# set CHANNEL_LAYERS like base.py if you run the worker locally and want them live.)
+CHANNEL_LAYERS = {"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}}

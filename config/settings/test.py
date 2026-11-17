@@ -50,3 +50,13 @@ TEMPLATES[0]["OPTIONS"]["debug"] = True  # type: ignore[index]
 MEDIA_URL = "http://media.testserver/"
 # Your stuff...
 # ------------------------------------------------------------------------------
+
+# Tests assert exact figures right after writing data.
+DASHBOARD_CACHE_SECONDS = 0
+
+# Run Celery tasks inline (no broker in tests), e.g. notification emails.
+CELERY_TASK_ALWAYS_EAGER = True
+CELERY_TASK_EAGER_PROPAGATES = True
+
+# Live notifications: in-process channel layer (no Redis in tests).
+CHANNEL_LAYERS = {"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}}

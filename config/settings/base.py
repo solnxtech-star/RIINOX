@@ -98,6 +98,7 @@ THIRD_PARTY_APPS = [
     "django_filters",
     "cloudinary",
     "cloudinary_storage",
+    "channels",
 ]
 
 LOCAL_APPS = [
@@ -116,6 +117,8 @@ LOCAL_APPS = [
     "core.applications.sales",
     "core.applications.notification",
     "core.applications.customers",
+    "core.applications.expenses",
+    "core.applications.dashboard",
 ]
 # https://docs.djangoproject.com/en/dev/ref/settings/#installed-apps
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -418,8 +421,24 @@ CSRF_TRUSTED_ORIGINS = env.list(
 # By Default swagger ui is available only to admin user(s). You can change permission classes to change that
 # See more configuration options at https://drf-spectacular.readthedocs.io/en/latest/settings.html#settings
 SPECTACULAR_SETTINGS = {
-    "TITLE": "riinox-backend API",
-    "DESCRIPTION": "Documentation of API endpoints of invoive-management-backend",
+    "TITLE": "RIINOX API",
+    "DESCRIPTION": (
+        "Backend API for RIINOX (inventory, sales, invoices, purchases, expenses, dashboard, notifications).\n\n"
+        "**Conventions used by every endpoint**\n"
+        "- **Auth:** `POST /api/auth/jwt/login/` returns `access` and `refresh`; send "
+        "`Authorization: Bearer <access>`.\n"
+        "- **Organization:** business data lives under `/api/organizations/{organization_id}/...`. A caller "
+        "who isn't an active member gets `404` (the API never reveals other organizations).\n"
+        "- **Branches (locations):** list endpoints accept `?location=<id>`; members limited to some branches "
+        "only ever see theirs, and another branch's id is `403 LOCATION_ACCESS_DENIED`.\n"
+        "- **Pagination:** `{count, total_pages, current_page, page_size, next, previous, results}`; "
+        "`?page=` and `?page_size=` (max 100).\n"
+        "- **Errors:** always `{\"code\", \"detail\"}`; validation errors add `errors` keyed by field "
+        "(`{\"code\": \"VALIDATION_ERROR\", \"detail\": \"Invalid input.\", \"errors\": {\"amount\": [\"...\"]}}`). "
+        "Branch on `code`, never on the `detail` text.\n"
+        "- **Money** is a string with 2 decimals (`\"45000.00\"`); ids are UUID strings (users: integers).\n"
+        "- **Live notifications:** a WebSocket, documented on `GET .../notifications/` (Notifications tag)."
+    ),
     "VERSION": "1.0.0",
     "SERVE_PERMISSIONS": ["rest_framework.permissions.AllowAny"],
     "SCHEMA_PATH_PREFIX": "/api/",
@@ -569,4 +588,21 @@ CELERY_BEAT_SCHEDULE = {
     "billing-expirations": {"task": "billing.run_expirations", "schedule": 15 * 60},
     "billing-reconciliation": {"task": "billing.run_reconciliation", "schedule": 30 * 60},
     "billing-webhook-backlog": {"task": "billing.process_webhook_backlog", "schedule": 5 * 60},
+    # Daily alerts are deduplicated per branch per day, so running every 6 hours only
+    # makes sure no organization's morning is missed across timezones.
+    "notifications-expiring-batches": {"task": "notifications.scan_expiring_batches", "schedule": 6 * 60 * 60},
+    "notifications-overdue-invoices": {"task": "notifications.scan_overdue_invoices", "schedule": 6 * 60 * 60},
+}
+
+# Dashboard: aggregate sections are cached briefly per organization/branch/period/permission.
+DASHBOARD_CACHE_SECONDS = env.int("DASHBOARD_CACHE_SECONDS", default=60)
+
+# Channels (live notifications over WebSockets). Redis carries pushes between server
+# processes, so a notification created on one worker reaches a socket held by another.
+ASGI_APPLICATION = "config.asgi.application"
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {"hosts": [REDIS_URL], "capacity": 1500, "expiry": 30},
+    },
 }

@@ -12,6 +12,7 @@ from core.applications.inventory.services import (
     process_sale_inventory_and_ledger,
     reverse_sale_inventory_and_ledger,
 )
+from core.applications.notification import triggers as notification_triggers
 from core.applications.invoice.services.invoices import (
     customer_snapshot,
     issue_invoice_for_sale,
@@ -336,6 +337,7 @@ def create_sale(data: dict[str, Any], *, actor: Any = None) -> Sale:
         payment_reference=payment_ref,
         price_overrides=price_overrides,
     )
+    notification_triggers.sale_completed(sale, actor=actor)
     logger.info(
         "sale.created",
         extra={

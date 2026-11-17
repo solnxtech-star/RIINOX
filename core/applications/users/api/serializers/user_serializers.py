@@ -351,6 +351,10 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
                         msg,
                     )
                 if not api_settings.USER_AUTHENTICATION_RULE(self.user):
+                    # Wrong password on a real, active account: count it (Failed Logins alert).
+                    from core.applications.notification import triggers as notification_triggers
+
+                    notification_triggers.login_failed(user)
                     raise AuthenticationFailed(
                         detail="Login failed. Please check your email and password and try again.",  # noqa: E501
                     )

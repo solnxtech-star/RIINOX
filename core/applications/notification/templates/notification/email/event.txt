@@ -1,0 +1,10 @@
+{{ title }}
+
+{{ message }}
+{% if location_name %}
+Branch: {{ location_name }}{% endif %}
+{% if url %}
+Open in RIINOX: {{ url }}{% endif %}
+
+You receive this because your role is set to get "{{ event_label }}" alerts for {{ organization_name }}.
+An Owner or Administrator can change this in Settings > Notifications.
