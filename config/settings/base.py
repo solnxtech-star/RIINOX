@@ -606,3 +606,7 @@ CHANNEL_LAYERS = {
         "CONFIG": {"hosts": [REDIS_URL], "capacity": 1500, "expiry": 30},
     },
 }
+
+# Notification emails: "thread" = sent from the web process (no Celery worker needed),
+# "celery" = queued to a worker (retries), "sync" = inline. See notification/mailer.py.
+NOTIFICATION_EMAIL_MODE = env("NOTIFICATION_EMAIL_MODE", default="thread")

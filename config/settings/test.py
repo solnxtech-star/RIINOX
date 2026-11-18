@@ -60,3 +60,6 @@ CELERY_TASK_EAGER_PROPAGATES = True
 
 # Live notifications: in-process channel layer (no Redis in tests).
 CHANNEL_LAYERS = {"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}}
+
+# Send notification emails inline so tests can assert on mail.outbox.
+NOTIFICATION_EMAIL_MODE = "sync"

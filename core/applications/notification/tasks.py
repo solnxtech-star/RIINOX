@@ -23,7 +23,10 @@ LOCK_SECONDS = 30 * 60
     acks_late=True,
 )
 def send_notification_emails(emails: list[str], context: dict) -> int:
-    """One email per recipient, so no address is exposed to the others."""
+    """
+    Used when NOTIFICATION_EMAIL_MODE = "celery". One email per recipient, so no
+    address is exposed to the others; a failure raises so Celery retries the batch.
+    """
     for address in emails:
         send_templated_email(to=address, template="notification/email/event", context=context)
     return len(emails)
