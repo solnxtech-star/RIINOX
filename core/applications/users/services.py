@@ -230,9 +230,9 @@ def create_organization(
 
     provision_organization_documents(organization)
 
-    from core.applications.products.catalog import seed_starter_catalog
+    from core.applications.products.catalog import apply_starter_catalog
 
-    seed_starter_catalog(organization, [business_type.code])
+    apply_starter_catalog(organization, [business_type])
 
     audit.record(
         action=AuditAction.ORGANIZATION_CREATED,
@@ -478,10 +478,10 @@ def set_business_types(
     )
     links.filter(business_type_id=primary.pk).update(is_primary=True)
 
-    # Starter categories/brands for business types the organization just added (adds only, never removes).
-    from core.applications.products.catalog import seed_starter_catalog
+    # Starter categories/brands for business types the organization never received (once per type).
+    from core.applications.products.catalog import apply_starter_catalog
 
-    seed_starter_catalog(organization, [bt.code for pk, bt in wanted.items() if pk not in existing])
+    apply_starter_catalog(organization, list(wanted.values()))
 
     # audit.record(...)  # organization.business_types_changed (previous/new values)
     return organization

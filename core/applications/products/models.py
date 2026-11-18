@@ -94,6 +94,40 @@ class Brand(TimeBasedModel):
         return self.name
 
 
+class StarterCatalogRecord(TimeBasedModel):
+    """
+    Marks that an organization has received the starter categories and brands of
+    one business type (products/catalog.py). It is what makes the starter catalog
+    a one-time gift: once recorded, the seed never touches that pair again, so
+    categories the organization renamed or deleted never come back.
+    """
+
+    organization = auto_prefetch.ForeignKey(
+        "users.Organization",
+        on_delete=models.CASCADE,
+        related_name="starter_catalog_records",
+    )
+    business_type = auto_prefetch.ForeignKey(
+        "users.BusinessType",
+        on_delete=models.PROTECT,
+        related_name="starter_catalog_records",
+    )
+    categories_added = models.PositiveIntegerField(default=0)
+    brands_added = models.PositiveIntegerField(default=0)
+
+    class Meta(auto_prefetch.Model.Meta):
+        verbose_name = _("Starter catalog record")
+        verbose_name_plural = _("Starter catalog records")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "business_type"], name="unique_starter_catalog_per_business_type"
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.organization_id}: {self.business_type_id}"
+
+
 class Product(TimeBasedModel):
     """
     Core product/SKU record (PRD §6).

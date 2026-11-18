@@ -8,6 +8,7 @@ from core.applications.products.models import Brand
 from core.applications.products.models import Category
 from core.applications.products.models import Product
 from core.applications.products.models import ProductImage
+from core.applications.products.models import StarterCatalogRecord
 from core.helper.enums import UsersRole
 
 
@@ -21,6 +22,23 @@ class CategoryAdmin(ModelAdmin):
     @admin.display(description="Products")
     def product_count(self, obj):
         return obj.products.count()
+
+
+@admin.register(StarterCatalogRecord)
+class StarterCatalogRecordAdmin(ModelAdmin):
+    """Read-only. Deleting a record lets the next seed run give that starter set again."""
+
+    list_display = ("organization", "business_type", "categories_added", "brands_added", "created_at")
+    list_filter = ("business_type",)
+    search_fields = ("organization__name",)
+    list_select_related = ("organization", "business_type")
+    readonly_fields = ("organization", "business_type", "categories_added", "brands_added", "created_at")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(Brand)
