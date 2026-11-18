@@ -128,6 +128,13 @@ urlpatterns += [
     path(
         "api/",
         include(
+            "core.applications.report.api.routers",
+            namespace="report",
+        ),
+    ),
+    path(
+        "api/",
+        include(
             "core.applications.notification.api.routers",
             namespace="notifications",
         ),
