@@ -1,11 +1,11 @@
 import auto_prefetch
+from django.apps import apps
 from django.conf import settings
-from django.contrib.contenttypes.fields import GenericForeignKey
-from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
-from core.helper.enums import AuditActionChoices
+from core.applications.report.queryset import ReportQuerySet
 from core.helper.enums import ReportFormatChoices
 from core.helper.enums import ReportStatusChoices
 from core.helper.enums import ReportTypeChoice
@@ -78,10 +78,27 @@ class Report(TimeBasedModel):
         help_text=_("The user/admin who generated this report."),
     )
 
+    objects = ReportQuerySet.as_manager()
+
     class Meta(auto_prefetch.Model.Meta):
         verbose_name = _("Report")
         verbose_name_plural = _("Reports")
         ordering = ["-created_at"]
 
-    def __str__(self):
+    def clean(self) -> None:
+        super().clean()
+        if self.generated_by_id and self.organization_id:
+            Membership = apps.get_model("users", "Membership")
+            is_member = (
+                Membership.objects.effective()
+                .for_user(self.generated_by)
+                .filter(organization_id=self.organization_id)
+                .exists()
+            )
+            if not is_member:
+                raise ValidationError(
+                    {"generated_by": _("Selected user does not belong to this organization.")}
+                )
+
+    def __str__(self) -> str:
         return f"{self.title or self.report_type} ({self.format}) - {self.status}"
