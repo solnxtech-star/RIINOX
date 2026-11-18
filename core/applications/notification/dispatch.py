@@ -217,15 +217,13 @@ def deliver(*, event, organization, title, message, location, reference, link, d
     if email_users:
         emails = sorted({user.email for user in email_users if user.email})
         if emails:
-            from core.applications.notification.tasks import send_notification_emails
+            from core.applications.notification.mailer import send_notification_emails
 
             context = {
                 "organization_name": organization.name, "title": title, "message": message,
                 "location_name": getattr(location, "name", ""), "url": frontend_url(link),
                 "event_label": setting.spec.label,
             }
-            try:
-                send_notification_emails.delay(emails, context)
-            except Exception:  # noqa: BLE001 - broker down: keep the in-app alerts, log the miss
-                logger.exception("notification.email_enqueue_failed", extra={"event": event})
+            # Mode (thread / celery / sync) is settings.NOTIFICATION_EMAIL_MODE; see mailer.py.
+            send_notification_emails(emails, context)
     return len(memberships)
