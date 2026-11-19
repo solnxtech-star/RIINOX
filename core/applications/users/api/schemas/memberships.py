@@ -73,6 +73,8 @@ membership_schema = extend_schema_view(
             "manage** (Owner or Administrator). Regular members therefore only see themselves. Filter with "
             "`?organization=`.\n\n"
             "Use it to find the signed-in user's role and location access in each organization.\n\n"
+            "For a **team / staff list** screen, use `GET /organizations/{id}/members/` instead: it is open to "
+            "any role with `VIEW_TEAM` (Managers by default) and limited to the caller's branches.\n\n"
             + _LOCATION_ACCESS_NOTE
         ),
         parameters=[ORGANIZATION_FILTER],

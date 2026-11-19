@@ -230,7 +230,13 @@ organization_schema = extend_schema_view(
             "`GET /organizations/{id}/invitations/` for those.\n\n"
             "Each member includes their role and **location access** (`all_locations`, plus `locations` when it "
             "is `false`). Show \"All locations\" when `all_locations` is `true`, otherwise the location names. "
-            "Ordered by when they joined. Paginated. **Administrators and Owners** only."
+            "Ordered by when they joined. Paginated.\n\n"
+            "**Permission:** `VIEW_TEAM` (Owners, Administrators and Managers by default; an organization can "
+            "grant it to any role).\n\n"
+            "**Branch scoping:** a caller with access to **all locations** sees every member. A caller limited "
+            "to some locations (e.g. a Lekki manager) sees only: members assigned to at least one of their "
+            "locations, members with access to all locations (Owners, Administrators), and themselves. Members "
+            "of other branches are left out. A member in several of the caller's branches is listed once."
         ),
         responses={
             200: OpenApiResponse(
@@ -278,7 +284,10 @@ organization_schema = extend_schema_view(
                 ],
             ),
             401: UNAUTHENTICATED,
-            403: FORBIDDEN_MANAGER,
+            403: error_examples(
+                "The caller is a member but their role does not grant `VIEW_TEAM`.",
+                ("No VIEW_TEAM", {"detail": "Your role does not allow viewing the team in this organization."}),
+            ),
             404: NOT_FOUND,
         },
     ),

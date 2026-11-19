@@ -62,6 +62,28 @@ class MembershipQuerySet(auto_prefetch.QuerySet):
     def with_user_and_role(self):
         return self.select_related("user", "role")
 
+    def sharing_locations(self, scope, *, include_user=None):
+        """
+        Members a viewer limited to some branches may see: everyone who works in
+        one of the viewer's locations, plus everyone with access to all locations
+        (Owners, Administrators, all-locations members work at every branch),
+        plus `include_user` (the viewer themselves, even with no branch yet).
+        A `scope` with all locations returns the queryset unchanged.
+        """
+        if scope.all_locations:
+            return self
+        from core.applications.warehouse.access import ALL_LOCATION_ROLE_SLUGS
+
+        visible = (
+            Q(all_locations=True)
+            | Q(role__is_system=True, role__slug__in=ALL_LOCATION_ROLE_SLUGS)
+            | Q(membership_locations__location_id__in=scope.location_ids)
+        )
+        if include_user is not None:
+            visible |= Q(user=include_user)
+        # Subquery instead of .distinct(): a member in two of the viewer's branches appears once.
+        return self.filter(pk__in=self.model.objects.filter(visible).values("pk"))
+
     def visible_to(self, user):
         """
         Memberships a user may see: their own, plus every membership of an

@@ -13,6 +13,7 @@ from core.applications.users.defaults import OWNER_ROLE_SLUG
 from core.applications.users.models import Membership
 from core.applications.users.models import Organization
 from core.applications.warehouse.access import LocationScope
+from core.helper.enums import PermissionCode
 from core.applications.warehouse.access import parse_location_param
 
 
@@ -36,6 +37,23 @@ class IsOrganizationOwner(_HasSystemRole):
 class IsOrganizationAdminOrOwner(_HasSystemRole):
     role_slugs = (OWNER_ROLE_SLUG, ADMINISTRATOR_ROLE_SLUG)
     message = "Only organization Administrators and Owners can perform this action."
+
+
+class CanViewTeam(BasePermission):
+    """
+    Object permission (`obj` is the Organization): the caller's role grants
+    VIEW_TEAM. Owners and Administrators have it; Managers have it by default;
+    any other role gets it when the organization ticks "View Team" on it.
+    Which members they then see is narrowed by location in the view.
+    """
+
+    message = "Your role does not allow viewing the team in this organization."
+
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_authenticated)
+
+    def has_object_permission(self, request, view, obj):
+        return services.has_org_permission(request.user, obj, PermissionCode.VIEW_TEAM)
 
 
 class IsMembershipManager(BasePermission):

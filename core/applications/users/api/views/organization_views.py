@@ -101,7 +101,9 @@ from core.applications.users.models import Membership
 from core.applications.users.models import Organization
 from core.applications.users.models import Role
 from core.applications.users.models import State
+from core.applications.users.permissions import CanViewTeam
 from core.applications.users.permissions import IsMembershipManager
+from core.applications.warehouse.access import LocationScope
 from core.helper.enums import InvitationStatus
 from core.helper.enums import PermissionCode
 from core.helper.patterns import UUID_RE
@@ -178,8 +180,9 @@ class OrganizationViewSet(ModelViewSet):
     - create: Create a new organization (auto-links creator as Owner and creates the default location).
     - update/partial_update: Update organization settings (Admins + Owners only).
     - business_types: Replace the organization's business types (Admins + Owners only).
-    - members: List organization members (Admins + Owners only). Pending invitations
-      are listed under /organizations/{id}/invitations/.
+    - members: List organization members (VIEW_TEAM; callers limited to some
+      locations see only members of those locations). Pending invitations are
+      listed under /organizations/{id}/invitations/.
     - roles: List the roles that can be assigned (Admins + Owners only).
     - deactivate: Soft-deactivate organization (Owners only).
     """
@@ -194,7 +197,7 @@ class OrganizationViewSet(ModelViewSet):
         "update": (IsOrganizationAdminOrOwner,),
         "partial_update": (IsOrganizationAdminOrOwner,),
         "business_types": (IsOrganizationAdminOrOwner,),
-        "members": (IsOrganizationAdminOrOwner,),
+        "members": (CanViewTeam,),
         "roles": (IsOrganizationAdminOrOwner,),
         "deactivate": (IsOrganizationOwner,),
     }
@@ -275,11 +278,15 @@ class OrganizationViewSet(ModelViewSet):
     def members(self, request, pk=None):
         """
         List members of an organization, with their role and location access.
-        Example: GET /api/v1/organizations/{id}/members/
+        Needs VIEW_TEAM. A caller limited to some locations sees the members of
+        those locations, all-locations members, and themselves.
+        Example: GET /api/organizations/{id}/members/
         """
         organization = self.get_object()
+        scope = LocationScope.for_user(request.user, organization)
         memberships = (
             Membership.objects.for_organization(organization)
+            .sharing_locations(scope, include_user=request.user)
             .with_user_and_role()
             .prefetch_related("locations")
             .order_by("created_at", "pk")
