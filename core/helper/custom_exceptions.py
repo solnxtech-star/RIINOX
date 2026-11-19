@@ -5,6 +5,7 @@ from typing import NoReturn
 
 from django.conf import settings
 from django.core.exceptions import PermissionDenied
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import ProtectedError
 from django.db.models import RestrictedError
 from django.http import Http404
@@ -13,6 +14,7 @@ from drf_spectacular.utils import OpenApiResponse
 from rest_framework import exceptions
 from rest_framework import status
 from rest_framework.response import Response
+from rest_framework.settings import api_settings
 from rest_framework.views import exception_handler as drf_exception_handler
 from rest_framework.views import set_rollback
 
@@ -253,6 +255,11 @@ def api_exception_handler(exc: Exception, context: dict) -> Response:
         exc = exceptions.NotFound(*exc.args)
     elif isinstance(exc, PermissionDenied):
         exc = exceptions.PermissionDenied(*exc.args)
+    elif isinstance(exc, DjangoValidationError):
+        # Services and model.clean() raise Django's ValidationError: a 400 with field errors, never a 500.
+        exc = exceptions.ValidationError(
+            detail=exc.message_dict if hasattr(exc, "error_dict") else {api_settings.NON_FIELD_ERRORS_KEY: exc.messages}
+        )
 
     response = drf_exception_handler(exc, context)
     if response is None:

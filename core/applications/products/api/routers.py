@@ -3,6 +3,7 @@ from rest_framework.routers import DefaultRouter, SimpleRouter
 from core.applications.products.api.views import (
     BrandViewSet,
     CategoryViewSet,
+    ProductImageViewSet,
     ProductViewSet,
     ProductVariantViewSet,
 )
@@ -22,6 +23,12 @@ router.register(
 )
 
 router.register(
+    r"organizations/(?P<organization_id>[0-9a-fA-F-]{32,36})/products/(?P<product_id>[0-9a-fA-F-]{32,36})/images",
+    ProductImageViewSet,
+    basename="organization-product-images",
+)
+
+router.register(
     r"organizations/(?P<organization_id>[0-9a-fA-F-]{32,36})/categories",
     CategoryViewSet,
     basename="organization-categories",
@@ -35,5 +42,3 @@ router.register(
 
 app_name = "products"
 urlpatterns = router.urls
-
-

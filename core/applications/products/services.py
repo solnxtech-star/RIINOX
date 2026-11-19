@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import re
+import secrets
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import TYPE_CHECKING
 from typing import Any
 
 from django.core.exceptions import ValidationError
+from django.db import IntegrityError
 from django.db import transaction
 from rest_framework.exceptions import PermissionDenied
 
@@ -18,6 +21,7 @@ from core.applications.products.models import Category
 from core.applications.products.models import Product
 from core.applications.products.models import ProductBatch
 from core.applications.products.models import ProductBulkDiscount
+from core.applications.products.models import ProductImage
 from core.applications.products.models import ProductUnitConversion
 from core.applications.products.models import ProductVariant
 from core.applications.subscriptions.services.entitlements import (
@@ -37,7 +41,11 @@ if TYPE_CHECKING:
 
 __all__ = [
     "ProductRelationsInput",
+    "add_product_image",
     "archive_product",
+    "delete_product_image",
+    "generate_sku",
+    "update_product_image",
     "create_brand",
     "create_category",
     "create_product",
@@ -156,6 +164,60 @@ def _validate_product_tenant_references(
         )
 
 
+# ---------------------------------------------------------------------------
+# SKUs
+# ---------------------------------------------------------------------------
+SKU_ATTEMPTS = 8
+SKU_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"  # no 0/O, 1/I/L
+
+
+def _sku_prefix(name: str) -> str:
+    """'Coca-Cola 50cl' -> 'CC5', 'Indomie' -> 'IND', '' -> 'PRD'."""
+    words = re.findall(r"[A-Za-z0-9]+", (name or "").upper())
+    if not words:
+        return "PRD"
+    prefix = "".join(word[0] for word in words[:3]) if len(words) > 1 else words[0][:3]
+    return prefix or "PRD"
+
+
+def generate_sku(organization: Organization, name: str) -> str:
+    """
+    A readable SKU unique in the organization: name initials + 6 random characters,
+    e.g. 'CC5-7K2Q9M'. Ambiguous characters (0/O, 1/I/L) are left out so it can be
+    read aloud or typed from a label.
+    """
+    prefix = _sku_prefix(name)
+    for _attempt in range(SKU_ATTEMPTS):
+        candidate = f"{prefix}-{''.join(secrets.choice(SKU_ALPHABET) for _ in range(6))}"
+        if not Product.objects.filter(organization=organization, sku=candidate).exists():
+            return candidate
+    return f"{prefix}-{secrets.token_hex(6).upper()}"  # practically unreachable
+
+
+def _assert_sku_free(organization: Organization, sku: str, *, exclude_pk=None) -> None:
+    taken = Product.objects.filter(organization=organization, sku__iexact=sku)
+    if exclude_pk is not None:
+        taken = taken.exclude(pk=exclude_pk)
+    if taken.exists():
+        raise ValidationError({"sku": f"A product with SKU '{sku}' already exists in this organization."})
+
+
+def _save_new_product(product: Product, *, auto_sku: bool) -> None:
+    """Save, turning a concurrent SKU clash into a clean error (or a fresh SKU when it was generated)."""
+    for _attempt in range(SKU_ATTEMPTS):
+        try:
+            with transaction.atomic():
+                product.save()
+            return
+        except IntegrityError:
+            if not auto_sku:
+                raise ValidationError(
+                    {"sku": f"A product with SKU '{product.sku}' already exists in this organization."}
+                ) from None
+            product.sku = generate_sku(product.organization, product.name)
+    raise ValidationError({"sku": "Couldn't generate a unique SKU. Please enter one."})
+
+
 def _sync_batches_and_variants(
     product: Product, relations: ProductRelationsInput, *, is_create: bool
 ) -> None:
@@ -252,13 +314,21 @@ def create_product(
             {"warehouse": "Selected warehouse belongs to a different organization."}
         )
 
+    sku = (product_fields.pop("sku", "") or "").strip()
+    auto_sku = not sku
+    if not auto_sku:
+        _assert_sku_free(organization, sku)
+    # `opening_stock` records what the product started with; it always matches the ledger entry below.
+    product_fields["opening_stock"] = resolved_relations.quantity_in_stock
+
     product = Product(
         organization=organization,
         created_by=created_by,
+        sku=sku or generate_sku(organization, product_fields.get("name", "")),
         **product_fields,
     )
     product.clean()
-    product.save()
+    _save_new_product(product, auto_sku=auto_sku)
 
     _sync_product_nested_relations(product, resolved_relations, is_create=True)
 
@@ -303,6 +373,15 @@ def update_product(
         existing_product=product,
     )
     _validate_product_tenant_references(organization, product_fields)
+
+    product_fields.pop("opening_stock", None)  # history: set once at creation
+    if "sku" in product_fields:
+        sku = (product_fields["sku"] or "").strip()
+        if not sku:
+            raise ValidationError({"sku": "SKU can't be empty."})
+        if sku != product.sku:
+            _assert_sku_free(organization, sku, exclude_pk=product.pk)
+        product_fields["sku"] = sku
 
     for attr, value in product_fields.items():
         setattr(product, attr, value)
@@ -493,3 +572,78 @@ def resolve_or_create_product_batch(
         return batch
 
     return None
+
+
+# ---------------------------------------------------------------------------
+# Product images
+# ---------------------------------------------------------------------------
+MAX_IMAGES_PER_PRODUCT = 10
+
+
+def _lock_product(product: Product) -> None:
+    """Serialize image changes on one product (primary flag, count limit, ordering)."""
+    Product.objects.select_for_update().filter(pk=product.pk).first()
+
+
+def _delete_file_after_commit(field_file) -> None:
+    storage, name = field_file.storage, field_file.name
+    if name:
+        transaction.on_commit(lambda: storage.delete(name))
+
+
+@transaction.atomic
+def add_product_image(*, product: Product, image, is_primary: bool = False,
+                      sort_order: int | None = None) -> ProductImage:
+    """
+    Attach an image. The product's first image is always primary; making a new
+    image primary demotes the previous one. At most MAX_IMAGES_PER_PRODUCT.
+    """
+    _lock_product(product)
+    images = ProductImage.objects.filter(product=product)
+    count = images.count()
+    if count >= MAX_IMAGES_PER_PRODUCT:
+        raise ValidationError({"image": f"A product can have at most {MAX_IMAGES_PER_PRODUCT} images. "
+                                        "Delete one first."})
+    is_primary = is_primary or count == 0
+    if is_primary:
+        images.filter(is_primary=True).update(is_primary=False)
+    if sort_order is None:
+        last = images.order_by("-sort_order").values_list("sort_order", flat=True).first()
+        sort_order = 0 if last is None else last + 1
+    return ProductImage.objects.create(product=product, image=image, is_primary=is_primary, sort_order=sort_order)
+
+
+@transaction.atomic
+def update_product_image(*, image: ProductImage, is_primary: bool | None = None,
+                         sort_order: int | None = None) -> ProductImage:
+    """Make an image primary and/or move it. To change the primary, mark another one primary."""
+    _lock_product(image.product)
+    image.refresh_from_db()
+    fields = []
+    if is_primary is True and not image.is_primary:
+        ProductImage.objects.filter(product_id=image.product_id, is_primary=True).update(is_primary=False)
+        image.is_primary = True
+        fields.append("is_primary")
+    elif is_primary is False and image.is_primary:
+        raise ValidationError({"is_primary": "A product always has a main image. Mark another image as main instead."})
+    if sort_order is not None and sort_order != image.sort_order:
+        image.sort_order = sort_order
+        fields.append("sort_order")
+    if fields:
+        image.save(update_fields=[*fields, "updated_at"])
+    return image
+
+
+@transaction.atomic
+def delete_product_image(*, image: ProductImage) -> None:
+    """Remove an image (and its file, once committed). Deleting the main image promotes the next one."""
+    _lock_product(image.product)
+    was_primary = image.is_primary
+    product_id = image.product_id
+    _delete_file_after_commit(image.image)
+    image.delete()
+    if was_primary:
+        successor = ProductImage.objects.filter(product_id=product_id).order_by("sort_order", "-created_at").first()
+        if successor is not None:
+            successor.is_primary = True
+            successor.save(update_fields=["is_primary", "updated_at"])

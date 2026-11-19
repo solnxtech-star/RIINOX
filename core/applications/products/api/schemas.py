@@ -136,6 +136,20 @@ product_schema = extend_schema_view(
         summary="Create a New Product",
         description="""Creates a product within the tenant organization, optionally provisioning starting inventory, nested batches, bulk discounts, and unit conversions.
 
+### SKU:
+- `sku` is **optional**. Leave it out (or send `""`) and a unique one is generated from the name,
+  e.g. "Coca-Cola 50cl" -> `CC5-7K2Q9M` (no look-alike characters 0/O, 1/I/L).
+- A SKU you send must be unique in the organization (case-insensitive), else `400` with `errors.sku`.
+
+### Opening stock:
+- Send `quantity_in_stock` + `warehouse_id`. `opening_stock` is **read-only**: it is filled from
+  `quantity_in_stock` so it always matches the ledger. (`visible` is also read-only.)
+
+### Photos:
+- Not part of this JSON body. After creating the product, upload photos with
+  `POST /api/organizations/{organization_id}/products/{id}/images/` (multipart). Responses include
+  `images` and `primary_image_url`.
+
 ### Atomic Creation & Inventory Provisioning:
 1. Creates the base `Product` catalog record.
 2. Creates nested child records (`ProductBatch`, `ProductBulkDiscount`, `ProductUnitConversion`).
@@ -304,6 +318,84 @@ brand_schema = extend_schema_view(
         tags=["Brands"],
         summary="Delete or Deactivate a Brand",
         description="Deletes a brand, or soft-deactivates it if referenced by existing products.",
+        parameters=[PRODUCT_ORGANIZATION_PARAM],
+    ),
+)
+
+
+_IMAGE_EXAMPLE = {
+    "id": "5f1c2d3e-4a5b-4c6d-8e7f-9a0b1c2d3e4f",
+    "image": "https://res.cloudinary.com/riinox/image/upload/v1/images/productimage/2026-11-19/coke-50cl.jpg",
+    "is_primary": True,
+    "sort_order": 0,
+    "created_at": "2026-11-19T10:15:00Z",
+}
+
+_IMAGE_RULES = """
+### Rules
+- **JPEG, PNG or WebP**, at most **5 MB** each; at most **10 images** per product.
+- The product's **first** image is automatically the main one (`is_primary: true`).
+- Making an image main demotes the previous main image. A product with images always has exactly one main
+  image: to change it, mark another one as main (setting `false` on the main image is refused).
+- Deleting the main image promotes the next one in display order.
+- `sort_order`: lowest first; defaults to after the last image.
+- Responses of the product endpoints include `images` (this shape, in display order) and `primary_image_url`.
+"""
+
+product_image_schema = extend_schema_view(
+    list=extend_schema(
+        tags=["Products"],
+        summary="List a product's photos",
+        description="All photos of the product in display order. Not paginated. **Permission:** `VIEW_PRODUCTS`.",
+        parameters=[PRODUCT_ORGANIZATION_PARAM],
+    ),
+    retrieve=extend_schema(
+        tags=["Products"], summary="Retrieve a product photo",
+        description="**Permission:** `VIEW_PRODUCTS`.", parameters=[PRODUCT_ORGANIZATION_PARAM],
+    ),
+    create=extend_schema(
+        tags=["Products"],
+        summary="Upload a product photo",
+        description=(
+            "Send as **multipart/form-data** with the file in `image` (and optionally `is_primary`, `sort_order`). "
+            "One photo per request; upload several in parallel or one after another.\n\n"
+            "**Permission:** `EDIT_PRODUCT`.\n" + _IMAGE_RULES
+        ),
+        parameters=[PRODUCT_ORGANIZATION_PARAM],
+        request={"multipart/form-data": {
+            "type": "object",
+            "properties": {
+                "image": {"type": "string", "format": "binary"},
+                "is_primary": {"type": "boolean"},
+                "sort_order": {"type": "integer", "minimum": 0},
+            },
+            "required": ["image"],
+        }},
+        responses={
+            201: OpenApiResponse(
+                description="Uploaded.",
+                examples=[OpenApiExample("Photo", value=_IMAGE_EXAMPLE, response_only=True)],
+            ),
+            400: OpenApiResponse(description=(
+                "`errors.image`: not an image, wrong format, over 5 MB, or the product already has 10 images."
+            )),
+        },
+    ),
+    partial_update=extend_schema(
+        tags=["Products"],
+        summary="Make a photo main / reorder it",
+        description=(
+            "JSON body with `is_primary: true` and/or `sort_order`. The file can't be replaced: upload a new photo "
+            "and delete the old one.\n\n**Permission:** `EDIT_PRODUCT`.\n" + _IMAGE_RULES
+        ),
+        parameters=[PRODUCT_ORGANIZATION_PARAM],
+        examples=[OpenApiExample("Make main", value={"is_primary": True}, request_only=True)],
+    ),
+    destroy=extend_schema(
+        tags=["Products"],
+        summary="Delete a product photo",
+        description="Removes the photo and its file. Deleting the main photo promotes the next one. "
+                    "**Permission:** `EDIT_PRODUCT`.",
         parameters=[PRODUCT_ORGANIZATION_PARAM],
     ),
 )

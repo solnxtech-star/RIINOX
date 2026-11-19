@@ -291,23 +291,4 @@ organization_schema = extend_schema_view(
             404: NOT_FOUND,
         },
     ),
-    roles=extend_schema(
-        summary="List the organization's roles",
-        description=(
-            "All roles defined for this organization (built-in and custom), for a roles management screen. "
-            "**Administrators and Owners** only.\n\n"
-            "To fill the *Assign role* dropdown of the invite form, use "
-            "`GET /organizations/{id}/invitations/assignable-roles/` instead: it already removes the roles the "
-            "current user is not allowed to hand out."
-        ),
-        responses={
-            200: OpenApiResponse(
-                response=org_serializers.RoleSerializer(many=True),
-                description="The organization's roles.",
-            ),
-            401: UNAUTHENTICATED,
-            403: FORBIDDEN_MANAGER,
-            404: NOT_FOUND,
-        },
-    ),
 )

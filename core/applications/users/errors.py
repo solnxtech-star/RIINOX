@@ -77,6 +77,36 @@ _SPECS: dict[str, tuple[int, str]] = {
 }
 
 
-def fail(code: InvitationErrorCode, message: str | None = None, **extra) -> BusinessRuleError:
+class RoleErrorCode(TextChoices):
+    """Roles & permissions management (users/role_services.py)."""
+
+    ROLE_NOT_FOUND = "ROLE_NOT_FOUND"
+    ROLE_LOCKED = "ROLE_LOCKED"
+    SYSTEM_ROLE_NOT_RENAMEABLE = "SYSTEM_ROLE_NOT_RENAMEABLE"
+    SYSTEM_ROLE_NOT_DELETABLE = "SYSTEM_ROLE_NOT_DELETABLE"
+    ROLE_NAME_REQUIRED = "ROLE_NAME_REQUIRED"
+    ROLE_NAME_TOO_LONG = "ROLE_NAME_TOO_LONG"
+    ROLE_NAME_TAKEN = "ROLE_NAME_TAKEN"
+    UNKNOWN_PERMISSION = "UNKNOWN_PERMISSION"
+    PERMISSION_ESCALATION = "PERMISSION_ESCALATION"
+    ROLE_IN_USE = "ROLE_IN_USE"
+
+
+_R = RoleErrorCode
+_SPECS.update({
+    _R.ROLE_NOT_FOUND: (404, "Role not found."),
+    _R.ROLE_LOCKED: (403, "The Owner and Administrator roles always have every permission and can't be changed."),
+    _R.SYSTEM_ROLE_NOT_RENAMEABLE: (400, "Built-in roles can't be renamed. You can change their permissions."),
+    _R.SYSTEM_ROLE_NOT_DELETABLE: (400, "Built-in roles can't be deleted."),
+    _R.ROLE_NAME_REQUIRED: (400, "Enter a role name."),
+    _R.ROLE_NAME_TOO_LONG: (400, "Role names can be at most 100 characters."),
+    _R.ROLE_NAME_TAKEN: (409, "A role with this name already exists."),
+    _R.UNKNOWN_PERMISSION: (400, "One or more permission codes are not valid."),
+    _R.PERMISSION_ESCALATION: (403, "You can only add or remove permissions you hold yourself."),
+    _R.ROLE_IN_USE: (409, "This role is in use. Move its members to another role first."),
+})
+
+
+def fail(code: InvitationErrorCode | RoleErrorCode, message: str | None = None, **extra) -> BusinessRuleError:
     status_code, default_message = _SPECS[code]
     return BusinessRuleError(code.value, message or default_message, status_code=status_code, extra=extra)

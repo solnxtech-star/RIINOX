@@ -8,7 +8,7 @@ from django.db.models import ProtectedError
 from django.shortcuts import get_object_or_404
 from rest_framework.exceptions import ValidationError
 
-from core.applications.products.models import Brand, Category, Product, ProductVariant
+from core.applications.products.models import Brand, Category, Product, ProductImage, ProductVariant
 from core.applications.inventory.api.serializers import InventorySummarySerializer
 from core.applications.inventory.services import get_inventory_summary
 from core.applications.products.api.serializers import (
@@ -17,15 +17,23 @@ from core.applications.products.api.serializers import (
     ProductSerializer,
     ProductCreateSerializer,
     ProductVariantSerializer,
+    ProductImageSerializer,
+    ProductImageUpdateSerializer,
 )
 from core.applications.products.api.schemas import brand_schema, category_schema, product_schema
+from core.applications.products.api.schemas import product_image_schema
 from core.applications.products.api.permissions import (
     BrandPermission,
     CategoryPermission,
+    ProductImagePermission,
     ProductPermission,
 )
 from core.applications.users.permissions import OrganizationScopedMixin
 from core.applications.products.services import archive_product, restore_product
+from core.applications.products.services import add_product_image
+from core.applications.products.services import delete_product_image
+from core.applications.products.services import update_product_image
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from core.applications.subscriptions.services.entitlements import ensure_subscription_active
 from core.applications.subscriptions.services.usage import release_usage
 from core.helper.enums import ProductStatusChoices, UsageMetric
@@ -255,6 +263,64 @@ class ProductVariantViewSet(OrganizationScopedMixin, viewsets.ModelViewSet):
         product_id = self.kwargs.get("product_id")
         product = get_object_or_404(Product, id=product_id, organization=self.organization)
         serializer.save(product=product)
+
+
+@product_image_schema
+class ProductImageViewSet(
+    OrganizationScopedMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.CreateModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
+    """
+    Product photos: /api/organizations/{org_id}/products/{product_id}/images/
+    Upload (multipart), list, make main / reorder (PATCH), delete. Rules live in products.services.
+    """
+
+    permission_classes = [IsAuthenticated, ProductImagePermission]
+    serializer_class = ProductImageSerializer
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    pagination_class = None  # at most 10 per product
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+
+    def _product(self):
+        if not hasattr(self, "_product_cache"):
+            self._product_cache = get_object_or_404(
+                Product, pk=self.kwargs.get("product_id"), organization=self.organization
+            )
+        return self._product_cache
+
+    def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False) or not self.organization:
+            return ProductImage.objects.none()
+        return ProductImage.objects.filter(product=self._product()).order_by("sort_order", "-created_at")
+
+    def create(self, request, *args, **kwargs):
+        serializer = ProductImageSerializer(data=request.data, context=self.get_serializer_context())
+        serializer.is_valid(raise_exception=True)
+        image = add_product_image(
+            product=self._product(),
+            image=serializer.validated_data["image"],
+            is_primary=serializer.validated_data.get("is_primary", False),
+            sort_order=serializer.validated_data.get("sort_order"),
+        )
+        image = ProductImage.objects.get(pk=image.pk)  # ids come back in the same (dashed) form as list/retrieve
+        return Response(
+            ProductImageSerializer(image, context=self.get_serializer_context()).data, status=status.HTTP_201_CREATED
+        )
+
+    def partial_update(self, request, *args, **kwargs):
+        body = ProductImageUpdateSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        image = update_product_image(image=self.get_object(), **body.validated_data)
+        return Response(ProductImageSerializer(image, context=self.get_serializer_context()).data)
+
+    def destroy(self, request, *args, **kwargs):
+        delete_product_image(image=self.get_object())
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 @category_schema

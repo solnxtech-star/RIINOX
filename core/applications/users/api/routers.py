@@ -10,6 +10,8 @@ from core.applications.users.api.views.organization_views import (
     OrganizationInvitationViewSet,
 )
 from core.applications.users.api.views.organization_views import OrganizationViewSet
+from core.applications.users.api.views.role_views import OrganizationPermissionViewSet
+from core.applications.users.api.views.role_views import OrganizationRoleViewSet
 from core.applications.users.api.views.users_views import UserViewSet
 from core.helper.patterns import UUID_RE
 
@@ -31,6 +33,18 @@ router.register(
     rf"organizations/(?P<organization_id>{UUID_RE})/invitations",
     OrganizationInvitationViewSet,
     basename="organization-invitations",
+)
+
+router.register(
+    rf"organizations/(?P<organization_id>{UUID_RE})/roles",
+    OrganizationRoleViewSet,
+    basename="organization-roles",
+)
+
+router.register(
+    rf"organizations/(?P<organization_id>{UUID_RE})/permissions",
+    OrganizationPermissionViewSet,
+    basename="organization-permissions",
 )
 
 

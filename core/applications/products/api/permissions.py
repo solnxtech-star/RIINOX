@@ -69,3 +69,20 @@ class BrandPermission(BaseTenantPermission):
 
 
 
+
+
+class ProductImagePermission(BaseTenantPermission):
+    """
+    /products/{product_id}/images/:
+      - list / retrieve: VIEW_PRODUCTS
+      - create (upload) / partial_update / destroy: EDIT_PRODUCT
+    """
+
+    action_permissions: dict[str, str] = {
+        "list": PermissionCode.VIEW_PRODUCTS,
+        "retrieve": PermissionCode.VIEW_PRODUCTS,
+        "create": PermissionCode.EDIT_PRODUCT,
+        "partial_update": PermissionCode.EDIT_PRODUCT,
+        "destroy": PermissionCode.EDIT_PRODUCT,
+    }
+    default_permission: str = PermissionCode.EDIT_PRODUCT

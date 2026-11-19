@@ -86,9 +86,6 @@ from core.applications.users.api.serializers.organization_serializers import (
     RoleOptionSerializer,
 )
 from core.applications.users.api.serializers.organization_serializers import (
-    RoleSerializer,
-)
-from core.applications.users.api.serializers.organization_serializers import (
     StateOptionSerializer,
 )
 from core.applications.users.api.serializers.organization_serializers import (
@@ -183,7 +180,7 @@ class OrganizationViewSet(ModelViewSet):
     - members: List organization members (VIEW_TEAM; callers limited to some
       locations see only members of those locations). Pending invitations are
       listed under /organizations/{id}/invitations/.
-    - roles: List the roles that can be assigned (Admins + Owners only).
+    - roles: see OrganizationRoleViewSet (/organizations/{id}/roles/).
     - deactivate: Soft-deactivate organization (Owners only).
     """
 
@@ -198,7 +195,6 @@ class OrganizationViewSet(ModelViewSet):
         "partial_update": (IsOrganizationAdminOrOwner,),
         "business_types": (IsOrganizationAdminOrOwner,),
         "members": (CanViewTeam,),
-        "roles": (IsOrganizationAdminOrOwner,),
         "deactivate": (IsOrganizationOwner,),
     }
 
@@ -215,8 +211,6 @@ class OrganizationViewSet(ModelViewSet):
             return OrganizationBusinessTypesUpdateSerializer
         if self.action == "members":
             return OrganizationMemberSerializer
-        if self.action == "roles":
-            return RoleSerializer
         return OrganizationSerializer
 
     def get_permissions(self):
@@ -297,15 +291,7 @@ class OrganizationViewSet(ModelViewSet):
             return self.get_paginated_response(self.get_serializer(page, many=True).data)
         return Response(self.get_serializer(memberships, many=True).data)
 
-    @action(detail=True, methods=["get"], pagination_class=None)
-    def roles(self, request, pk=None):
-        """
-        List the roles that can be assigned in this organization.
-        Example: GET /api/v1/organizations/{id}/roles/
-        """
-        organization = self.get_object()
-        roles = Role.objects.for_organization(organization).ordered()
-        return Response(self.get_serializer(roles, many=True).data)
+    # Roles live in OrganizationRoleViewSet (/organizations/{id}/roles/).
 
 
 # ===========================================================================

@@ -17,7 +17,8 @@ EXPECTED_PRODUCT_FIELDS = [
     'purchase_cost', 'vendor_sale_cost', 'customer_sale_price',
     'minimum_stock_level', 'low_stock_alert_unit', 'opening_stock',
     'status', 'organization', 'category', 'brand', 'created_by',
-    'current_stock', 'batches', 'bulk_discounts', 'unit_conversions', 'variants'
+    'current_stock', 'batches', 'bulk_discounts', 'unit_conversions', 'variants',
+    'images', 'primary_image_url',
 ]
 
 EXPECTED_PRODUCT_FIELDS_NO_COSTS = [
@@ -105,7 +106,7 @@ class ProductAPITest(APITestCase):
 
         results = response.data.get("results", response.data)
         product_ids = [r["id"].replace("-", "") for r in results]
-        
+
         # Scoped to self.org only
         self.assertIn(str(self.product.id).replace("-", ""), product_ids)
         self.assertNotIn(str(self.other_product.id).replace("-", ""), product_ids)
@@ -356,12 +357,12 @@ class ProductAPITest(APITestCase):
     # Negative Validation Tests
     # -------------------------------------------------------------------------
     def test_negative_validation_missing_required_fields(self):
-        """Missing required fields (name, sku) returns 400 Bad Request."""
+        """Missing name returns 400. SKU is optional: it is generated when left out."""
         response = self.client.post(self.products_url, {}, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         errors = response.data.get("errors", response.data)
         self.assertIn("name", errors)
-        self.assertIn("sku", errors)
+        self.assertNotIn("sku", errors)
 
     # -------------------------------------------------------------------------
     # Cross-Tenant Category, Brand & Warehouse Validation Tests
@@ -661,6 +662,3 @@ class ProductAPITest(APITestCase):
         self.assertEqual(status_resp.status_code, status.HTTP_200_OK)
         results = status_resp.data.get("results", status_resp.data)
         self.assertTrue(all(r["status"] == "active" for r in results))
-
-
-

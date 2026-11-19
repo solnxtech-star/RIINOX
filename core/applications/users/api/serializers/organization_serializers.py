@@ -557,6 +557,82 @@ class RoleOptionSerializer(RoleSerializer):
     """Feeds the "Assign Role" dropdown. Use with `assignable_roles()`."""
 
 
+class RoleDetailSerializer(RoleSerializer):
+    """
+    A role on the Roles & Permissions screen. Load with role_services.roles_with_usage()
+    (member_count annotated, permissions prefetched).
+    """
+
+    permissions = serializers.SerializerMethodField(
+        help_text="Permission codes this role grants, e.g. [\"VIEW_PRODUCTS\", \"CREATE_SALE\"]. Owner and "
+                  "Administrator always list every code."
+    )
+    member_count = serializers.IntegerField(read_only=True, default=0, help_text="Active members holding this role.")
+    is_locked = serializers.SerializerMethodField(
+        help_text="true for Owner and Administrator: nothing about them can be changed (show the checkboxes read-only)."
+    )
+    can_rename = serializers.SerializerMethodField(help_text="true for custom roles only.")
+    can_delete = serializers.SerializerMethodField(
+        help_text="true for custom roles with no members. A custom role can still be refused with ROLE_IN_USE when "
+                  "it appears on pending or past invitations."
+    )
+
+    class Meta(RoleSerializer.Meta):
+        fields = [*RoleSerializer.Meta.fields, "permissions", "member_count", "is_locked", "can_rename", "can_delete"]
+        read_only_fields = fields
+
+    def get_permissions(self, obj) -> list[str]:
+        from core.applications.users.role_services import is_locked
+
+        if is_locked(obj) and obj.slug == "owner":
+            from core.helper.enums import PermissionCode
+
+            return sorted(PermissionCode.values)
+        return sorted(p.code for p in obj.permissions.all())
+
+    def get_is_locked(self, obj) -> bool:
+        from core.applications.users.role_services import is_locked
+
+        return is_locked(obj)
+
+    def get_can_rename(self, obj) -> bool:
+        return not obj.is_system
+
+    def get_can_delete(self, obj) -> bool:
+        return not obj.is_system and not getattr(obj, "member_count", 0)
+
+
+class RoleWriteSerializer(serializers.Serializer):
+    """
+    Body of POST (create) and PATCH (update) on /organizations/{id}/roles/.
+    On PATCH send only what changes; `permissions` always replaces the whole list.
+    """
+
+    name = serializers.CharField(max_length=100, help_text="Shown in role pickers, e.g. \"Cashier\". Custom roles only.")
+    description = serializers.CharField(
+        required=False, allow_blank=True, max_length=500, help_text="Optional. Custom roles only."
+    )
+    permissions = serializers.ListField(
+        child=serializers.CharField(max_length=100), required=False, allow_empty=True,
+        help_text="The complete list of permission codes the role should have, from "
+                  "GET /organizations/{id}/permissions/. Replaces the current list.",
+    )
+
+
+class PermissionItemSerializer(serializers.Serializer):
+    code = serializers.CharField(help_text="Send this in a role's `permissions` list.")
+    name = serializers.CharField(help_text="Checkbox label, e.g. \"View Product Costs\".")
+    description = serializers.CharField(allow_blank=True)
+
+
+class PermissionGroupSerializer(serializers.Serializer):
+    """One module of the permission catalog (a section of checkboxes)."""
+
+    module = serializers.CharField(help_text="Stable key, e.g. \"products\".")
+    label = serializers.CharField(help_text="Section heading, e.g. \"Products\".")
+    permissions = PermissionItemSerializer(many=True)
+
+
 # ===========================================================================
 # 5. Memberships
 # ===========================================================================

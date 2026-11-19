@@ -10,6 +10,7 @@ from core.applications.products.models import (
     Product,
     ProductBatch,
     ProductBulkDiscount,
+    ProductImage,
     ProductUnitConversion,
     ProductVariant,
 )
@@ -182,7 +183,75 @@ class BrandSerializer(serializers.ModelSerializer):
         return attrs
 
 
-class ProductSerializer(serializers.ModelSerializer):
+MAX_IMAGE_BYTES = 5 * 1024 * 1024
+ALLOWED_IMAGE_FORMATS = {"JPEG", "PNG", "WEBP"}
+
+
+class ProductImageSerializer(serializers.ModelSerializer):
+    """
+    A product photo. Upload with multipart/form-data (`image` file); the response's
+    `image` is the full URL. JPEG, PNG or WebP, at most 5 MB.
+    """
+
+    image = serializers.ImageField(
+        help_text="On upload: the file (multipart/form-data). In responses: the image URL. JPEG/PNG/WebP, max 5 MB."
+    )
+    is_primary = serializers.BooleanField(
+        required=False, default=False,
+        help_text="The main photo shown in lists. The first image is always main; setting true demotes the old one.",
+    )
+    sort_order = serializers.IntegerField(
+        required=False, min_value=0, help_text="Display order, lowest first. Defaults to after the last image."
+    )
+
+    class Meta:
+        model = ProductImage
+        fields = ["id", "image", "is_primary", "sort_order", "created_at"]
+        read_only_fields = ["id", "created_at"]
+
+    def validate_image(self, value):
+        if value.size > MAX_IMAGE_BYTES:
+            raise serializers.ValidationError("Images can be at most 5 MB.")
+        image_format = getattr(getattr(value, "image", None), "format", None)
+        if image_format not in ALLOWED_IMAGE_FORMATS:
+            raise serializers.ValidationError("Upload a JPEG, PNG or WebP image.")
+        return value
+
+
+class ProductImageUpdateSerializer(serializers.Serializer):
+    """PATCH body: make an image main and/or reorder it. The file itself can't be replaced: upload a new one."""
+
+    is_primary = serializers.BooleanField(required=False)
+    sort_order = serializers.IntegerField(required=False, min_value=0)
+
+
+class ProductImagesFieldsMixin(serializers.Serializer):
+    """`images` (ordered) and `primary_image_url`, read from the prefetched images (no extra queries)."""
+
+    images = serializers.SerializerMethodField(help_text="Product photos, in display order.")
+    primary_image_url = serializers.SerializerMethodField(
+        help_text="URL of the main photo, or null. Use it for thumbnails in lists."
+    )
+
+    def _images(self, obj):
+        return sorted(obj.images.all(), key=lambda image: (image.sort_order, -image.created_at.timestamp()))
+
+    @extend_schema_field(ProductImageSerializer(many=True))
+    def get_images(self, obj):
+        return ProductImageSerializer(self._images(obj), many=True, context=self.context).data
+
+    @extend_schema_field(OpenApiTypes.URI)
+    def get_primary_image_url(self, obj) -> str | None:
+        images = self._images(obj)
+        primary = next((image for image in images if image.is_primary), images[0] if images else None)
+        if primary is None or not primary.image:
+            return None
+        url = primary.image.url
+        request = self.context.get("request")
+        return request.build_absolute_uri(url) if request is not None and url.startswith("/") else url
+
+
+class ProductSerializer(ProductImagesFieldsMixin, serializers.ModelSerializer):
     batches = ProductBatchSerializer(many=True, read_only=True)
     bulk_discounts = ProductBulkDiscountSerializer(many=True, read_only=True)
     unit_conversions = ProductUnitConversionSerializer(many=True, read_only=True)
@@ -203,9 +272,11 @@ class ProductSerializer(serializers.ModelSerializer):
             'purchase_cost', 'vendor_sale_cost', 'customer_sale_price',
             'minimum_stock_level', 'low_stock_alert_unit', 'opening_stock',
             'status', 'organization', 'category', 'brand', 'created_by',
-            'current_stock', 'batches', 'bulk_discounts', 'unit_conversions', 'variants'
+            'current_stock', 'batches', 'bulk_discounts', 'unit_conversions', 'variants',
+            'images', 'primary_image_url',
         ]
-        read_only_fields = ['id', 'status', 'organization', 'created_by', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'visible', 'opening_stock', 'status', 'organization', 'created_by',
+                            'created_at', 'updated_at']
 
     @extend_schema_field(OpenApiTypes.INT)
     def get_current_stock(self, obj) -> int:
@@ -257,7 +328,7 @@ class ProductSerializer(serializers.ModelSerializer):
         return data
 
 
-class ProductCreateSerializer(serializers.ModelSerializer):
+class ProductCreateSerializer(ProductImagesFieldsMixin, serializers.ModelSerializer):
     quantity_in_stock = serializers.IntegerField(write_only=True, required=False, default=0, help_text="Initial opening stock quantity")
     warehouse_id = serializers.PrimaryKeyRelatedField(
         queryset=Warehouse.objects.all(),
@@ -280,9 +351,19 @@ class ProductCreateSerializer(serializers.ModelSerializer):
             'purchase_cost', 'vendor_sale_cost', 'customer_sale_price',
             'minimum_stock_level', 'low_stock_alert_unit', 'opening_stock',
             'status', 'organization', 'category', 'brand', 'created_by',
-            'quantity_in_stock', 'warehouse_id', 'batches', 'bulk_discounts', 'unit_conversions', 'variants'
+            'quantity_in_stock', 'warehouse_id', 'batches', 'bulk_discounts', 'unit_conversions', 'variants',
+            'images', 'primary_image_url',
         ]
-        read_only_fields = ['id', 'status', 'organization', 'created_by', 'created_at', 'updated_at']
+        # opening_stock is filled from quantity_in_stock; visible is an internal flag.
+        read_only_fields = ['id', 'visible', 'opening_stock', 'status', 'organization', 'created_by',
+                            'created_at', 'updated_at']
+        extra_kwargs = {  # noqa: RUF012
+            'sku': {
+                'required': False, 'allow_blank': True,
+                'help_text': "Unique in the organization. Leave out or blank to have one generated from the "
+                             "name, e.g. 'CC5-7K2Q9M'. Can't be emptied once set.",
+            },
+        }
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
