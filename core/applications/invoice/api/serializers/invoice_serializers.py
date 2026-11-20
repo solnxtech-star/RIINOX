@@ -389,8 +389,8 @@ class InvoiceUpdateSerializer(LinesInputMixin, ServiceInputSerializer):
 
 class PaymentInputSerializer(StrictInputMixin, serializers.Serializer):
     """
-    The `payment` object of PRD §39, kept for the upcoming invoice-payment
-    endpoint (not accepted by confirm). `method` uses the same list as sales and
+    The `payment` object of PRD §39 (not accepted by confirm: invoice payments
+    are recorded with `POST /payments/`, see `payment.api`). `method` uses the same list as sales and
     supplier payments.
     """
 
@@ -406,8 +406,8 @@ class PaymentInputSerializer(StrictInputMixin, serializers.Serializer):
 
 
 PAYMENT_AT_CONFIRM_UNSUPPORTED = (
-    "Payments can't be taken while confirming an invoice yet. Confirm without "
-    "`payment`; recording invoice payments will be a separate endpoint."
+    "Payments can't be taken while confirming an invoice. Confirm without "
+    "`payment`, then record it with POST /api/organizations/{organization_id}/payments/."
 )
 
 

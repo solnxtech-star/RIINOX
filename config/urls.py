@@ -121,6 +121,13 @@ urlpatterns += [
     path(
         "api/",
         include(
+            "core.applications.payment.api.routers",
+            namespace="payments",
+        ),
+    ),
+    path(
+        "api/",
+        include(
             "core.applications.dashboard.api.routers",
             namespace="dashboard",
         ),

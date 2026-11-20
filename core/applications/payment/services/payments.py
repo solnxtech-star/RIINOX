@@ -12,7 +12,11 @@ from core.applications.invoice.services.balance import recalculate_customer_bala
 from core.applications.invoice.services.purchase_invoices import (
     apply_payment_to_purchase_invoice,
 )
-from core.applications.payment.exceptions import PaymentValidationError
+from core.applications.payment.exceptions import (
+    InvoiceNotPayableError,
+    PaymentExceedsBalanceError,
+    PaymentValidationError,
+)
 from core.applications.payment.models import InvoicePayment, Payment, PurchasePayment
 from core.applications.transactions.services import (
     TransactionData,
@@ -228,13 +232,15 @@ def record_invoice_payment(
     invoice = invoice.__class__.objects.select_for_update().get(pk=invoice.pk)
     if invoice.status == InvoiceStatusChoices.PAID or invoice.amount_paid >= invoice.total:
         msg = "The invoice is already fully paid."
-        raise PaymentValidationError(
+        raise InvoiceNotPayableError(
             msg, detail={"invoice_id": str(invoice.pk), "status": str(invoice.status)}
         )
 
     if invoice.status not in PAYABLE_STATUSES:
         msg = f"An invoice that is {invoice.status} cannot take a payment."
-        raise PaymentValidationError(msg, detail={"invoice_id": str(invoice.pk)})
+        raise InvoiceNotPayableError(
+            msg, detail={"invoice_id": str(invoice.pk), "status": str(invoice.status)}
+        )
 
     balance_due = invoice.total - invoice.amount_paid
 
@@ -255,7 +261,7 @@ def record_invoice_payment(
             paid_amount = balance_due
         else:
             msg = f"Overpayment is not allowed for {method} payments. Tendered {amount_val} exceeds balance due {balance_due}."
-            raise PaymentValidationError(
+            raise PaymentExceedsBalanceError(
                 msg,
                 detail={"amount": str(amount_val), "balance_due": str(balance_due), "method": str(method)},
             )

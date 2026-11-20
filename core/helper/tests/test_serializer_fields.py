@@ -51,4 +51,4 @@ class InvoiceConfirmBodyTests(SimpleTestCase):
     def test_payment_is_refused_with_a_clear_message(self):
         serializer = InvoiceConfirmSerializer(data={"payment": {"amount": "100.00", "method": "cash"}})
         self.assertFalse(serializer.is_valid())
-        self.assertIn("separate endpoint", str(serializer.errors["payment"][0]))
+        self.assertIn("/payments/", str(serializer.errors["payment"][0]))

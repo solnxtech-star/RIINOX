@@ -821,9 +821,9 @@ happens, or nothing does and the invoice stays a Draft.
   customer would exceed their credit limit and the organization's rules
   require approval.
 
-**No payment here.** Taking money while confirming is not supported yet;
-recording invoice payments will be a separate endpoint. Sending a non-null
-`payment` is a `400` on `payment` and nothing is confirmed.
+**No payment here.** Confirm first, then record money received with
+`POST /api/organizations/{organization_id}/payments/` (part payments allowed).
+Sending a non-null `payment` is a `400` on `payment` and nothing is confirmed.
 
 Confirming twice is a `409`, and never deducts stock a second time.
 

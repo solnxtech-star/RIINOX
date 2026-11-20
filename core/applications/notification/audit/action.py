@@ -21,6 +21,7 @@ class AuditAction:
     INVOICE_CREATED = "invoice.created"
     INVOICE_ARCHIVED = "invoice.archived"
     INVOICE_UNARCHIVED = "invoice.unarchived"
+    INVOICE_PAYMENT_RECORDED = "invoice.payment_recorded"
 
     # Product Events
     PRODUCT_CREATED = "product.created"

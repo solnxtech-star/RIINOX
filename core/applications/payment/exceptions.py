@@ -20,17 +20,25 @@ class PaymentValidationError(PaymentError):
     status_code = status.HTTP_400_BAD_REQUEST
 
 
-class InvoiceNotPayableError(PaymentError):
-    """The invoice's status does not allow money to be recorded against it."""
+class InvoiceNotPayableError(PaymentValidationError):
+    """The invoice's status (draft, void, fully paid...) does not allow a payment."""
 
     code = "INVOICE_NOT_PAYABLE"
     default_message = "This invoice cannot take a payment in its current status."
     status_code = status.HTTP_409_CONFLICT
 
 
-class PaymentExceedsBalanceError(PaymentError):
-    """The amount is more than what is still owed. Overpayment is never recorded."""
+class PaymentExceedsBalanceError(PaymentValidationError):
+    """A non-cash amount above what is still owed. Overpayment is never recorded."""
 
     code = "PAYMENT_EXCEEDS_BALANCE"
     default_message = "The payment is more than the invoice balance."
+    status_code = status.HTTP_409_CONFLICT
+
+
+class DuplicatePaymentReferenceError(PaymentError):
+    """The reference already identifies a different payment."""
+
+    code = "DUPLICATE_PAYMENT_REFERENCE"
+    default_message = "This payment reference has already been used for another payment."
     status_code = status.HTTP_409_CONFLICT
