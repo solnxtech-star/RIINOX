@@ -87,6 +87,10 @@ class SalesServicesTest(TestCase):
         # 1. Sale integrity
         self.assertIsNotNone(sale.id)
         self.assertEqual(sale.total, Decimal("200.00"))
+        # Stock left in the same step, so the sale is fulfilled straight away.
+        self.assertEqual(
+            Sale.objects.get(pk=sale.pk).fulfillment_status, SaleFulfillmentStatusChoices.FULFILLED
+        )
 
         # 2. Real Invoice created
         invoice = Invoice.objects.filter(sale=sale).first()
@@ -468,5 +472,3 @@ class SalesServicesTest(TestCase):
         self.assertIsNotNone(sale.id)
         self.assertEqual(str(sale.warehouse_id).replace("-", ""), str(self.location.warehouse_id).replace("-", ""))
         self.assertEqual(sale.total, Decimal("50.00"))
-
-

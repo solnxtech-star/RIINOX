@@ -290,6 +290,9 @@ def create_sale(data: dict[str, Any], *, actor: Any = None) -> Sale:
     data.pop("subtotal", None)
     data.pop("total", None)
     data["payment_status"] = payment_status(totals["total"], paid_now)
+    # The goods leave stock in this same transaction (process_sale_inventory_and_ledger
+    # below), so a sale is fulfilled the moment it exists.
+    data["fulfillment_status"] = SaleFulfillmentStatusChoices.FULFILLED
     data["currency"] = data.get("currency") or getattr(organization, "currency", None) or "NGN"
     if not data.get("sale_id"):
         data["sale_id"] = f"SALE-{uuid.uuid4().hex[:8].upper()}"
