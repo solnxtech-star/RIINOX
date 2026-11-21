@@ -9,6 +9,7 @@ from django.db.models import ProtectedError
 from rest_framework.exceptions import PermissionDenied
 
 from core.applications.customers.models import Customer, CustomerAddress
+from core.applications.customers.walk_in import walk_in_protected
 from core.applications.notification.audit.action import AuditAction
 from core.applications.notification.audit.services import record as audit_record
 from core.applications.subscriptions.services.entitlements import ensure_subscription_active
@@ -104,6 +105,17 @@ def create_customer(
     return customer
 
 
+def _guard_walk_in_update(customer: Customer, fields: dict[str, Any]) -> None:
+    """The walk-in customer may be renamed or annotated, never deactivated or given credit."""
+    status_value = fields.get("status")
+    if status_value is not None and status_value != CustomerStatus.ACTIVE:
+        raise walk_in_protected("The Walk-in Customer is built in and can't be deactivated or blocked.")
+    credit = fields.get("credit_limit")
+    terms = fields.get("payment_terms_days")
+    if (credit is not None and Decimal(str(credit)) != 0) or (terms is not None and terms != 0):
+        raise walk_in_protected("The Walk-in Customer can't buy on credit, so it has no credit limit or terms.")
+
+
 @transaction.atomic
 def update_customer(
     *,
@@ -124,6 +136,9 @@ def update_customer(
     # Credit modification protection
     new_credit_limit = customer_fields.get("credit_limit")
     new_terms = customer_fields.get("payment_terms_days")
+
+    if customer.is_walk_in:
+        _guard_walk_in_update(customer, customer_fields)
 
     if new_credit_limit is not None and Decimal(str(new_credit_limit)) != customer.credit_limit:
         if not has_org_permission(user, organization, PermissionCode.MANAGE_CUSTOMER_CREDIT):
@@ -199,6 +214,8 @@ def delete_customer(*, customer: Customer, user: User) -> tuple[bool, Customer]:
 
     if not has_org_permission(user, organization, PermissionCode.MANAGE_CUSTOMERS):
         raise PermissionDenied("You do not have permission to delete customers in this organization.")
+    if customer.is_walk_in:
+        raise walk_in_protected("The Walk-in Customer is built in and can't be deleted or deactivated.")
 
     try:
         customer.delete()
@@ -240,6 +257,8 @@ def adjust_customer_credit(
 
     if not has_org_permission(user, organization, PermissionCode.MANAGE_CUSTOMER_CREDIT):
         raise PermissionDenied("You do not have permission to adjust customer credit limits or terms.")
+    if customer.is_walk_in:
+        raise walk_in_protected("The Walk-in Customer can't buy on credit, so it has no credit limit or terms.")
 
     credit_limit_dec = Decimal(str(credit_limit))
     if credit_limit_dec < Decimal("0.00"):

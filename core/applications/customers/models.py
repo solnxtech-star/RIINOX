@@ -84,6 +84,15 @@ class Customer(TimeBasedModel):
         help_text=_("Credit payment due terms in days (e.g. Net 0, Net 15, Net 30)."),
     )
 
+    is_walk_in = models.BooleanField(
+        default=False,
+        editable=False,
+        help_text=_(
+            "The organization's built-in 'Walk-in Customer' for anonymous counter sales. "
+            "Exactly one per organization; it can't buy on credit, be deactivated or be deleted."
+        ),
+    )
+
     # Lifecycle & Audit
     status = models.CharField(
         max_length=20,
@@ -119,6 +128,11 @@ class Customer(TimeBasedModel):
             models.Index(fields=["organization", "name"], name="cust_org_name_idx"),
         ]
         constraints: ClassVar = [
+            models.UniqueConstraint(
+                fields=["organization"],
+                condition=models.Q(is_walk_in=True),
+                name="customer_one_walk_in_per_org",
+            ),
             models.CheckConstraint(
                 condition=models.Q(credit_limit__gte=Decimal("0.00")),
                 name="customer_credit_limit_non_negative",

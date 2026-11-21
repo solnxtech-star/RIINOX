@@ -51,6 +51,15 @@ CUSTOMER_CREATE_EXAMPLE = {
     ],
 }
 
+WALK_IN_NOTE = """
+
+**Walk-in Customer (`is_walk_in: true`).** Every organization has exactly one, created automatically, for
+anonymous counter sales. New carts use it by default and `POST /sales/` uses it when `customer` is left out.
+It can be renamed (e.g. "Cash Customer") but can't be deactivated, blocked, deleted, given a credit limit or
+payment terms, or put on a standalone invoice (`409 WALK_IN_CUSTOMER_PROTECTED`, `400 WALK_IN_NOT_INVOICEABLE`).
+Sales to it must be paid in full. In customer pickers, show it first or as the default choice.
+"""
+
 CUSTOMER_CREDIT_ADJUSTMENT_EXAMPLE = {
     "credit_limit": "75000.00",
     "payment_terms_days": 45,
@@ -64,7 +73,7 @@ customer_schema = extend_schema_view(
         description="""
         Retrieves a paginated list of customers scoped strictly to the tenant organization.
         Supports full-text search across name, company, email, and phone, as well as filtering by status and customer type.
-        """,
+        """ + WALK_IN_NOTE,
         parameters=[
             CUSTOMER_ORGANIZATION_PARAM,
             OpenApiParameter(
@@ -128,7 +137,7 @@ customer_schema = extend_schema_view(
         Updates an existing customer record.
         Modifying credit_limit or payment_terms_days requires MANAGE_CUSTOMER_CREDIT permission.
         Customer balance is read-only and derived from the financial transaction ledger.
-        """,
+        """ + WALK_IN_NOTE,
         parameters=[CUSTOMER_ORGANIZATION_PARAM],
         responses={
             200: CustomerSerializer,
@@ -140,7 +149,8 @@ customer_schema = extend_schema_view(
     partial_update=extend_schema(
         tags=["Customers"],
         summary="Partial Update Customer",
-        description="Partially updates customer attributes while protecting financial fields and multi-tenant scoping.",
+        description="Partially updates customer attributes while protecting financial fields and multi-tenant scoping."
+        + WALK_IN_NOTE,
         parameters=[CUSTOMER_ORGANIZATION_PARAM],
         responses={
             200: CustomerSerializer,
@@ -156,7 +166,7 @@ customer_schema = extend_schema_view(
         Deletes a customer record (PRD §44).
         If the customer has no associated sales or invoice ledgers, the record is permanently deleted (204 No Content).
         If the customer is referenced by existing transactions, the system catches the database constraint and gracefully soft-deactivates the customer (200 OK with status set to inactive).
-        """,
+        """ + WALK_IN_NOTE,
         parameters=[CUSTOMER_ORGANIZATION_PARAM],
         responses={
             204: OpenApiResponse(description="Customer permanently deleted."),

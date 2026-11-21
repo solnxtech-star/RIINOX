@@ -50,13 +50,14 @@ class CustomerSerializer(serializers.ModelSerializer):
             "balance",
             "payment_terms_days",
             "status",
+            "is_walk_in",
             "notes",
             "metadata",
             "addresses",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "organization", "balance", "created_at", "updated_at"]
+        read_only_fields = ["id", "organization", "balance", "is_walk_in", "created_at", "updated_at"]
 
 
 class CustomerCreateSerializer(serializers.ModelSerializer):
@@ -91,11 +92,12 @@ class CustomerCreateSerializer(serializers.ModelSerializer):
             "credit_limit",
             "payment_terms_days",
             "status",
+            "is_walk_in",
             "notes",
             "metadata",
             "addresses",
         ]
-        read_only_fields = ["id"]
+        read_only_fields = ["id", "is_walk_in"]
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         attrs = super().validate(attrs)

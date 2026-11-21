@@ -592,7 +592,13 @@ CELERY_BEAT_SCHEDULE = {
     # makes sure no organization's morning is missed across timezones.
     "notifications-expiring-batches": {"task": "notifications.scan_expiring_batches", "schedule": 6 * 60 * 60},
     "notifications-overdue-invoices": {"task": "notifications.scan_overdue_invoices", "schedule": 6 * 60 * 60},
+    "sales-expire-idle-carts": {"task": "sales.expire_idle_carts", "schedule": 6 * 60 * 60},
 }
+
+# Point-of-sale carts: open carts idle this long are abandoned; abandoned carts are
+# deleted this long afterwards. Nothing is reserved, so expiring a cart frees nothing.
+CART_EXPIRY_DAYS = env.int("CART_EXPIRY_DAYS", default=7)
+CART_PURGE_DAYS = env.int("CART_PURGE_DAYS", default=30)
 
 # Dashboard: aggregate sections are cached briefly per organization/branch/period/permission.
 DASHBOARD_CACHE_SECONDS = env.int("DASHBOARD_CACHE_SECONDS", default=60)

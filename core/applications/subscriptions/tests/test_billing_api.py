@@ -184,6 +184,9 @@ class BillingTaskTests(TestCase):
 
         from config.celery_app import app
 
+        # What a worker does at startup: import every installed app's tasks.py.
+        # Without it the result depends on which test modules ran first.
+        app.loader.import_default_modules()
         registered = set(app.tasks)
         for entry in settings.CELERY_BEAT_SCHEDULE.values():
             self.assertIn(entry["task"], registered)

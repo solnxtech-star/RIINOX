@@ -234,6 +234,10 @@ def create_organization(
 
     apply_starter_catalog(organization, [business_type])
 
+    from core.applications.customers.walk_in import get_walk_in_customer
+
+    get_walk_in_customer(organization)  # ready for the first counter sale
+
     audit.record(
         action=AuditAction.ORGANIZATION_CREATED,
         organization=organization,

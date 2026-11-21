@@ -524,7 +524,11 @@ def get_unit_multiplier(product: Any, unit_name: str) -> Decimal:
     """
     if unit_name == getattr(product, "unit_of_measurement", None):
         return Decimal("1.000")
-    conversion = product.unit_conversions.filter(unit_name=unit_name).first()
+    if "unit_conversions" in getattr(product, "_prefetched_objects_cache", {}):
+        # Prefetched (e.g. pricing a whole cart): no query per line.
+        conversion = next((c for c in product.unit_conversions.all() if c.unit_name == unit_name), None)
+    else:
+        conversion = product.unit_conversions.filter(unit_name=unit_name).first()
     if conversion is None:
         raise ValueError(
             f"Product '{getattr(product, 'name', product)}' has no unit conversion for '{unit_name}'.",

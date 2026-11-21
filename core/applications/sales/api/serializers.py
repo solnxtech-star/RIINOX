@@ -104,6 +104,12 @@ class SaleCreateSerializer(serializers.ModelSerializer):
         ]
         extra_kwargs = {
             'organization': {'required': False},
+            'customer': {
+                'required': False,
+                'allow_null': True,
+                'help_text': "Leave out for an anonymous counter sale: the organization's Walk-in Customer is "
+                             "used, and the sale must then be paid in full.",
+            },
             'sales_rep': {'required': False},
             'warehouse': {'required': False, 'allow_null': True},
             'location': {'required': False, 'allow_null': True},

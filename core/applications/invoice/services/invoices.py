@@ -1328,6 +1328,10 @@ def create_invoice(
             raise InvoiceValidationError(msg, detail={"replaces": str(replaces.pk)})
 
     customer = load_active_customer(organization, customer_id)
+    if getattr(customer, "is_walk_in", False):
+        # An invoice is a request to be paid later; there is no one to ask.
+        msg = "The Walk-in Customer can't be invoiced. Sell at the till, or choose a registered customer."
+        raise InvoiceValidationError(msg, code="WALK_IN_NOT_INVOICEABLE", detail={"customer_id": str(customer.pk)})
     warehouse = _load_warehouse(organization, warehouse_id, actor=actor)
     invoice_currency = _resolve_currency(organization, currency)
     due = _resolve_due_date(customer, _today(organization), due_date)

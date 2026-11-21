@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Final
 
 from django.db import transaction
@@ -78,6 +78,26 @@ def _unit_multiplier(product: Any, unit_name: str) -> Decimal:
         ) from exc
 
 
+def catalog_unit_price(product: Any, unit_name: str, multiplier: Decimal) -> Decimal | None:
+    """
+    The catalog price of ONE `unit_name` of the product, the same rule invoices use:
+    the base price for the base unit; for another unit its `price_override`, else
+    base price x multiplier (a carton of 12 costs 12 pieces unless priced itself).
+    """
+    base = product.customer_sale_price
+    if unit_name == product.unit_of_measurement:
+        return base
+    if "unit_conversions" in getattr(product, "_prefetched_objects_cache", {}):
+        conversion = next((c for c in product.unit_conversions.all() if c.unit_name == unit_name), None)
+    else:
+        conversion = product.unit_conversions.filter(unit_name=unit_name).first()
+    if conversion is not None and conversion.price_override is not None:
+        return conversion.price_override
+    if base is None:
+        return None
+    return (Decimal(str(base)) * multiplier).quantize(CENT, rounding=ROUND_HALF_UP)
+
+
 def _build_lines(
     organization: Any,
     items_data: list[dict[str, Any]],
@@ -122,7 +142,9 @@ def _build_lines(
                 msg, detail={"product_id": str(product.pk), "quantity": str(quantity)}
             )
 
-        catalog_price = product.customer_sale_price
+        unit_name = raw.get("unit_name") or product.unit_of_measurement
+        unit_multiplier = _unit_multiplier(product, unit_name)
+        catalog_price = catalog_unit_price(product, unit_name, unit_multiplier)
         price_given = raw.get("unit_price")
         unit_price = _money(
             catalog_price if price_given is None else price_given,
@@ -134,7 +156,6 @@ def _build_lines(
         if catalog_price is not None and unit_price != _money(catalog_price):
             overrides += 1
 
-        unit_name = raw.get("unit_name") or product.unit_of_measurement
         lines.append(
             {
                 "product": product,
@@ -143,7 +164,7 @@ def _build_lines(
                 "product_sku": getattr(product, "sku", None),
                 "quantity": quantity,
                 "unit_name": unit_name,
-                "unit_multiplier": _unit_multiplier(product, unit_name),
+                "unit_multiplier": unit_multiplier,
                 "unit_price": unit_price,
                 "discount": _money(raw.get("discount") or 0, field="discount"),
             }
@@ -235,6 +256,11 @@ def create_sale(data: dict[str, Any], *, actor: Any = None) -> Sale:
     payment_data = data.pop("payment", None)
     credit_approval_id = data.pop("credit_approval_id", None)
 
+    # No customer = an anonymous counter sale to the organization's Walk-in Customer.
+    if data.get("customer") is None:
+        from core.applications.customers.walk_in import get_walk_in_customer
+
+        data["customer"] = get_walk_in_customer(organization)
     # Lock customer row first to prevent balance/credit race conditions
     customer = load_active_customer(organization, data["customer"].pk, lock=True)
     data["customer"] = customer
@@ -283,6 +309,15 @@ def create_sale(data: dict[str, Any], *, actor: Any = None) -> Sale:
     )
     payment_result = parse_payment(payment_data, totals["total"])
     paid_now = payment_result.amount
+    if getattr(customer, "is_walk_in", False) and paid_now < totals["total"]:
+        # Nobody to chase for the balance: walk-in sales are never on credit, not even
+        # with a credit-override approval.
+        msg = "A walk-in sale must be paid in full. Take the full amount or choose a registered customer."
+        raise SaleValidationError(
+            msg,
+            code="WALK_IN_MUST_PAY_IN_FULL",
+            detail={"total": str(totals["total"]), "paid": str(paid_now)},
+        )
     method = payment_result.method
     payment_reference = payment_result.reference
     change_due = payment_result.change_due
