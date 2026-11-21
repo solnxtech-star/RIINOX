@@ -12,7 +12,9 @@ from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from core.applications.notification.audit.context import AuditContext
-from core.applications.users.api.serializers.user_serializers import CustomTokenObtainPairSerializer
+from core.applications.users.api.serializers.user_serializers import (
+    CustomTokenObtainPairSerializer,
+)
 from core.applications.users.auth_utils import build_auth_payload
 from core.applications.users.google_auth import sign_in_with_google
 
