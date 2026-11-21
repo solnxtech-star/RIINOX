@@ -26,6 +26,7 @@ from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.viewsets import ModelViewSet
 from rest_framework_simplejwt.authentication import AUTH_HEADER_TYPES
 from core.helper.authentications import CustomJWTAuthentication
@@ -36,9 +37,12 @@ from rest_framework_simplejwt.settings import api_settings
 from core.applications.users.api.serializers.user_serializers import (
     CustomTokenObtainPairSerializer,
 )
+from core.applications.users.api.schemas.users import user_viewset_schema
 from core.applications.users.api.serializers.user_serializers import UserSerializer
 from core.applications.users.auth_utils import build_auth_payload
 from core.applications.users.models import User
+from core.applications.users.sessions import revoke_all_sessions
+from core.applications.users.sessions import revoke_refresh_token
 from core.applications.users.token import default_token_generator
 from core.helper.custom_exceptions import CustomError
 
@@ -217,7 +221,7 @@ token_blacklist = TokenBlacklistView.as_view()
 
 
 
-@extend_schema(tags=["User"])
+@user_viewset_schema
 class UserViewSet(ModelViewSet):
     serializer_class = settings.SERIALIZERS.user
     queryset = User.objects.all()
@@ -225,6 +229,29 @@ class UserViewSet(ModelViewSet):
     token_generator = default_token_generator
     lookup_field = settings.USER_ID_FIELD
     parser_classes = [MultiPartParser, JSONParser, FormParser]
+
+    # Rate limits per IP for the endpoints that email a code or check a code/password.
+    throttle_scopes_by_action = {
+        "create": "auth_code_send",
+        "resend_activation": "auth_code_send",
+        "reset_password": "auth_code_send",
+        "reset_username": "auth_code_send",
+        "activation": "auth_code_verify",
+        "reset_password_confirm": "auth_code_verify",
+        "reset_username_confirm": "auth_code_verify",
+        "set_password": "auth_code_verify",
+        "set_username": "auth_code_verify",
+        "destroy": "auth_code_verify",
+    }
+
+    def get_throttles(self):
+        scope = self.throttle_scopes_by_action.get(self.action)
+        if self.action == "me" and self.request.method == "DELETE":
+            scope = "auth_code_verify"
+        if scope is None:
+            return super().get_throttles()
+        self.throttle_scope = scope
+        return [ScopedRateThrottle()]
 
     def permission_denied(self, request, *args, **kwargs):
         if (
@@ -527,6 +554,8 @@ class UserViewSet(ModelViewSet):
 
         self.request.user.set_password(serializer.data["new_password"])
         self.request.user.save()
+        # A new password ends every other session (stolen refresh tokens stop working).
+        revoke_all_sessions(self.request.user)
 
         if settings.PASSWORD_CHANGED_EMAIL_CONFIRMATION:
             context = {"user": self.request.user}
@@ -561,6 +590,8 @@ class UserViewSet(ModelViewSet):
         if hasattr(serializer.user, "last_login"):
             serializer.user.last_login = now()
         serializer.user.save()
+        # Whoever had the account before the reset is logged out everywhere.
+        revoke_all_sessions(serializer.user)
 
         if settings.PASSWORD_CHANGED_EMAIL_CONFIRMATION:
             context = {"user": serializer.user}
@@ -582,6 +613,7 @@ class UserViewSet(ModelViewSet):
             context = {"user": user}
             to = [get_user_email(user)]
             settings.EMAIL.username_changed_confirmation(self.request, context).send(to)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(["post"], detail=False, url_path=f"reset_{User.USERNAME_FIELD}")
     def reset_username(self, request, *args, **kwargs):
@@ -613,31 +645,23 @@ class UserViewSet(ModelViewSet):
             settings.EMAIL.username_changed_confirmation(self.request, context).send(to)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-    @extend_schema(tags=["auth", "User Management"])
-    @action(["get"], detail=False, authentication_classes=[CustomJWTAuthentication])
+    @action(["get", "post"], detail=False, authentication_classes=[CustomJWTAuthentication])
     def logout(self, request, *args, **kwargs):
+        """
+        POST {"refresh": "..."} revokes that refresh token (this device);
+        POST {"all": true} revokes every session of the user (all devices).
+        GET is the old form: it revokes nothing (kept so existing clients don't break).
+        """
+        if request.method == "POST":
+            if request.data.get("all") in (True, "true", "1", 1):
+                revoke_all_sessions(request.user)
+            elif request.data.get("refresh"):
+                revoke_refresh_token(request.user, request.data["refresh"])
+            else:
+                raise CustomError.BadRequest({"refresh": "Send the refresh token, or all=true."})
         if settings.TOKEN_MODEL:
             settings.TOKEN_MODEL.objects.filter(user=request.user).delete()
-            user_logged_out.send(
-                sender=request.user.__class__,
-                request=request,
-                user=request.user,
-            )
+        user_logged_out.send(sender=request.user.__class__, request=request, user=request.user)
         if settings.CREATE_SESSION_ON_LOGIN:
             logout(request)
-        return Response(status=status.HTTP_204_NO_CONTENT)
-
-    @extend_schema(
-        tags=["auth", "User Management"],
-        # request=UserSerializer.PhoneMetadata,  # noqa: ERA001
-        responses={status.HTTP_204_NO_CONTENT: None},
-    )
-    @action(["POST"], detail=False, authentication_classes=[CustomJWTAuthentication])
-    def metadatas(self, request: Request, *args, **kwargs):
-        serializer = UserSerializer.PhoneMetadata(
-            data=request.data,
-            context=self.get_serializer_context(),
-        )
-        serializer.is_valid(raise_exception=True)
-        serializer.update(request.user, serializer.validated_data)
         return Response(status=status.HTTP_204_NO_CONTENT)

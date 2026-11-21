@@ -25,6 +25,9 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.settings import api_settings
 
 from core.applications.users.models import User
+from core.applications.users.token import ACTIVATION
+from core.applications.users.token import EMAIL_RESET
+from core.applications.users.token import PASSWORD_RESET
 from core.applications.users.token import default_token_generator
 from core.helper.custom_exceptions import CustomError
 from core.helper.interface import BaseModelNoDefs
@@ -121,6 +124,9 @@ class CustomUserSerializer(serializers.ModelSerializer):
             "is_active",
             "email",
         ]
+        # Email changes go through set_email (password check); is_active only through
+        # activation or an admin, never the user's own profile edit.
+        read_only_fields = ["is_active", "email"]
 
 
 class GetUser(serializers.ModelSerializer):
@@ -134,8 +140,9 @@ class GetUser(serializers.ModelSerializer):
             "role",
             "is_active",
         )
+        read_only_fields = ("is_active", "email")
 
-    def get_role(self, obj):
+    def get_role(self, obj) -> str | None:
         membership = (
             obj.memberships.filter(is_active=True)
             .select_related("role")
@@ -146,12 +153,17 @@ class GetUser(serializers.ModelSerializer):
 
 
 class EmailAndTokenSerializer(serializers.Serializer):
+    """
+    Email + emailed 6-digit code. Each subclass checks the code of its own purpose
+    (activation, password reset, email reset), and a code works once.
+    """
+
     email = serializers.EmailField()
     token = serializers.CharField()
+    code_purpose = ACTIVATION
 
     default_error_messages = {
         "invalid_token": "The token may have expired or is invalid.",
-        "invalid_email": "No user found with that email. Create an account or try another email.",  # noqa: E501
     }
 
     def validate(self, attrs):
@@ -161,17 +173,18 @@ class EmailAndTokenSerializer(serializers.Serializer):
         # doesn't work with modelserializer
         try:
             email = self.initial_data.get("email", "")
-            self.user = User.objects.get(email=email)
-        except (User.DoesNotExist, ValueError, TypeError, OverflowError) as e:
-            key_error = "invalid_email"
+            self.user = User.objects.get(email__iexact=email)
+        except (User.DoesNotExist, User.MultipleObjectsReturned, ValueError, TypeError, OverflowError) as e:
+            # Same answer as a wrong code, so this can't be used to find out which emails have accounts.
             raise CustomError.BadRequest(
-                {"email": self.error_messages[key_error]},
-                code=key_error,
+                {"token": self.error_messages["invalid_token"]},
+                code="invalid_token",
             ) from e
 
         is_token_valid = default_token_generator.check_token(
             self.user,
             self.initial_data.get("token", ""),
+            self.code_purpose,
         )
         if is_token_valid:
             return validated_data
@@ -275,6 +288,7 @@ class UidAndTokenSerializer(serializers.Serializer):
         is_token_valid = default_token_generator.check_token(
             self.user,
             self.initial_data.get("token", ""),
+            PASSWORD_RESET,
         )
         if is_token_valid:
             return validated_data
@@ -303,25 +317,25 @@ class ActivationSerializer(EmailAndTokenSerializer):
 
 
 class PasswordResetConfirmSerializer(EmailAndTokenSerializer, PasswordSerializer):
-    pass
+    code_purpose = PASSWORD_RESET
 
 
 class PasswordResetConfirmRetypeSerializer(
     EmailAndTokenSerializer,
     PasswordRetypeSerializer,
 ):
-    pass
+    code_purpose = PASSWORD_RESET
 
 
 class UsernameResetConfirmSerializer(EmailAndTokenSerializer, UsernameSerializer):
-    pass
+    code_purpose = EMAIL_RESET
 
 
 class UsernameResetConfirmRetypeSerializer(
     EmailAndTokenSerializer,
     UsernameRetypeSerializer,
 ):
-    pass
+    code_purpose = EMAIL_RESET
 
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):

@@ -17,3 +17,7 @@ CLOUDINARY_CLOUD_NAME=drfezj4fy
 CLOUDINARY_API_KEY=371953261272249
 CLOUDINARY_API_SECRET=gmSly7hdpw2GqALhAA2GcAU7iiY
 FRONTEND_URL=http://localhost:3000
+
+# Sign in with Google: OAuth "Web application" client id(s) from Google Cloud Console, comma-separated.
+# Not a secret. Leave empty to switch Google sign-in off.
+GOOGLE_OAUTH_CLIENT_IDS=

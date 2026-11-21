@@ -92,6 +92,8 @@ THIRD_PARTY_APPS = [
     "django_celery_beat",
     "rest_framework",
     "rest_framework.authtoken",
+    # Revocable refresh tokens: logout, logout everywhere, password change (users.sessions).
+    "rest_framework_simplejwt.token_blacklist",
     "corsheaders",
     "drf_spectacular",
     "django_countries",
@@ -375,6 +377,12 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_RATES": {
         "invitation_lookup": "30/min",
         "invitation_accept": "10/min",
+        # Per IP. A real person signs in with Google a few times a day at most.
+        "google_login": "20/min",
+        # Per IP. Emailing a 6-digit code (sign-up, resend, forgot password, email reset).
+        "auth_code_send": "5/min",
+        # Per IP. Checking a code or a current password. Codes also die after 5 wrong tries.
+        "auth_code_verify": "10/min",
         # Each checkout creates a provider session; legitimate use is a handful.
         "billing_checkout": "10/min",
         # Per source IP: providers deliver in bursts, forged traffic is refused at
@@ -510,15 +518,25 @@ PERMISSIONS = {
 }
 
 # JSON Web Token authentication
+# Access tokens are short-lived and can't be revoked; refresh tokens are revocable
+# (blacklist) and rotate: every refresh returns a NEW refresh token and the old one
+# stops working, so a stolen refresh token is caught the moment both sides use it.
 SIMPLE_JWT = {
     "AUTH_HEADER_TYPES": ("Bearer",),
-    "ACCESS_TOKEN_LIFETIME": timedelta(days=30),
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=160),
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=env.int("JWT_ACCESS_TOKEN_MINUTES", default=60)),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=env.int("JWT_REFRESH_TOKEN_DAYS", default=30)),
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
     "TOKEN_OBTAIN_SERIALIZER": "core.applications.users.api.serializers.user_serializers.CustomTokenObtainPairSerializer",
 }
 
 
 FRONTEND_URL = env("FRONTEND_URL", default="http://localhost:3000")
+
+# Sign in with Google (POST /api/auth/google/). The OAuth "Web application" client id(s)
+# from Google Cloud Console, comma-separated (e.g. one per environment). Empty = Google
+# sign-in is switched off and the endpoint answers 503 GOOGLE_SIGN_IN_NOT_CONFIGURED.
+GOOGLE_OAUTH_CLIENT_IDS = env.list("GOOGLE_OAUTH_CLIENT_IDS", default=[])
 PROJECT_NAME = "Invoice Management"
 COMPANY_NAME = "Riinox"
 

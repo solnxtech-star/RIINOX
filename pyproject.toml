@@ -233,4 +233,5 @@ dependencies = [
     "cloudinary>=1.46.2",
     "django-cloudinary-storage>=0.3.0",
     "cryptography>=45.0.7",
+    "google-auth>=2.40,<3",
 ]

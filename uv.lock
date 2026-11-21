@@ -1168,6 +1168,19 @@ wheels = [
 ]
 
 [[package]]
+name = "google-auth"
+version = "2.63.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cryptography" },
+    { name = "pyasn1-modules" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/04/0c/d09755ddb3fb67dcba41f35c04ba33377e5bcf73af6c022de33c3241532b/google_auth-2.63.0.tar.gz", hash = "sha256:f198b99dd49e81f96f54abce2c03d4dd28fb7e3c77702eb6ae1c5bf25435054c", size = 406302, upload-time = "2026-11-20T23:24:00.618Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5e/78/1c31250140faba4206c557b2bb16e8b1f1e42202864f0dbe0a8f4bc8dab2/google_auth-2.63.0-py3-none-any.whl", hash = "sha256:cbc065325f67511946d1a66672e4f47e71ed162ef1abd2bb8404ceec407c86ba", size = 270723, upload-time = "2026-11-20T23:23:59.008Z" },
+]
+
+[[package]]
 name = "gunicorn"
 version = "23.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2241,6 +2254,7 @@ dependencies = [
     { name = "fido2" },
     { name = "flower" },
     { name = "geopy" },
+    { name = "google-auth" },
     { name = "gunicorn" },
     { name = "hiredis" },
     { name = "paho-mqtt" },
@@ -2324,6 +2338,7 @@ requires-dist = [
     { name = "fido2", specifier = ">=2.0.0" },
     { name = "flower", specifier = "==2.0.1" },
     { name = "geopy", specifier = "==2.4.1" },
+    { name = "google-auth", specifier = ">=2.40,<3" },
     { name = "gunicorn", specifier = "==23.0.0" },
     { name = "hiredis", specifier = "==3.2.1" },
     { name = "paho-mqtt", specifier = "==2.1.0" },

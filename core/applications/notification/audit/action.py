@@ -4,6 +4,8 @@ class AuditAction:
     ORGANIZATION_UPDATED = "organization.updated"
     ORGANIZATION_DEACTIVATED = "organization.deactivated"
     ORGANIZATION_DELETED = "organization.deleted"
+    AUTH_GOOGLE_SIGNUP = "auth.google_signup"
+    AUTH_GOOGLE_LINKED = "auth.google_linked"
     INVITATION_CREATED = "invitation.created"
     INVITATION_RESENT = "invitation.resent"
     INVITATION_REVOKED = "invitation.revoked"

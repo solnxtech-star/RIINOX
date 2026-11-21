@@ -9,6 +9,9 @@ from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
 from templated_mail.mail import BaseEmailMessage
 
+from core.applications.users.token import ACTIVATION
+from core.applications.users.token import EMAIL_RESET
+from core.applications.users.token import PASSWORD_RESET
 from core.applications.users.token import default_token_generator
 
 if TYPE_CHECKING:
@@ -36,10 +39,12 @@ class ActivationEmail(BaseEmailMessage):
     """Also the base of the reset emails: it adds the account `token` to the context."""
 
     template_name = "email/activation.html"
+    # Which one-time code this email carries; each purpose has its own live code.
+    code_purpose = ACTIVATION
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context["token"] = default_token_generator.make_token(context.get("user"))
+        context["token"] = default_token_generator.make_token(context.get("user"), self.code_purpose)
         return context
 
 
@@ -49,6 +54,7 @@ class ConfirmationEmail(BaseEmailMessage):
 
 class PasswordResetEmail(ActivationEmail):
     template_name = "email/password_reset.html"
+    code_purpose = PASSWORD_RESET
 
 
 class PasswordChangedConfirmationEmail(BaseEmailMessage):
@@ -63,6 +69,7 @@ class UsernameResetEmail(ActivationEmail):
     # The token comes from ActivationEmail.get_context_data; the override this
     # class used to carry was an exact copy of it.
     template_name = "email/username_reset.html"
+    code_purpose = EMAIL_RESET
 
 
 # --------------------------------------------------------------------------- #
